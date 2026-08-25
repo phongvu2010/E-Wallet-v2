@@ -1,6 +1,6 @@
 -- ====================================================================
 -- CREDIT WALLET 2.0 - DATABASE INITIALIZATION SCHEMA
--- PostgreSQL 16+
+-- PostgreSQL 16+ (Docker & Supabase Ready)
 -- ====================================================================
 
 -- Enable UUID & Trigram Extensions
@@ -50,6 +50,7 @@ CREATE TABLE institutions (
 -- ====================================================================
 CREATE TABLE accounts (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID, -- Sẵn sàng cho Supabase auth.users(id) / Multi-tenant
     institution_id UUID REFERENCES institutions(id) ON DELETE RESTRICT,
     account_name VARCHAR(100) NOT NULL, -- "Shinhan Hi-Point Gold", "HSBC Cash Back"
     account_type account_type_enum NOT NULL DEFAULT 'CREDIT_CARD',
@@ -66,6 +67,7 @@ CREATE TABLE accounts (
     closed_date DATE, -- Ngày đóng/hủy thẻ (khi được thay thế bởi thẻ mới)
 
     color_hex VARCHAR(7) DEFAULT '#3b82f6',
+    note TEXT,
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
@@ -76,13 +78,14 @@ CREATE TABLE accounts (
 CREATE TABLE categories (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     parent_id UUID REFERENCES categories(id) ON DELETE CASCADE,
+    user_id UUID, -- NULL nếu là danh mục mặc định của hệ thống (is_system = TRUE), có giá trị nếu do user tự tạo
     name VARCHAR(100) NOT NULL, -- "Nhà hàng & F&B", "Dịch vụ số & Ứng dụng"
     category_type category_type_enum NOT NULL DEFAULT 'EXPENSE',
     icon VARCHAR(50),
     color VARCHAR(20),
     is_system BOOLEAN DEFAULT FALSE, -- Danh mục mặc định của hệ thống
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT uq_category_parent_name UNIQUE NULLS NOT DISTINCT (parent_id, name)
+    CONSTRAINT uq_category_parent_name_user UNIQUE NULLS NOT DISTINCT (parent_id, name, user_id)
 );
 
 -- ====================================================================
@@ -110,6 +113,7 @@ CREATE TABLE merchant_aliases (
 -- ====================================================================
 CREATE TABLE statements (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID, -- Sẵn sàng cho Supabase auth.users(id) / Multi-tenant
     account_id UUID NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
     statement_date DATE NOT NULL, -- Ngày lập sao kê (VD: 2026-08-17)
     start_date DATE NOT NULL, -- Ngày bắt đầu chu kỳ
@@ -139,47 +143,97 @@ CREATE TABLE statements (
 -- ====================================================================
 CREATE TABLE transactions (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID, -- Sẵn sàng cho Supabase auth.users(id) / Multi-tenant
     account_id UUID NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
     statement_id UUID REFERENCES statements(id) ON DELETE SET NULL, -- Kỳ sao kê chứa giao dịch này
 
-    -- Liên kết Trả góp & Chuyển tiền liên tài khoản
+    -- Liên kết Trả góp, Chuyển tiền & Kỳ sao kê được thanh toán
     installment_plan_id UUID, -- Sẽ gắn foreign key tới installment_plans(id) ở mục 7
     transfer_to_account_id UUID REFERENCES accounts(id) ON DELETE SET NULL, -- Tài khoản đích nếu là giao dịch thanh toán/nạp tiền
+    settles_statement_id UUID REFERENCES statements(id) ON DELETE SET NULL, -- Kỳ sao kê được thanh toán bởi giao dịch REPAYMENT này
 
     transaction_date DATE NOT NULL, -- Ngày quẹt thẻ / giao dịch
     post_date DATE, -- Ngày hệ thống ghi nợ (Post date)
 
-    raw_description VARCHAR(255) NOT NULL, -- Chuỗi gốc từ sao kê: "STARBUCKS SU VAN HANH"
+    raw_description VARCHAR(500) NOT NULL, -- Chuỗi gốc từ sao kê: "STARBUCKS SU VAN HANH"
     merchant_id UUID REFERENCES merchants(id) ON DELETE SET NULL,
     category_id UUID REFERENCES categories(id) ON DELETE SET NULL,
     transaction_type transaction_type_enum NOT NULL DEFAULT 'PURCHASE',
 
-    -- Số tiền giao dịch (VND)
+    -- Hỗ trợ Giao dịch Ngoại tệ & Đa tiền tệ (Foreign Currency)
+    original_amount DECIMAL(15, 2), -- Số tiền nguyên tệ (VD: 15.99 USD, 1500 JPY)
+    original_currency VARCHAR(3) DEFAULT 'VND', -- Đơn vị tiền tệ gốc (VND, USD, EUR, SGD, JPY...)
+    exchange_rate DECIMAL(18, 6) DEFAULT 1.0000, -- Tỷ giá quy đổi tại ngày hạch toán (VD: 25450.0000)
+    foreign_fee DECIMAL(15, 2) DEFAULT 0.00, -- Phí xử lý giao dịch ngoại tệ (VND)
+
+    -- Số tiền giao dịch quy đổi (VND)
     -- Quy ước dấu tiền tệ (Sign Convention):
     --   (+) Mang dấu Dương đối với khoản nợ / chi tiêu: PURCHASE, FEE, INTEREST, INSTALLMENT_MONTHLY, CASH_ADVANCE, ADJUSTMENT, TRANSFER
     --   (-) Mang dấu Âm đối với khoản ghi có / giảm nợ: REPAYMENT, REFUND, CASHBACK_CREDIT, INSTALLMENT_PRINCIPAL
-    amount DECIMAL(15, 2) NOT NULL, -- Số tiền gốc (VND)
+    amount DECIMAL(15, 2) NOT NULL, -- Số tiền gốc quy đổi (VND)
     fee DECIMAL(15, 2) DEFAULT 0.00, -- Phí đi kèm (VND)
     total_amount DECIMAL(15, 2) NOT NULL, -- amount + fee (mang dấu tương ứng với loại giao dịch)
 
     note TEXT, -- Ghi chú cá nhân
     is_installment BOOLEAN DEFAULT FALSE,
+    tx_fingerprint VARCHAR(64) UNIQUE, -- SHA-256 fingerprint chống trùng lặp giao dịch (Idempotency)
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT chk_transactions_sign_convention CHECK (
         (transaction_type IN ('REPAYMENT', 'REFUND', 'CASHBACK_CREDIT', 'INSTALLMENT_PRINCIPAL') AND total_amount <= 0)
         OR
-        (transaction_type IN ('PURCHASE', 'INSTALLMENT_MONTHLY', 'FEE', 'INTEREST', 'CASH_ADVANCE', 'TRANSFER') AND total_amount >= 0)
+        (transaction_type IN ('PURCHASE', 'INSTALLMENT_MONTHLY', 'INTEREST', 'CASH_ADVANCE', 'TRANSFER') AND total_amount >= 0)
         OR
-        (transaction_type = 'ADJUSTMENT') -- Cho phép cả âm và dương
+        (transaction_type IN ('ADJUSTMENT', 'FEE')) -- Cho phép FEE mang dấu âm khi hoàn phí
     )
 );
+
+-- Trigger Function tự động sinh SHA-256 Fingerprint cho giao dịch nếu chưa được cung cấp
+CREATE OR REPLACE FUNCTION fn_generate_tx_fingerprint()
+RETURNS TRIGGER AS $$
+DECLARE
+    v_occ_idx INT;
+BEGIN
+    IF NEW.tx_fingerprint IS NULL OR NEW.tx_fingerprint = '' THEN
+        -- Đếm xem trước đó trong cùng ngày đã có bao nhiêu giao dịch giống hệt như thế này
+        SELECT COUNT(*) + 1 INTO v_occ_idx
+        FROM transactions
+        WHERE account_id = NEW.account_id
+          AND transaction_date = NEW.transaction_date
+          AND raw_description = NEW.raw_description
+          AND total_amount = NEW.total_amount;
+
+        -- Sinh SHA-256 fingerprint với đúng chỉ số xuất hiện thực tế (1, 2, 3...)
+        NEW.tx_fingerprint := encode(
+            digest(
+                NEW.account_id::text || '|' ||
+                NEW.transaction_date::text || '|' ||
+                COALESCE(NEW.post_date::text, '') || '|' ||
+                NEW.raw_description || '|' ||
+                NEW.total_amount::text || '|' ||
+                COALESCE(NEW.original_amount::text, '') || '|' ||
+                COALESCE(NEW.original_currency, 'VND') || '|' ||
+                v_occ_idx::text,
+                'sha256'
+            ),
+            'hex'
+        );
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_generate_tx_fingerprint
+BEFORE INSERT ON transactions
+FOR EACH ROW
+EXECUTE FUNCTION fn_generate_tx_fingerprint();
 
 -- ====================================================================
 -- 7. INSTALLMENT PLANS & SCHEDULES (TRẢ GÓP)
 -- ====================================================================
 CREATE TABLE installment_plans (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID, -- Sẵn sàng cho Supabase auth.users(id) / Multi-tenant
     account_id UUID NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
     origin_transaction_id UUID REFERENCES transactions(id) ON DELETE SET NULL, -- Giao dịch gốc được chuyển đổi sang trả góp
     product_name VARCHAR(150) NOT NULL, -- "Máy in 3D Qidi Q2 Combo", "iPhone 14 Pro"
@@ -201,8 +255,8 @@ CREATE TABLE installment_plans (
 );
 
 -- Bổ sung Khóa ngoại từ transactions trỏ sang installment_plans (Liên kết 2 chiều an toàn)
-ALTER TABLE transactions 
-    ADD CONSTRAINT fk_transactions_installment_plan 
+ALTER TABLE transactions
+    ADD CONSTRAINT fk_transactions_installment_plan
     FOREIGN KEY (installment_plan_id) REFERENCES installment_plans(id) ON DELETE SET NULL;
 
 -- Chi tiết lịch từng kỳ trả góp
@@ -253,6 +307,7 @@ BEGIN
             status = CASE
                 WHEN v_current_status IN ('CANCELLED', 'EARLY_SETTLED') THEN v_current_status
                 WHEN v_new_remaining <= 0.00 THEN 'COMPLETED'::installment_status_enum
+                WHEN v_new_remaining > 0.00 AND v_current_status = 'COMPLETED' THEN 'ACTIVE'::installment_status_enum
                 ELSE status
             END
         WHERE id = v_plan_id;
@@ -372,6 +427,7 @@ $$ LANGUAGE plpgsql;
 -- ====================================================================
 CREATE TABLE reward_ledgers (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID, -- Sẵn sàng cho Supabase auth.users(id) / Multi-tenant
     account_id UUID NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
     statement_id UUID REFERENCES statements(id) ON DELETE CASCADE,
     reward_type reward_type_enum NOT NULL DEFAULT 'POINT',
@@ -391,6 +447,15 @@ CREATE TABLE reward_ledgers (
 -- ====================================================================
 -- 9. INDEXES
 -- ====================================================================
+-- Index hỗ trợ Multi-tenancy & lọc theo user
+CREATE INDEX idx_accounts_user ON accounts(user_id);
+CREATE INDEX idx_categories_user ON categories(user_id);
+CREATE INDEX idx_statements_user ON statements(user_id);
+CREATE INDEX idx_transactions_user ON transactions(user_id);
+CREATE INDEX idx_installment_plans_user ON installment_plans(user_id);
+CREATE INDEX idx_reward_ledgers_user ON reward_ledgers(user_id);
+
+-- Index hỗ trợ nghiệp vụ & liên kết bảng
 CREATE INDEX idx_accounts_replaces ON accounts(replaces_account_id);
 CREATE INDEX idx_merchant_aliases_merchant ON merchant_aliases(merchant_id);
 CREATE INDEX idx_tx_account_date ON transactions(account_id, transaction_date DESC);
@@ -399,6 +464,8 @@ CREATE INDEX idx_tx_category ON transactions(category_id);
 CREATE INDEX idx_tx_merchant ON transactions(merchant_id);
 CREATE INDEX idx_tx_type ON transactions(transaction_type);
 CREATE INDEX idx_tx_installment_plan ON transactions(installment_plan_id);
+CREATE INDEX idx_tx_settles_statement ON transactions(settles_statement_id);
+CREATE INDEX idx_tx_original_currency ON transactions(original_currency);
 CREATE INDEX idx_tx_account_statement ON transactions(account_id, statement_id);
 CREATE INDEX idx_statements_account_date ON statements(account_id, statement_date DESC);
 CREATE INDEX idx_installment_account_status ON installment_plans(account_id, status);
@@ -409,11 +476,11 @@ CREATE INDEX idx_tx_raw_desc_trgm ON transactions USING gin (raw_description gin
 CREATE INDEX idx_merchant_aliases_pattern_trgm ON merchant_aliases USING gin (pattern gin_trgm_ops);
 
 -- ====================================================================
--- 10. ANALYTIC VIEWS
+-- 10. ANALYTIC VIEWS (BÁO CÁO & ĐỐI SOÁT TÀI CHÍNH)
 -- ====================================================================
--- View 1: Thống kê chi tiêu theo tháng và danh mục (Bao gồm cả Hoàn tiền / Hủy giao dịch để bù trừ chính xác)
+-- View 1: Thống kê chi tiêu theo tháng và danh mục (Tự động bù trừ Hoàn tiền / Hủy giao dịch)
 CREATE OR REPLACE VIEW v_monthly_category_spending AS
-SELECT 
+SELECT
     DATE_TRUNC('month', t.transaction_date)::DATE AS month,
     COALESCE(c.name, 'Chưa phân loại') AS category_name,
     COALESCE(parent_c.name, 'Chưa phân loại') AS parent_category_name,
@@ -435,9 +502,9 @@ WHERE t.transaction_type IN (
 GROUP BY 1, 2, 3
 ORDER BY 1 DESC, total_spending DESC;
 
--- View 2: Tổng quan tài khoản và tình trạng thẻ (Bao gồm chi tiết thẻ cấp đổi thay thế)
+-- View 2: Tổng quan tài khoản và tình trạng thẻ
 CREATE OR REPLACE VIEW v_account_overview AS
-SELECT 
+SELECT
     a.id AS account_id,
     a.account_name,
     i.name AS bank_name,
@@ -461,7 +528,7 @@ LEFT JOIN LATERAL (
 
 -- View 3: Báo cáo đối soát dư nợ sao kê với tổng số tiền giao dịch thực tế
 CREATE OR REPLACE VIEW v_statement_reconciliation AS
-SELECT 
+SELECT
     s.id AS statement_id,
     a.account_name,
     a.card_number_masked,
@@ -475,7 +542,7 @@ SELECT
     COALESCE(SUM(t.total_amount), 0) AS net_period_transactions,
     (s.previous_balance + COALESCE(SUM(t.total_amount), 0)) AS expected_statement_balance,
     (s.statement_balance - (s.previous_balance + COALESCE(SUM(t.total_amount), 0))) AS discrepancy,
-    CASE 
+    CASE
         WHEN ABS(s.statement_balance - (s.previous_balance + COALESCE(SUM(t.total_amount), 0))) < 0.01 THEN 'MATCHED'
         ELSE 'DISCREPANCY'
     END AS reconciliation_status
@@ -484,3 +551,332 @@ JOIN accounts a ON s.account_id = a.id
 LEFT JOIN transactions t ON t.statement_id = s.id
 GROUP BY s.id, a.account_name, a.card_number_masked, s.statement_date, s.previous_balance,
          s.purchases_amount, s.installments_amount, s.fees_and_charges, s.payments_received, s.statement_balance;
+
+-- View 4: Theo dõi Tiến độ Thanh toán Sao kê (Payment Settlement Tracking)
+CREATE OR REPLACE VIEW v_statement_payment_status AS
+WITH statement_windows AS (
+    SELECT
+        s.id AS statement_id,
+        s.account_id,
+        s.statement_date,
+        s.payment_due_date,
+        s.statement_balance AS billed_amount,
+        s.minimum_payment,
+        -- Ngày bắt đầu nhận thanh toán: ngay sau ngày chốt sao kê
+        s.statement_date AS payment_window_start,
+        -- Ngày kết thúc nhận thanh toán: ngày chốt sao kê tiếp theo (nếu có) hoặc hạn thanh toán + 10 ngày
+        COALESCE(
+            LEAD(s.statement_date) OVER (PARTITION BY s.account_id ORDER BY s.statement_date ASC),
+            s.payment_due_date + INTERVAL '10 days'
+        ) AS payment_window_end
+    FROM statements s
+),
+repayment_allocations AS (
+    SELECT
+        sw.statement_id,
+        COALESCE(ABS(SUM(t.total_amount)), 0.00) AS total_paid_amount
+    FROM statement_windows sw
+    LEFT JOIN transactions t ON t.account_id = sw.account_id
+        AND t.transaction_type = 'REPAYMENT'
+        AND (
+            -- 1. Ưu tiên khớp chính xác theo khóa ngoại settles_statement_id nếu có
+            t.settles_statement_id = sw.statement_id
+            OR
+            -- 2. Fallback: Khớp theo khoảng thời gian thanh toán nợ của kỳ sao kê (nếu chưa gán settles_statement_id)
+            (t.settles_statement_id IS NULL 
+             AND t.transaction_date > sw.payment_window_start 
+             AND t.transaction_date <= sw.payment_window_end)
+        )
+    GROUP BY sw.statement_id
+)
+SELECT
+    s.id AS statement_id,
+    a.id AS account_id,
+    a.account_name,
+    a.card_number_masked,
+    s.statement_date,
+    s.payment_due_date,
+    s.statement_balance AS billed_amount,
+    s.minimum_payment,
+    -- Tổng số tiền đã thanh toán vào kỳ sao kê này
+    COALESCE(ra.total_paid_amount, 0.00) AS total_paid_amount,
+    -- Số tiền còn lại cần phải thanh toán
+    GREATEST(0.00, s.statement_balance - COALESCE(ra.total_paid_amount, 0.00)) AS remaining_balance_to_pay,
+    -- Trạng thái thanh toán động
+    CASE
+        WHEN s.statement_balance <= 0.00 THEN 'PAID'
+        WHEN COALESCE(ra.total_paid_amount, 0.00) >= s.statement_balance THEN 'PAID'
+        WHEN COALESCE(ra.total_paid_amount, 0.00) > 0.00 THEN 'PARTIALLY_PAID'
+        WHEN CURRENT_DATE > s.payment_due_date THEN 'OVERDUE'
+        ELSE 'BILLED'
+    END AS payment_status,
+    (s.payment_due_date - CURRENT_DATE) AS days_until_due
+FROM statements s
+JOIN accounts a ON s.account_id = a.id
+LEFT JOIN repayment_allocations ra ON ra.statement_id = s.id;
+
+-- View 5: Tỷ lệ Sử dụng Hạn mức Tín dụng & Đánh giá Rủi ro (Credit Utilization)
+CREATE OR REPLACE VIEW v_credit_utilization AS
+SELECT
+    a.id AS account_id,
+    a.account_name,
+    i.short_name AS bank_name,
+    a.card_number_masked,
+    a.credit_limit,
+    COALESCE(latest_s.statement_balance, 0.00) AS current_balance,
+    GREATEST(0.00, a.credit_limit - COALESCE(latest_s.statement_balance, 0.00)) AS available_limit,
+    CASE
+        WHEN a.credit_limit > 0 THEN
+            ROUND((COALESCE(latest_s.statement_balance, 0.00) / a.credit_limit) * 100.0, 2)
+        ELSE 0.00
+    END AS utilization_percentage,
+    CASE
+        WHEN a.credit_limit = 0 THEN 'NO_LIMIT'
+        WHEN (COALESCE(latest_s.statement_balance, 0.00) / a.credit_limit) > 0.70 THEN 'CRITICAL (>70%)'
+        WHEN (COALESCE(latest_s.statement_balance, 0.00) / a.credit_limit) > 0.50 THEN 'HIGH (>50%)'
+        WHEN (COALESCE(latest_s.statement_balance, 0.00) / a.credit_limit) > 0.30 THEN 'MODERATE (>30%)'
+        ELSE 'OPTIMAL (<30%)'
+    END AS risk_level
+FROM accounts a
+JOIN institutions i ON a.institution_id = i.id
+LEFT JOIN LATERAL (
+    SELECT statement_balance
+    FROM statements s
+    WHERE s.account_id = a.id
+    ORDER BY s.statement_date DESC
+    LIMIT 1
+) latest_s ON TRUE
+WHERE a.status = 'ACTIVE';
+
+-- View 6: Lịch Nhắc Thanh toán & Dòng tiền Sắp Đến Hạn (Upcoming Obligations)
+CREATE OR REPLACE VIEW v_upcoming_payment_obligations AS
+SELECT
+    'STATEMENT' AS obligation_type,
+    s.id AS reference_id,
+    a.account_name,
+    a.card_number_masked,
+    s.payment_due_date AS due_date,
+    (s.payment_due_date - CURRENT_DATE) AS days_remaining,
+    s.statement_balance AS total_amount_due,
+    s.minimum_payment AS minimum_amount_due,
+    s.status::text AS payment_status
+FROM statements s
+JOIN accounts a ON s.account_id = a.id
+WHERE s.payment_due_date >= CURRENT_DATE
+  AND s.status IN ('BILLED', 'PARTIALLY_PAID', 'OVERDUE')
+
+UNION ALL
+
+SELECT
+    'INSTALLMENT' AS obligation_type,
+    sch.id AS reference_id,
+    a.account_name,
+    a.card_number_masked || ' (' || p.product_name || ' ' || sch.installment_index || '/' || sch.total_installments || ')',
+    sch.due_date AS due_date,
+    (sch.due_date - CURRENT_DATE) AS days_remaining,
+    sch.total_installment_amount AS total_amount_due,
+    sch.total_installment_amount AS minimum_amount_due,
+    CASE WHEN sch.is_billed THEN 'BILLED' ELSE 'SCHEDULED' END AS payment_status
+FROM installment_schedules sch
+JOIN installment_plans p ON sch.installment_plan_id = p.id
+JOIN accounts a ON p.account_id = a.id
+WHERE sch.due_date >= CURRENT_DATE
+  AND sch.is_billed = FALSE
+  AND p.status = 'ACTIVE'
+ORDER BY due_date ASC;
+
+-- View 7: Dự phóng Dư nợ Trả góp Hàng tháng trong Tương lai (Installment Forecast)
+CREATE OR REPLACE VIEW v_installment_monthly_forecast AS
+SELECT
+    TO_CHAR(sch.due_date, 'YYYY-MM') AS billing_month,
+    COUNT(DISTINCT sch.installment_plan_id) AS active_plans_count,
+    SUM(sch.principal_amount) AS total_principal_due,
+    SUM(sch.interest_amount) AS total_interest_due,
+    SUM(sch.total_installment_amount) AS total_monthly_payment
+FROM installment_schedules sch
+JOIN installment_plans p ON sch.installment_plan_id = p.id
+WHERE p.status = 'ACTIVE' AND sch.is_billed = FALSE
+GROUP BY TO_CHAR(sch.due_date, 'YYYY-MM')
+ORDER BY billing_month ASC;
+
+-- View 8: Dư nợ Thực tế Tức thời & Hạn mức Khả dụng (Real-time Live Balance & Available Limit)
+CREATE OR REPLACE VIEW v_account_live_balance AS
+WITH latest_statement_per_account AS (
+    SELECT DISTINCT ON (s.account_id)
+        s.account_id,
+        s.id AS latest_statement_id,
+        s.statement_date AS latest_statement_date,
+        s.statement_balance AS latest_statement_balance,
+        s.payment_due_date AS next_payment_due_date
+    FROM statements s
+    ORDER BY s.account_id, s.statement_date DESC
+),
+unbilled_transactions_summary AS (
+    SELECT
+        a.id AS account_id,
+        -- Tổng chi tiêu, phí, lãi chưa lên sao kê (mang dấu dương)
+        COALESCE(SUM(CASE
+            WHEN t.total_amount > 0 THEN t.total_amount
+            ELSE 0
+        END), 0.00) AS unbilled_charges,
+        -- Tổng thanh toán, hoàn tiền chưa lên sao kê (lấy trị tuyệt đối)
+        COALESCE(SUM(CASE
+            WHEN t.total_amount < 0 THEN ABS(t.total_amount)
+            ELSE 0
+        END), 0.00) AS unbilled_credits,
+        -- Chênh lệch ròng chưa lên sao kê
+        COALESCE(SUM(t.total_amount), 0.00) AS unbilled_net_amount,
+        COUNT(t.id) AS unbilled_transaction_count
+    FROM accounts a
+    LEFT JOIN latest_statement_per_account ls ON a.id = ls.account_id
+    LEFT JOIN transactions t ON t.account_id = a.id
+        AND (
+            -- Giao dịch chưa được gắn vào bất kỳ sao kê nào
+            t.statement_id IS NULL
+            OR
+            -- Hoặc giao dịch phát sinh sau ngày chốt sao kê gần nhất
+            (ls.latest_statement_date IS NOT NULL AND t.transaction_date > ls.latest_statement_date)
+        )
+    GROUP BY a.id
+)
+SELECT
+    a.id AS account_id,
+    a.account_name,
+    i.short_name AS bank_name,
+    a.card_number_masked,
+    a.credit_limit,
+    COALESCE(ls.latest_statement_date, a.opened_date) AS latest_statement_date,
+    COALESCE(ls.latest_statement_balance, 0.00) AS latest_statement_balance,
+    uts.unbilled_charges,
+    uts.unbilled_credits,
+    uts.unbilled_net_amount,
+    uts.unbilled_transaction_count,
+    -- Dư nợ thực tế tức thời (Live Current Balance)
+    GREATEST(0.00, COALESCE(ls.latest_statement_balance, 0.00) + uts.unbilled_net_amount) AS live_current_balance,
+    -- Hạn mức khả dụng thực tế tức thời (Live Available Limit)
+    GREATEST(0.00, a.credit_limit - GREATEST(0.00, COALESCE(ls.latest_statement_balance, 0.00) + uts.unbilled_net_amount)) AS live_available_limit,
+    -- Tỷ lệ sử dụng hạn mức tức thời (Live Utilization Percentage)
+    CASE
+        WHEN a.credit_limit > 0 THEN
+            ROUND((GREATEST(0.00, COALESCE(ls.latest_statement_balance, 0.00) + uts.unbilled_net_amount) / a.credit_limit) * 100.0, 2)
+        ELSE 0.00
+    END AS live_utilization_percentage,
+    -- Phân loại mức độ rủi ro tức thời
+    CASE
+        WHEN a.credit_limit = 0 THEN 'NO_LIMIT'
+        WHEN (GREATEST(0.00, COALESCE(ls.latest_statement_balance, 0.00) + uts.unbilled_net_amount) / a.credit_limit) > 0.70 THEN 'CRITICAL (>70%)'
+        WHEN (GREATEST(0.00, COALESCE(ls.latest_statement_balance, 0.00) + uts.unbilled_net_amount) / a.credit_limit) > 0.50 THEN 'HIGH (>50%)'
+        WHEN (GREATEST(0.00, COALESCE(ls.latest_statement_balance, 0.00) + uts.unbilled_net_amount) / a.credit_limit) > 0.30 THEN 'MODERATE (>30%)'
+        ELSE 'OPTIMAL (<30%)'
+    END AS live_risk_level,
+    ls.next_payment_due_date,
+    a.status
+FROM accounts a
+JOIN institutions i ON a.institution_id = i.id
+LEFT JOIN latest_statement_per_account ls ON a.id = ls.account_id
+LEFT JOIN unbilled_transactions_summary uts ON a.id = uts.account_id
+ORDER BY a.status ASC, live_current_balance DESC;
+
+-- ====================================================================
+-- 11. SUPABASE INTEGRATION & ROW LEVEL SECURITY (RLS) POLICIES
+-- ====================================================================
+-- Ghi chú dành cho môi trường phát triển:
+-- 1. Khi chạy trên Docker PostgreSQL cục bộ (Local Development), các bảng
+--    đã có sẵn cột `user_id UUID` và index tương ứng.
+-- 2. Khi bạn triển khai dự án này lên Supabase (Cloud Production), hãy bỏ
+--    comment toàn bộ khối lệnh bên dưới để kích hoạt liên kết auth.users(id)
+--    và hệ thống phân quyền Row Level Security (RLS) bảo mật đa người dùng.
+-- ====================================================================
+/*
+-- A. Gắn khóa ngoại tới bảng auth.users(id) của Supabase
+ALTER TABLE accounts
+    ADD CONSTRAINT fk_accounts_user FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE;
+
+ALTER TABLE categories
+    ADD CONSTRAINT fk_categories_user FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE;
+
+ALTER TABLE statements
+    ADD CONSTRAINT fk_statements_user FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE;
+
+ALTER TABLE transactions
+    ADD CONSTRAINT fk_transactions_user FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE;
+
+ALTER TABLE installment_plans
+    ADD CONSTRAINT fk_installment_plans_user FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE;
+
+ALTER TABLE reward_ledgers
+    ADD CONSTRAINT fk_reward_ledgers_user FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE;
+
+-- B. Kích hoạt Row Level Security (RLS) trên từng bảng
+ALTER TABLE accounts ENABLE ROW LEVEL SECURITY;
+ALTER TABLE categories ENABLE ROW LEVEL SECURITY;
+ALTER TABLE statements ENABLE ROW LEVEL SECURITY;
+ALTER TABLE transactions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE installment_plans ENABLE ROW LEVEL SECURITY;
+ALTER TABLE installment_schedules ENABLE ROW LEVEL SECURITY;
+ALTER TABLE reward_ledgers ENABLE ROW LEVEL SECURITY;
+ALTER TABLE institutions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE merchants ENABLE ROW LEVEL SECURITY;
+ALTER TABLE merchant_aliases ENABLE ROW LEVEL SECURITY;
+
+-- C. Chính sách RLS cho danh mục chung (Public read cho institutions & merchants)
+CREATE POLICY "Allow public read on institutions"
+    ON institutions FOR SELECT USING (true);
+
+CREATE POLICY "Allow public read on merchants"
+    ON merchants FOR SELECT USING (true);
+
+CREATE POLICY "Allow public read on merchant_aliases"
+    ON merchant_aliases FOR SELECT USING (true);
+
+-- D. Chính sách RLS cho Categories (Xem danh mục hệ thống + Danh mục riêng của user)
+CREATE POLICY "Users can read system and own categories"
+    ON categories FOR SELECT
+    USING (is_system = TRUE OR auth.uid() = user_id);
+
+CREATE POLICY "Users can insert own categories"
+    ON categories FOR INSERT
+    WITH CHECK (auth.uid() = user_id AND is_system = FALSE);
+
+CREATE POLICY "Users can update own categories"
+    ON categories FOR UPDATE
+    USING (auth.uid() = user_id AND is_system = FALSE);
+
+CREATE POLICY "Users can delete own categories"
+    ON categories FOR DELETE
+    USING (auth.uid() = user_id AND is_system = FALSE);
+
+-- E. Chính sách RLS độc quyền dữ liệu người dùng (Accounts, Statements, Transactions...)
+CREATE POLICY "Users can manage own accounts"
+    ON accounts FOR ALL
+    USING (auth.uid() = user_id)
+    WITH CHECK (auth.uid() = user_id);
+
+CREATE POLICY "Users can manage own statements"
+    ON statements FOR ALL
+    USING (auth.uid() = user_id)
+    WITH CHECK (auth.uid() = user_id);
+
+CREATE POLICY "Users can manage own transactions"
+    ON transactions FOR ALL
+    USING (auth.uid() = user_id)
+    WITH CHECK (auth.uid() = user_id);
+
+CREATE POLICY "Users can manage own installment plans"
+    ON installment_plans FOR ALL
+    USING (auth.uid() = user_id)
+    WITH CHECK (auth.uid() = user_id);
+
+CREATE POLICY "Users can manage own installment schedules"
+    ON installment_schedules FOR ALL
+    USING (EXISTS (
+        SELECT 1 FROM installment_plans p
+        WHERE p.id = installment_schedules.installment_plan_id
+          AND p.user_id = auth.uid()
+    ));
+
+CREATE POLICY "Users can manage own reward ledgers"
+    ON reward_ledgers FOR ALL
+    USING (auth.uid() = user_id)
+    WITH CHECK (auth.uid() = user_id);
+*/

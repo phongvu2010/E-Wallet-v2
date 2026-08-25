@@ -1,4 +1,4 @@
-import openpyxl, os, datetime, re, warnings
+import openpyxl, os, datetime, re, warnings, hashlib
 from pathlib import Path
 import pandas as pd
 import psycopg2
@@ -90,6 +90,13 @@ def parse_date(s):
             pass
 
     return None
+
+
+def calculate_tx_fingerprint(
+    acc_id, t_date, p_date, raw_desc, total_amt, orig_amt, orig_curr, occurrence_index=1
+):
+    payload = f"{acc_id}|{t_date}|{p_date or ''}|{raw_desc}|{total_amt:.2f}|{orig_amt:.2f}|{orig_curr}|{occurrence_index}"
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
 conn = psycopg2.connect(DB_URL)
@@ -309,8 +316,10 @@ try:
         f"Migrated {len(statement_id_map)} Statements and updated start_date & previous_balance history."
     )
 
-    # 6. Migrate Transactions (With Enforced Sign Conventions)
+    # 6. Migrate Transactions (With Fingerprint Deduplication & Enforced Sign Conventions)
     tx_count = 0
+    seen_tx_counts = {}
+
     for _, row in df_transactions.iterrows():
         acc_num = str(row["Account Number"]).strip()
         acc_id = account_id_map.get(acc_num)
@@ -341,6 +350,10 @@ try:
                 cat_id = cat_map.get("Dịch vụ số & Ứng dụng")
             else:
                 cat_id = cat_map.get("Chi tiêu khác")
+
+        # Fallback raw_description if missing (e.g. Repayment / Income transactions)
+        if not raw_desc:
+            raw_desc = cat_det or merch_name or "Giao dịch thẻ"
 
         cat_str = str(row["Category"]).strip()
         tx_type = "PURCHASE"
@@ -380,41 +393,96 @@ try:
             total_amt = abs(total_amt)
             amt = abs(amt)
 
-        note = str(row["Note"]).strip() if not pd.isna(row["Note"]) else None
+        # Foreign Currency Handling (Hỗ trợ Đa tiền tệ & Ngoại tệ)
+        orig_amt = (
+            clean_num(row["Original Amount"], amt)
+            if "Original Amount" in row and not pd.isna(row["Original Amount"])
+            else amt
+        )
+        orig_curr = (
+            str(row["Original Currency"]).strip().upper()
+            if "Original Currency" in row and not pd.isna(row["Original Currency"])
+            else ("USD" if raw_desc and "USD" in raw_desc.upper() else "VND")
+        )
+        ex_rate = (
+            clean_num(row["Exchange Rate"], 1.0)
+            if "Exchange Rate" in row and not pd.isna(row["Exchange Rate"])
+            else (round(abs(amt) / abs(orig_amt), 4) if orig_amt != 0 and orig_curr != "VND" else 1.0)
+        )
+        for_fee = (
+            clean_num(row["Foreign Fee"], fee if orig_curr != "VND" else 0.0)
+            if "Foreign Fee" in row and not pd.isna(row["Foreign Fee"])
+            else (fee if orig_curr != "VND" else 0.0)
+        )
 
-        if not raw_desc:
-            if tx_type == "REPAYMENT":
-                raw_desc = "Thanh toán thẻ / Payment"
-            else:
-                raw_desc = merch_name or "Giao dịch thẻ"
+        note = (
+            str(row["Note"]).strip()
+            if "Note" in row and not pd.isna(row["Note"])
+            else None
+        )
+
+        # Occurrence Index & Fingerprint Deduplication
+        tx_key = (acc_id, t_date, p_date, raw_desc, total_amt, orig_amt, orig_curr)
+        seen_tx_counts[tx_key] = seen_tx_counts.get(tx_key, 0) + 1
+        occ_idx = seen_tx_counts[tx_key]
+
+        tx_fp = calculate_tx_fingerprint(
+            acc_id, t_date, p_date, raw_desc, total_amt, orig_amt, orig_curr, occ_idx
+        )
+
+        # Mapping settles_statement_id for REPAYMENT transactions
+        settles_stmt_id = None
+        if tx_type == "REPAYMENT":
+            preceding_stmts = [
+                (s_dt, s_id)
+                for (a_n, s_dt), s_id in statement_id_map.items()
+                if a_n == acc_num and s_dt < t_date
+            ]
+            if preceding_stmts:
+                preceding_stmts.sort(key=lambda x: x[0], reverse=True)
+                settles_stmt_id = preceding_stmts[0][1]
 
         cur.execute(
             """
             INSERT INTO transactions (
-                account_id, statement_id, transaction_date, post_date, raw_description,
+                account_id, statement_id, settles_statement_id, transaction_date, post_date, raw_description,
                 merchant_id, category_id, transaction_type,
-                amount, fee, total_amount, note, is_installment
-            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s);
+                original_amount, original_currency, exchange_rate, foreign_fee,
+                amount, fee, total_amount, note, is_installment, tx_fingerprint
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            ON CONFLICT (tx_fingerprint) DO UPDATE SET
+                statement_id = EXCLUDED.statement_id,
+                settles_statement_id = EXCLUDED.settles_statement_id,
+                category_id = EXCLUDED.category_id,
+                merchant_id = EXCLUDED.merchant_id,
+                note = EXCLUDED.note,
+                is_installment = EXCLUDED.is_installment;
         """,
             (
                 acc_id,
                 stmt_id,
+                settles_stmt_id,
                 t_date,
                 p_date,
                 raw_desc,
                 merch_id,
                 cat_id,
                 tx_type,
+                orig_amt,
+                orig_curr,
+                ex_rate,
+                for_fee,
                 amt,
                 fee,
                 total_amt,
                 note,
                 (tx_type == "INSTALLMENT_MONTHLY"),
+                tx_fp,
             ),
         )
         tx_count += 1
 
-    print(f"Migrated {tx_count} Transactions.")
+    print(f"Migrated {tx_count} Transactions (with fingerprint deduplication & settlement mapping).")
 
     # 7. Migrate Installment Plans & Schedules (Dynamic Term Resolution & Rounding Offsets)
     for _, row in df_instalments.iterrows():

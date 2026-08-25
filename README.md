@@ -68,6 +68,12 @@ DATABASE_URL=postgresql://postgres:postgres@localhost:5432/credit_wallet
 ### 📈 Các Views phân tích sẵn có:
 * `v_monthly_category_spending`: Thống kê chi tiêu thực tế theo tháng và danh mục (đã tự động bù trừ các giao dịch hủy/hoàn tiền).
 * `v_account_overview`: Báo cáo tổng quan số dư hiện tại, hạn mức, ngày đến hạn thanh toán và trạng thái từng thẻ.
+* `v_account_live_balance`: Báo cáo **Dư nợ thực tế tức thời** (Live Balance) và **Hạn mức khả dụng thực tế** (cộng dồn chi tiêu và trừ thanh toán phát sinh sau ngày chốt sao kê).
+* `v_statement_reconciliation`: Đối soát dư nợ sao kê so với tổng giao dịch thực tế trong kỳ.
+* `v_statement_payment_status`: Theo dõi tiến độ thanh toán sao kê động (`PAID`, `PARTIALLY_PAID`, `BILLED`, `OVERDUE`).
+* `v_credit_utilization`: Tỷ lệ sử dụng hạn mức tín dụng và đánh giá rủi ro tín dụng (Credit Utilization Ratio).
+* `v_upcoming_payment_obligations`: Danh sách các nghĩa vụ thanh toán sắp tới (Sao kê & Trả góp) trong 30 ngày.
+* `v_installment_monthly_forecast`: Dự phóng dòng tiền trả góp cố định từng tháng trong tương lai.
 
 ---
 
@@ -77,10 +83,10 @@ DATABASE_URL=postgresql://postgres:postgres@localhost:5432/credit_wallet
 ├── data/
 │   ├── HSBC/                     # 4 tệp sao kê PDF thẻ HSBC (2026)
 │   ├── Shinhan Bank/             # 75 tệp sao kê PDF thẻ Shinhan Bank (2020 - 2026)
-│   ├── Sacombank/                # 30 tệp sao kê PDF thẻ Sacombank
+│   ├── Sacombank/                # 30 tệp sao kê PDF thẻ Sacombank & CSV chuẩn hóa
 │   └── My Credit Wallet 2.0.xlsx # Tệp Excel tổng hợp & đối soát
 ├── init-scripts/                 # Scripts DDL tự động chạy khi khởi tạo PostgreSQL
-│   ├── 01-schema.sql             # DDL tạo bảng, enum, khóa ngoại, view, index
+│   ├── 01-schema.sql             # DDL tạo bảng, enum, khóa ngoại, view, index (Docker & Supabase ready)
 │   ├── 02-seed-categories.sql    # Dữ liệu danh mục phân cấp mẫu
 │   └── 03-seed-institutions.sql  # Dữ liệu ngân hàng mẫu
 ├── scripts/
@@ -109,13 +115,27 @@ python3 scripts/migrate_data.py
 ## 🔍 6. Truy vấn mẫu kiểm tra nhanh
 
 ```sql
--- 1. Xem tổng quan tình trạng các thẻ & dư nợ sao kê mới nhất
+-- 1. Xem Dư nợ Thực tế Tức thời (Live Balance) & Hạn mức khả dụng còn lại của từng thẻ
+SELECT account_name, bank_name, credit_limit, latest_statement_balance, 
+       unbilled_charges, unbilled_credits, unbilled_net_amount,
+       live_current_balance, live_available_limit, live_utilization_percentage, live_risk_level
+FROM v_account_live_balance;
+
+-- 2. Xem tổng quan tình trạng các thẻ & dư nợ sao kê mới nhất
 SELECT * FROM v_account_overview;
 
--- 2. Thống kê top 10 hạng mục chi tiêu trong tháng gần nhất
-SELECT * FROM v_monthly_category_spending LIMIT 10;
+-- 3. Kiểm tra tiến độ thanh toán các kỳ sao kê
+SELECT account_name, statement_date, payment_due_date, billed_amount, total_paid_amount, remaining_balance_to_pay, payment_status 
+FROM v_statement_payment_status;
 
--- 3. Xem danh sách các gói trả góp
-SELECT product_name, total_amount, term_months, remaining_balance, status 
-FROM installment_plans;
+-- 4. Theo dõi tỷ lệ sử dụng hạn mức tín dụng
+SELECT account_name, bank_name, credit_limit, current_balance, utilization_percentage, risk_level 
+FROM v_credit_utilization;
+
+-- 5. Xem lịch nhắc thanh toán sắp tới (Sao kê + Trả góp)
+SELECT obligation_type, account_name, due_date, days_remaining, total_amount_due, payment_status 
+FROM v_upcoming_payment_obligations;
+
+-- 6. Thống kê top 10 hạng mục chi tiêu trong tháng gần nhất
+SELECT * FROM v_monthly_category_spending LIMIT 10;
 ```
