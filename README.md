@@ -60,7 +60,7 @@ DATABASE_URL=postgresql://postgres:postgres@localhost:5432/credit_wallet
 | `merchants` | Đơn vị chấp nhận thẻ chuẩn hóa (Shopee, Ministop, Nguyễn Kim, Apple...) |
 | `merchant_aliases` | Quy tắc ánh xạ chuỗi sao kê gốc (`raw_pattern`) sang đơn vị chấp nhận thẻ |
 | `statements` | Kỳ sao kê thẻ tín dụng, dư nợ cuối kỳ, thanh toán tối thiểu, SHA-256 đối soát tệp |
-| `transactions` | Toàn bộ giao dịch chi tiêu, thanh toán, hoàn tiền, phí, lãi, đa ngoại tệ (VND, USD, CNY...) |
+| `transactions` | Toàn bộ giao dịch chi tiêu, thanh toán, hoàn tiền, phí, lãi (đơn vị tính VNĐ) |
 | `installment_plans` | Các gói trả góp (sản phẩm, tổng tiền, kỳ hạn, phí chuyển đổi, dư nợ gốc còn lại) |
 | `installment_schedules` | Chi tiết lịch biểu từng kỳ trả góp (Kỳ 01/03, 02/03...) |
 | `reward_ledgers` | Sổ cái điểm thưởng Shinhan Point, dặm bay, tiền hoàn Cashback và ngày hết hạn |

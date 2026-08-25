@@ -3,9 +3,10 @@
 -- PostgreSQL 16+
 -- ====================================================================
 
--- Enable UUID Extensions
+-- Enable UUID & Trigram Extensions
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
+CREATE EXTENSION IF NOT EXISTS "pg_trgm";
 
 -- ====================================================================
 -- ENUMS
@@ -27,7 +28,7 @@ CREATE TYPE transaction_type_enum AS ENUM (
     'ADJUSTMENT',            -- Điều chỉnh giao dịch
     'TRANSFER'               -- Chuyển tiền nội bộ giữa các tài khoản
 );
-CREATE TYPE installment_status_enum AS ENUM ('ACTIVE', 'COMPLETED', 'CANCELLED');
+CREATE TYPE installment_status_enum AS ENUM ('ACTIVE', 'COMPLETED', 'CANCELLED', 'EARLY_SETTLED');
 CREATE TYPE reward_type_enum AS ENUM ('POINT', 'CASHBACK', 'MILE');
 
 -- ====================================================================
@@ -54,10 +55,9 @@ CREATE TABLE accounts (
     account_type account_type_enum NOT NULL DEFAULT 'CREDIT_CARD',
     card_number_masked VARCHAR(25) NOT NULL, -- "4696 72xx xxxx 2958", "4696 7200 1584 0642"
     card_number_last4 VARCHAR(4) NOT NULL, -- "2958", "0642", "0702"
-    currency VARCHAR(3) DEFAULT 'VND',
-    credit_limit DECIMAL(15, 2) DEFAULT 0.00, -- Hạn mức tín dụng (VND)
+    credit_limit DECIMAL(15, 2) DEFAULT 0.00 CONSTRAINT chk_accounts_credit_limit CHECK (credit_limit >= 0), -- Hạn mức tín dụng (VND)
     billing_day_of_month INT CHECK (billing_day_of_month BETWEEN 1 AND 31), -- Ngày chốt sao kê danh nghĩa (ví dụ: ngày 20)
-    grace_period_days INT DEFAULT 15, -- Số ngày gia hạn thanh toán sau sao kê
+    grace_period_days INT DEFAULT 15 CONSTRAINT chk_accounts_grace_period CHECK (grace_period_days >= 0), -- Số ngày gia hạn thanh toán sau sao kê
     status account_status_enum DEFAULT 'ACTIVE',
 
     -- Xử lý trường hợp Cấp lại thẻ / Đổi thẻ (Card Reissuance)
@@ -82,7 +82,7 @@ CREATE TABLE categories (
     color VARCHAR(20),
     is_system BOOLEAN DEFAULT FALSE, -- Danh mục mặc định của hệ thống
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT uq_category_parent_name UNIQUE (parent_id, name)
+    CONSTRAINT uq_category_parent_name UNIQUE NULLS NOT DISTINCT (parent_id, name)
 );
 
 -- ====================================================================
@@ -154,20 +154,25 @@ CREATE TABLE transactions (
     category_id UUID REFERENCES categories(id) ON DELETE SET NULL,
     transaction_type transaction_type_enum NOT NULL DEFAULT 'PURCHASE',
 
-    -- Xử lý đa tiền tệ & phí ngoại tệ
-    original_currency VARCHAR(3) DEFAULT 'VND', -- USD, EUR, CNY...
-    original_amount DECIMAL(15, 2) NOT NULL, -- 10.00 USD hoặc 580,000 VND
-    fx_rate DECIMAL(15, 6) DEFAULT 1.000000, -- Tỷ giá quy đổi
-    foreign_fee DECIMAL(15, 2) DEFAULT 0.00, -- Phí xử lý giao dịch ngoại tệ (Overseas Fee)
-
-    -- Số tiền quy đổi VND chốt sổ
+    -- Số tiền giao dịch (VND)
+    -- Quy ước dấu tiền tệ (Sign Convention):
+    --   (+) Mang dấu Dương đối với khoản nợ / chi tiêu: PURCHASE, FEE, INTEREST, INSTALLMENT_MONTHLY, CASH_ADVANCE, ADJUSTMENT, TRANSFER
+    --   (-) Mang dấu Âm đối với khoản ghi có / giảm nợ: REPAYMENT, REFUND, CASHBACK_CREDIT, INSTALLMENT_PRINCIPAL
     amount DECIMAL(15, 2) NOT NULL, -- Số tiền gốc (VND)
-    fee DECIMAL(15, 2) DEFAULT 0.00, -- Phí đi kèm (nếu có)
-    total_amount DECIMAL(15, 2) NOT NULL, -- amount + fee + foreign_fee (âm nếu là thanh toán/hoàn tiền)
+    fee DECIMAL(15, 2) DEFAULT 0.00, -- Phí đi kèm (VND)
+    total_amount DECIMAL(15, 2) NOT NULL, -- amount + fee (mang dấu tương ứng với loại giao dịch)
 
     note TEXT, -- Ghi chú cá nhân
     is_installment BOOLEAN DEFAULT FALSE,
-    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT chk_transactions_sign_convention CHECK (
+        (transaction_type IN ('REPAYMENT', 'REFUND', 'CASHBACK_CREDIT', 'INSTALLMENT_PRINCIPAL') AND total_amount <= 0)
+        OR
+        (transaction_type IN ('PURCHASE', 'INSTALLMENT_MONTHLY', 'FEE', 'INTEREST', 'CASH_ADVANCE', 'TRANSFER') AND total_amount >= 0)
+        OR
+        (transaction_type = 'ADJUSTMENT') -- Cho phép cả âm và dương
+    )
 );
 
 -- ====================================================================
@@ -181,16 +186,16 @@ CREATE TABLE installment_plans (
     merchant_id UUID REFERENCES merchants(id) ON DELETE SET NULL,
     start_date DATE NOT NULL,
 
-    total_amount DECIMAL(15, 2) NOT NULL, -- Tổng số tiền trả góp (16,416,800 VND)
+    total_amount DECIMAL(15, 2) NOT NULL CONSTRAINT chk_installment_total_amount CHECK (total_amount >= 0), -- Tổng số tiền trả góp (16,416,800 VND)
     conversion_fee DECIMAL(15, 2) DEFAULT 0.00, -- Phí chuyển đổi (655,030.32 VND)
     interest_rate_percent DECIMAL(5, 2) DEFAULT 0.00, -- 0% lãi suất
-    term_months INT NOT NULL, -- 3, 6, 9, 12 tháng
+    term_months INT NOT NULL CONSTRAINT chk_installment_term_months CHECK (term_months > 0), -- 3, 6, 9, 12 tháng
 
     monthly_principal DECIMAL(15, 2) NOT NULL, -- Tiền gốc mỗi tháng
     monthly_interest DECIMAL(15, 2) DEFAULT 0.00,
     monthly_payment DECIMAL(15, 2) NOT NULL, -- Số tiền trả góp kỳ này (5,472,266.66)
 
-    remaining_balance DECIMAL(15, 2) NOT NULL, -- Dư nợ gốc còn lại
+    remaining_balance DECIMAL(15, 2) NOT NULL CONSTRAINT chk_installment_remaining_balance CHECK (remaining_balance >= 0), -- Dư nợ gốc còn lại
     status installment_status_enum DEFAULT 'ACTIVE',
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
@@ -215,6 +220,152 @@ CREATE TABLE installment_schedules (
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT uq_plan_index UNIQUE (installment_plan_id, installment_index)
 );
+
+-- Trigger Function tự động cập nhật remaining_balance & status cho installment_plans
+CREATE OR REPLACE FUNCTION fn_update_installment_remaining_balance()
+RETURNS TRIGGER AS $$
+DECLARE
+    v_plan_id UUID;
+    v_total_amount DECIMAL(15, 2);
+    v_billed_principal DECIMAL(15, 2);
+    v_new_remaining DECIMAL(15, 2);
+    v_current_status installment_status_enum;
+BEGIN
+    IF (TG_OP = 'DELETE') THEN
+        v_plan_id := OLD.installment_plan_id;
+    ELSE
+        v_plan_id := NEW.installment_plan_id;
+    END IF;
+
+    SELECT total_amount, status INTO v_total_amount, v_current_status
+    FROM installment_plans
+    WHERE id = v_plan_id;
+
+    IF v_total_amount IS NOT NULL THEN
+        SELECT COALESCE(SUM(principal_amount), 0.00) INTO v_billed_principal
+        FROM installment_schedules
+        WHERE installment_plan_id = v_plan_id AND is_billed = TRUE;
+
+        v_new_remaining := GREATEST(0.00, v_total_amount - v_billed_principal);
+
+        UPDATE installment_plans
+        SET remaining_balance = v_new_remaining,
+            status = CASE
+                WHEN v_current_status IN ('CANCELLED', 'EARLY_SETTLED') THEN v_current_status
+                WHEN v_new_remaining <= 0.00 THEN 'COMPLETED'::installment_status_enum
+                ELSE status
+            END
+        WHERE id = v_plan_id;
+    END IF;
+
+    RETURN NULL;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_update_installment_remaining_balance
+AFTER INSERT OR UPDATE OF is_billed, principal_amount OR DELETE ON installment_schedules
+FOR EACH ROW
+EXECUTE FUNCTION fn_update_installment_remaining_balance();
+
+-- ====================================================================
+-- STORED PROCEDURE / FUNCTION: TẤT TOÁN TRẢ GÓP TRƯỚC HẠN (EARLY SETTLEMENT)
+-- ====================================================================
+CREATE OR REPLACE FUNCTION fn_early_settle_installment_plan(
+    p_plan_id UUID,
+    p_statement_id UUID DEFAULT NULL,
+    p_fee_percent DECIMAL DEFAULT 2.00,
+    p_custom_fee DECIMAL DEFAULT NULL
+)
+RETURNS TABLE (
+    plan_id UUID,
+    product_name VARCHAR(150),
+    settled_principal DECIMAL(15, 2),
+    early_settlement_fee DECIMAL(15, 2),
+    new_status installment_status_enum
+) AS $$
+DECLARE
+    v_account_id UUID;
+    v_product_name VARCHAR(150);
+    v_status installment_status_enum;
+    v_remaining_balance DECIMAL(15, 2);
+    v_fee_amount DECIMAL(15, 2) := 0.00;
+    v_installment_category_id UUID;
+    v_fee_category_id UUID;
+BEGIN
+    -- 1. Trích xuất thông tin gói trả góp
+    SELECT account_id, installment_plans.product_name, status, remaining_balance
+    INTO v_account_id, v_product_name, v_status, v_remaining_balance
+    FROM installment_plans
+    WHERE id = p_plan_id;
+
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'Gói trả góp với ID % không tồn tại.', p_plan_id;
+    END IF;
+
+    IF v_status != 'ACTIVE' THEN
+        RAISE EXCEPTION 'Gói trả góp "%" không ở trạng thái ACTIVE (Trạng thái hiện tại: %).', v_product_name, v_status;
+    END IF;
+
+    IF v_remaining_balance <= 0 THEN
+        RAISE EXCEPTION 'Gói trả góp "%" đã hết dư nợ.', v_product_name;
+    END IF;
+
+    -- 2. Tính Phí tất toán trước hạn
+    IF p_custom_fee IS NOT NULL THEN
+        v_fee_amount := p_custom_fee;
+    ELSIF p_fee_percent > 0 THEN
+        v_fee_amount := ROUND(v_remaining_balance * (p_fee_percent / 100.0), 2);
+    END IF;
+
+    -- Lấy category_id của "Phí chuyển đổi trả góp" hoặc "Phí & Lãi"
+    SELECT id INTO v_installment_category_id FROM categories WHERE name = 'Trả góp' LIMIT 1;
+    SELECT id INTO v_fee_category_id
+    FROM categories
+    WHERE name = 'Phí chuyển đổi trả góp' OR name = 'Phí & Lãi'
+    LIMIT 1;
+
+    -- 3. Ghi nợ dư nợ tiền gốc tất toán còn lại vào bảng transactions
+    INSERT INTO transactions (
+        account_id, statement_id, installment_plan_id, category_id,
+        transaction_date, post_date, raw_description,
+        transaction_type, amount, fee, total_amount, note, is_installment
+    ) VALUES (
+        v_account_id, p_statement_id, p_plan_id, v_installment_category_id,
+        CURRENT_DATE, CURRENT_DATE, 'Tất toán trả góp trước hạn: ' || v_product_name,
+        'INSTALLMENT_MONTHLY', v_remaining_balance, 0.00, v_remaining_balance,
+        'Ghi nợ tất toán toàn bộ dư nợ trả góp trước hạn', TRUE
+    );
+
+    -- 4. Ghi nợ Phí Tất toán trước hạn vào bảng transactions (nếu có)
+    IF v_fee_amount > 0 THEN
+        INSERT INTO transactions (
+            account_id, statement_id, installment_plan_id, category_id,
+            transaction_date, post_date, raw_description,
+            transaction_type, amount, fee, total_amount, note, is_installment
+        ) VALUES (
+            v_account_id, p_statement_id, p_plan_id, v_fee_category_id,
+            CURRENT_DATE, CURRENT_DATE, 'Phí tất toán trả góp trước hạn (' || p_fee_percent || '%): ' || v_product_name,
+            'FEE', v_fee_amount, 0.00, v_fee_amount,
+            'Phí phạt tất toán trả góp trước hạn', FALSE
+        );
+    END IF;
+
+    -- 5. Cập nhật tất cả các kỳ chưa billed trong installment_schedules thành is_billed = TRUE
+    UPDATE installment_schedules
+    SET is_billed = TRUE,
+        statement_id = COALESCE(p_statement_id, statement_id)
+    WHERE installment_plan_id = p_plan_id AND is_billed = FALSE;
+
+    -- 6. Cập nhật trạng thái gói trả góp thành EARLY_SETTLED và dư nợ gốc về 0.00
+    UPDATE installment_plans
+    SET remaining_balance = 0.00,
+        status = 'EARLY_SETTLED'::installment_status_enum
+    WHERE id = p_plan_id;
+
+    RETURN QUERY
+    SELECT p_plan_id, v_product_name, v_remaining_balance, v_fee_amount, 'EARLY_SETTLED'::installment_status_enum;
+END;
+$$ LANGUAGE plpgsql;
 
 -- ====================================================================
 -- 8. REWARD LEDGERS (ĐIỂM THƯỞNG, HOÀN TIỀN)
@@ -248,8 +399,14 @@ CREATE INDEX idx_tx_category ON transactions(category_id);
 CREATE INDEX idx_tx_merchant ON transactions(merchant_id);
 CREATE INDEX idx_tx_type ON transactions(transaction_type);
 CREATE INDEX idx_tx_installment_plan ON transactions(installment_plan_id);
+CREATE INDEX idx_tx_account_statement ON transactions(account_id, statement_id);
 CREATE INDEX idx_statements_account_date ON statements(account_id, statement_date DESC);
 CREATE INDEX idx_installment_account_status ON installment_plans(account_id, status);
+CREATE INDEX idx_installment_sched_plan_billed ON installment_schedules(installment_plan_id, is_billed);
+
+-- Trigram GIN Indexes hỗ trợ tìm kiếm khớp chuỗi sao kê thô và merchant pattern
+CREATE INDEX idx_tx_raw_desc_trgm ON transactions USING gin (raw_description gin_trgm_ops);
+CREATE INDEX idx_merchant_aliases_pattern_trgm ON merchant_aliases USING gin (pattern gin_trgm_ops);
 
 -- ====================================================================
 -- 10. ANALYTIC VIEWS
@@ -258,26 +415,27 @@ CREATE INDEX idx_installment_account_status ON installment_plans(account_id, sta
 CREATE OR REPLACE VIEW v_monthly_category_spending AS
 SELECT 
     DATE_TRUNC('month', t.transaction_date)::DATE AS month,
-    c.name AS category_name,
-    parent_c.name AS parent_category_name,
+    COALESCE(c.name, 'Chưa phân loại') AS category_name,
+    COALESCE(parent_c.name, 'Chưa phân loại') AS parent_category_name,
     COUNT(t.id) AS transaction_count,
     SUM(t.total_amount) AS total_spending
 FROM transactions t
-JOIN categories c ON t.category_id = c.id
+LEFT JOIN categories c ON t.category_id = c.id
 LEFT JOIN categories parent_c ON c.parent_id = parent_c.id
 WHERE t.transaction_type IN (
-    'PURCHASE', 
-    'INSTALLMENT_MONTHLY', 
-    'FEE', 
-    'INTEREST', 
+    'PURCHASE',
+    'INSTALLMENT_MONTHLY',
+    'INSTALLMENT_PRINCIPAL',
+    'FEE',
+    'INTEREST',
     'CASH_ADVANCE',
-    'REFUND', 
+    'REFUND',
     'ADJUSTMENT'
 )
 GROUP BY 1, 2, 3
 ORDER BY 1 DESC, total_spending DESC;
 
--- View 2: Tổng quan tài khoản và tình trạng thẻ (Bao gồm trạng thái thay thế thẻ)
+-- View 2: Tổng quan tài khoản và tình trạng thẻ (Bao gồm chi tiết thẻ cấp đổi thay thế)
 CREATE OR REPLACE VIEW v_account_overview AS
 SELECT 
     a.id AS account_id,
@@ -288,9 +446,11 @@ SELECT
     COALESCE(latest_s.statement_balance, 0) AS latest_statement_balance,
     COALESCE(latest_s.payment_due_date, CURRENT_DATE) AS next_payment_due_date,
     a.status,
-    a.replaces_account_id
+    a.replaces_account_id,
+    rep_a.card_number_masked AS replaced_by_card_number
 FROM accounts a
 JOIN institutions i ON a.institution_id = i.id
+LEFT JOIN accounts rep_a ON a.id = rep_a.replaces_account_id
 LEFT JOIN LATERAL (
     SELECT statement_balance, payment_due_date
     FROM statements s
@@ -298,3 +458,29 @@ LEFT JOIN LATERAL (
     ORDER BY s.statement_date DESC
     LIMIT 1
 ) latest_s ON TRUE;
+
+-- View 3: Báo cáo đối soát dư nợ sao kê với tổng số tiền giao dịch thực tế
+CREATE OR REPLACE VIEW v_statement_reconciliation AS
+SELECT 
+    s.id AS statement_id,
+    a.account_name,
+    a.card_number_masked,
+    s.statement_date,
+    s.previous_balance,
+    s.purchases_amount,
+    s.installments_amount,
+    s.fees_and_charges,
+    s.payments_received,
+    s.statement_balance AS billed_statement_balance,
+    COALESCE(SUM(t.total_amount), 0) AS net_period_transactions,
+    (s.previous_balance + COALESCE(SUM(t.total_amount), 0)) AS expected_statement_balance,
+    (s.statement_balance - (s.previous_balance + COALESCE(SUM(t.total_amount), 0))) AS discrepancy,
+    CASE 
+        WHEN ABS(s.statement_balance - (s.previous_balance + COALESCE(SUM(t.total_amount), 0))) < 0.01 THEN 'MATCHED'
+        ELSE 'DISCREPANCY'
+    END AS reconciliation_status
+FROM statements s
+JOIN accounts a ON s.account_id = a.id
+LEFT JOIN transactions t ON t.statement_id = s.id
+GROUP BY s.id, a.account_name, a.card_number_masked, s.statement_date, s.previous_balance,
+         s.purchases_amount, s.installments_amount, s.fees_and_charges, s.payments_received, s.statement_balance;
