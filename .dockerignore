@@ -1,0 +1,51 @@
+# ====================================================================
+# CREDIT WALLET 2.0 - DOCKERIGNORE (ROOT)
+# ====================================================================
+
+# Version control
+.git
+.gitignore
+.gitattributes
+
+# Node / Frontend build context
+node_modules
+frontend/node_modules
+frontend/dist
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Python & Backend build context
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.Python
+.venv
+venv
+env
+.pytest_cache
+.coverage
+htmlcov
+.mypy_cache
+.ruff_cache
+
+# Environment variables & secrets
+.env
+.env.local
+.env.*.local
+*.env
+!*.env.example
+
+# IDEs & System files
+.idea
+.vscode
+.DS_Store
+Thumbs.db
+[Dd]esktop.ini
+
+# Logs & temporary files
+*.log
+cron.log
+*.tmp
