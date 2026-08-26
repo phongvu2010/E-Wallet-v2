@@ -1,25 +1,64 @@
-# Credit Wallet 2.0 - Database & Backend Architecture
+# Credit Wallet 2.0 - Database & FastAPI Backend Architecture
 
-Hệ thống cơ sở dữ liệu và công cụ quản lý tài chính, đối soát giao dịch thẻ tín dụng cá nhân trên Docker (PostgreSQL 16).
+Hệ thống cơ sở dữ liệu và Backend RESTful API quản lý tài chính, theo dõi dư nợ và đối soát giao dịch thẻ tín dụng cá nhân trên Docker (PostgreSQL 16 & FastAPI).
 
 ---
 
 ## 🚀 1. Khởi động nhanh với Docker
 
 ```bash
-# 1. Khởi động container PostgreSQL
+# 1. Khởi động toàn bộ Database PostgreSQL & Backend FastAPI Service
 docker compose up -d
 
-# 2. Kiểm tra trạng thái container
+# 2. Kiểm tra trạng thái containers
 docker compose ps
 
 # 3. Dừng hệ thống
 docker compose down
 ```
 
+Sau khi khởi động container thành công:
+* **Interactive API Docs (Swagger UI):** [http://localhost:8000/docs](http://localhost:8000/docs)
+* **ReDoc API Documentation:** [http://localhost:8000/redoc](http://localhost:8000/redoc)
+* **Health Check Endpoint:** [http://localhost:8000/health](http://localhost:8000/health)
+
 ---
 
-## 🔌 2. Thông tin kết nối & Biến môi trường
+## 💻 2. Chạy Backend trực tiếp trên máy chủ cục bộ (Local Development)
+
+### Bước 1: Cài đặt thư viện Python
+```bash
+pip install -r backend/requirements.txt
+```
+
+### Bước 2: Cấu hình biến môi trường
+Sao chép tệp mẫu `.env.example` thành `.env` (nếu chưa có):
+```bash
+cp .env.example .env
+```
+
+### Bước 3: Nạp dữ liệu ban đầu từ Excel & PDF (nếu cần)
+```bash
+python scripts/migrate_data.py
+```
+
+### Bước 4: Khởi chạy FastAPI Server
+```bash
+uvicorn backend.app.main:app --reload --port 8000
+```
+
+---
+
+## 🧪 3. Kiểm thử Tự động (Automated Testing)
+
+Chạy toàn bộ bộ test kiểm thử tự động (Unit & Integration Tests) với `pytest`:
+```bash
+python -m pytest backend/tests -v
+```
+
+---
+
+## 🔌 4. Thông tin kết nối & Biến môi trường
 
 ### A. Thông số kết nối Database mặc định
 * **Host:** `localhost`
@@ -29,28 +68,38 @@ docker compose down
 * **Password:** `postgres`
 * **Connection String (URI):** `postgresql://postgres:postgres@localhost:5432/credit_wallet`
 
-### B. Tùy chỉnh qua tệp `.env`
-Bạn có thể tùy biến cổng hoặc thông tin bảo mật bằng cách sao chép tệp mẫu:
-```bash
-cp .env.example .env
-```
-
-Nội dung tệp `.env`:
+### B. Nội dung tệp `.env`
 ```dotenv
 POSTGRES_DB=credit_wallet
 POSTGRES_USER=postgres
 POSTGRES_PASSWORD=postgres
 POSTGRES_PORT=5432
+POSTGRES_HOST=localhost
 DATABASE_URL=postgresql://postgres:postgres@localhost:5432/credit_wallet
+DEBUG=true
+PROJECT_NAME="Credit Wallet 2.0 API"
 ```
-
-### C. Kết nối qua các ứng dụng quản lý Database (DBeaver, TablePlus, DataGrip, VS Code)
-* Chọn Driver: **PostgreSQL**
-* Host / Port / User / Pass / DB: Dùng các thông số ở mục A (hoặc theo cấu hình `.env` của bạn).
 
 ---
 
-## 📊 3. Cấu trúc Database Schema
+## 🌐 5. Danh mục Endpoints API (FastAPI RESTful)
+
+| Router Prefix | Mô tả chi tiết Endpoints |
+| :--- | :--- |
+| **`/api/v1/accounts`** | Quản lý thẻ tín dụng, CRUD, báo cáo **Dư nợ tức thời** (`/live-balance`) và tổng quan thẻ (`/overview`). |
+| **`/api/v1/transactions`** | Sổ cái giao dịch, phân trang, đa lọc (ngày, danh mục, merchant, loại giao dịch, khoảng tiền, tìm kiếm text), tổng kết dòng tiền (`/summary`). |
+| **`/api/v1/statements`** | Danh sách kỳ sao kê, đối soát dư nợ thực tế vs sao kê (`/reconciliation`), theo dõi tiến độ thanh toán nợ (`/payment-status`). |
+| **`/api/v1/installments`** | Quản lý gói trả góp, lịch biểu từng kỳ (`schedules`), dự phóng dòng tiền trả góp (`/forecast`), và Function **Tất toán trước hạn** (`/{id}/early-settle`). |
+| **`/api/v1/analytics`** | Dashboard tổng quan (`/overview`), thống kê chi tiêu theo danh mục (`/monthly-spending`), tỷ lệ sử dụng hạn mức & cảnh báo rủi ro (`/credit-utilization`), lịch nghĩa vụ thanh toán trong 30 ngày (`/upcoming-obligations`). |
+| **`/api/v1/categories`** | Danh mục thu chi phân cấp, trả về cây danh mục 2 cấp (`/tree`), tạo danh mục tùy chỉnh. |
+| **`/api/v1/merchants`** | Đơn vị chấp nhận thẻ chuẩn hóa, tìm kiếm merchant, thêm quy tắc alias mapping (`/aliases`). |
+| **`/api/v1/institutions`** | Danh mục ngân hàng / tổ chức tài chính (Shinhan, HSBC, Sacombank...). |
+| **`/api/v1/rewards`** | Sổ cái điểm thưởng (Shinhan Point), hoàn tiền (Cashback), dặm bay (Miles), và hạn dùng điểm. |
+| **`/api/v1/etl`** | Kích hoạt đồng bộ & nạp lại dữ liệu từ tệp sao kê Excel / PDF (`/sync`). |
+
+---
+
+## 📊 6. Cấu trúc Database Schema & Views
 
 | Bảng / View | Mục đích |
 | :--- | :--- |
@@ -64,78 +113,88 @@ DATABASE_URL=postgresql://postgres:postgres@localhost:5432/credit_wallet
 | `installment_plans` | Các gói trả góp (sản phẩm, tổng tiền, kỳ hạn, phí chuyển đổi, dư nợ gốc còn lại) |
 | `installment_schedules` | Chi tiết lịch biểu từng kỳ trả góp (Kỳ 01/03, 02/03...) |
 | `reward_ledgers` | Sổ cái điểm thưởng Shinhan Point, dặm bay, tiền hoàn Cashback và ngày hết hạn |
-
-### 📈 Các Views phân tích sẵn có:
-* `v_monthly_category_spending`: Thống kê chi tiêu thực tế theo tháng và danh mục (đã tự động bù trừ các giao dịch hủy/hoàn tiền).
-* `v_account_overview`: Báo cáo tổng quan số dư hiện tại, hạn mức, ngày đến hạn thanh toán và trạng thái từng thẻ.
-* `v_account_live_balance`: Báo cáo **Dư nợ thực tế tức thời** (Live Balance) và **Hạn mức khả dụng thực tế** (cộng dồn chi tiêu và trừ thanh toán phát sinh sau ngày chốt sao kê).
-* `v_statement_reconciliation`: Đối soát dư nợ sao kê so với tổng giao dịch thực tế trong kỳ.
-* `v_statement_payment_status`: Theo dõi tiến độ thanh toán sao kê động (`PAID`, `PARTIALLY_PAID`, `BILLED`, `OVERDUE`).
-* `v_credit_utilization`: Tỷ lệ sử dụng hạn mức tín dụng và đánh giá rủi ro tín dụng (Credit Utilization Ratio).
-* `v_upcoming_payment_obligations`: Danh sách các nghĩa vụ thanh toán sắp tới (Sao kê & Trả góp) trong 30 ngày.
-* `v_installment_monthly_forecast`: Dự phóng dòng tiền trả góp cố định từng tháng trong tương lai.
+| `v_account_live_balance` | Báo cáo **Dư nợ thực tế tức thời** (Live Balance) và **Hạn mức khả dụng thực tế** (cộng dồn chi tiêu & trừ thanh toán chưa chốt sao kê) |
+| `v_monthly_category_spending`| Thống kê chi tiêu thực tế theo tháng và danh mục (tự động bù trừ hoàn tiền / hủy giao dịch) |
+| `v_statement_payment_status` | Theo dõi tiến độ thanh toán sao kê động (`PAID`, `PARTIALLY_PAID`, `BILLED`, `OVERDUE`) |
+| `v_credit_utilization` | Tỷ lệ sử dụng hạn mức tín dụng và đánh giá rủi ro tín dụng (Credit Utilization Ratio) |
+| `v_upcoming_payment_obligations`| Danh sách các nghĩa vụ thanh toán sắp tới (Sao kê & Trả góp) trong 30 ngày |
+| `v_installment_monthly_forecast`| Dự phóng dòng tiền trả góp cố định từng tháng trong tương lai |
 
 ---
 
-## 📁 4. Cấu trúc thư mục dự án
+## 📁 7. Cấu trúc thư mục dự án
 
 ```text
+├── backend/
+│   ├── app/
+│   │   ├── api/
+│   │   │   └── v1/
+│   │   │       ├── endpoints/
+│   │   │       │   ├── accounts.py
+│   │   │       │   ├── analytics.py
+│   │   │       │   ├── categories.py
+│   │   │       │   ├── etl.py
+│   │   │       │   ├── installments.py
+│   │   │       │   ├── institutions.py
+│   │   │       │   ├── merchants.py
+│   │   │       │   ├── rewards.py
+│   │   │       │   ├── statements.py
+│   │   │       │   └── transactions.py
+│   │   │       └── api.py
+│   │   ├── core/
+│   │   │   ├── config.py
+│   │   │   └── database.py
+│   │   ├── models/
+│   │   │   ├── account.py
+│   │   │   ├── category.py
+│   │   │   ├── institution.py
+│   │   │   ├── installment.py
+│   │   │   ├── merchant.py
+│   │   │   ├── reward.py
+│   │   │   ├── statement.py
+│   │   │   └── transaction.py
+│   │   ├── schemas/
+│   │   │   ├── account.py
+│   │   │   ├── analytics.py
+│   │   │   ├── category.py
+│   │   │   ├── common.py
+│   │   │   ├── institution.py
+│   │   │   ├── installment.py
+│   │   │   ├── merchant.py
+│   │   │   ├── reward.py
+│   │   │   ├── statement.py
+│   │   │   └── transaction.py
+│   │   ├── services/
+│   │   │   ├── account_service.py
+│   │   │   ├── analytics_service.py
+│   │   │   ├── etl_service.py
+│   │   │   ├── installment_service.py
+│   │   │   └── transaction_service.py
+│   │   └── main.py
+│   ├── tests/
+│   │   ├── conftest.py
+│   │   ├── test_accounts.py
+│   │   ├── test_analytics.py
+│   │   ├── test_health.py
+│   │   ├── test_installments.py
+│   │   ├── test_more_endpoints.py
+│   │   └── test_transactions.py
+│   ├── Dockerfile
+│   └── requirements.txt
 ├── data/
-│   ├── HSBC/                     # 4 tệp sao kê PDF thẻ HSBC (2026)
-│   ├── Shinhan Bank/             # 75 tệp sao kê PDF thẻ Shinhan Bank (2020 - 2026)
-│   ├── Sacombank/                # 30 tệp sao kê PDF thẻ Sacombank & CSV chuẩn hóa
-│   └── My Credit Wallet 2.0.xlsx # Tệp Excel tổng hợp & đối soát
-├── init-scripts/                 # Scripts DDL tự động chạy khi khởi tạo PostgreSQL
-│   ├── 01-schema.sql             # DDL tạo bảng, enum, khóa ngoại, view, index (Docker & Supabase ready)
-│   ├── 02-seed-categories.sql    # Dữ liệu danh mục phân cấp mẫu
-│   └── 03-seed-institutions.sql  # Dữ liệu ngân hàng mẫu
+│   ├── HSBC/
+│   ├── Sacombank/
+│   ├── Shinhan Bank/
+│   └── My Credit Wallet 2.0.xlsx
+├── init-scripts/
+│   ├── 01-schema.sql
+│   ├── 02-seed-categories.sql
+│   └── 03-seed-institutions.sql
 ├── scripts/
-│   └── migrate_data.py           # Script ETL nạp dữ liệu từ Excel & PDF vào DB
-├── .env.example                  # Template biến môi trường
-├── docker-compose.yml            # Cấu hình khởi chạy PostgreSQL
+│   └── migrate_data.py
+├── .env
+├── .env.example
+├── docker-compose.yml
+├── pytest.ini
 └── README.md
-```
-
----
-
-## 🔄 5. Cài đặt môi trường & Nạp dữ liệu
-
-### Bước 1: Cài đặt thư viện Python
-```bash
-pip install pandas openpyxl psycopg2-binary pymupdf
-```
-
-### Bước 2: Thực thi nạp dữ liệu vào Database
-```bash
-python3 scripts/migrate_data.py
-```
-
----
-
-## 🔍 6. Truy vấn mẫu kiểm tra nhanh
-
-```sql
--- 1. Xem Dư nợ Thực tế Tức thời (Live Balance) & Hạn mức khả dụng còn lại của từng thẻ
-SELECT account_name, bank_name, credit_limit, latest_statement_balance, 
-       unbilled_charges, unbilled_credits, unbilled_net_amount,
-       live_current_balance, live_available_limit, live_utilization_percentage, live_risk_level
-FROM v_account_live_balance;
-
--- 2. Xem tổng quan tình trạng các thẻ & dư nợ sao kê mới nhất
-SELECT * FROM v_account_overview;
-
--- 3. Kiểm tra tiến độ thanh toán các kỳ sao kê
-SELECT account_name, statement_date, payment_due_date, billed_amount, total_paid_amount, remaining_balance_to_pay, payment_status 
-FROM v_statement_payment_status;
-
--- 4. Theo dõi tỷ lệ sử dụng hạn mức tín dụng
-SELECT account_name, bank_name, credit_limit, current_balance, utilization_percentage, risk_level 
-FROM v_credit_utilization;
-
--- 5. Xem lịch nhắc thanh toán sắp tới (Sao kê + Trả góp)
-SELECT obligation_type, account_name, due_date, days_remaining, total_amount_due, payment_status 
-FROM v_upcoming_payment_obligations;
-
--- 6. Thống kê top 10 hạng mục chi tiêu trong tháng gần nhất
-SELECT * FROM v_monthly_category_spending LIMIT 10;
 ```
