@@ -124,7 +124,7 @@ export const DashboardPage: React.FC = () => {
           value={formatCurrency(overview.total_live_balance)}
           subtitle="Bao gồm chi tiêu chưa lên sao kê"
           icon={<TrendingDown className="w-6 h-6 text-rose-400" />}
-          progress={overview.overall_utilization_percentage}
+          progress={Number(overview.overall_utilization_percentage)}
           progressColor={riskColor.bg}
         />
 
@@ -137,7 +137,7 @@ export const DashboardPage: React.FC = () => {
 
         <MetricCard
           title="Tỷ Lệ Sử Dụng Hạn Mức"
-          value={`${overview.overall_utilization_percentage.toFixed(1)}%`}
+          value={`${Number(overview.overall_utilization_percentage).toFixed(1)}%`}
           badgeText={overview.overall_risk_level}
           badgeVariant={
             overview.overall_risk_level.includes("CRITICAL")

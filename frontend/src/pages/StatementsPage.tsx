@@ -169,7 +169,7 @@ export const StatementsPage: React.FC = () => {
                         {formatCurrency(st.total_paid_amount)}
                       </td>
                       <td className="py-3.5 px-4 text-right font-mono font-bold">
-                        <span className={st.remaining_balance_to_pay > 0 ? "text-rose-400" : "text-slate-400"}>
+                        <span className={Number(st.remaining_balance_to_pay) > 0 ? "text-rose-400" : "text-slate-400"}>
                           {formatCurrency(st.remaining_balance_to_pay)}
                         </span>
                       </td>

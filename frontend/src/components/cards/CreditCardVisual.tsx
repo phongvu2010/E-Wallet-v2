@@ -16,7 +16,7 @@ export const CreditCardVisual: React.FC<CreditCardVisualProps> = ({
   isSelected = false,
 }) => {
   const bankGradient = getBankGradient(account.bank_name || account.account_name);
-  const utilization = Math.min(100, Math.max(0, account.live_utilization_percentage || 0));
+  const utilization = Math.min(100, Math.max(0, Number(account.live_utilization_percentage) || 0));
 
   return (
     <div

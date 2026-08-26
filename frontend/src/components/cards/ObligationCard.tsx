@@ -73,8 +73,8 @@ export const ObligationCard: React.FC<ObligationCardProps> = ({ obligation }) =>
         <p className="text-base font-bold text-slate-100 font-mono mt-0.5">
           {formatCurrency(obligation.total_amount_due)}
         </p>
-        {obligation.minimum_amount_due > 0 &&
-          obligation.minimum_amount_due !== obligation.total_amount_due && (
+        {Number(obligation.minimum_amount_due) > 0 &&
+          Number(obligation.minimum_amount_due) !== Number(obligation.total_amount_due) && (
             <p className="text-[11px] text-slate-400">
               Tối thiểu: {formatCurrency(obligation.minimum_amount_due)}
             </p>

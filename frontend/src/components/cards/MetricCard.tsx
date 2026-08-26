@@ -10,7 +10,7 @@ interface MetricCardProps {
   icon: React.ReactNode;
   badgeText?: string;
   badgeVariant?: "success" | "danger" | "warning" | "info" | "neutral" | "purple";
-  progress?: number; // 0 to 100
+  progress?: number | string; // 0 to 100
   progressColor?: string;
   className?: string;
 }
@@ -26,6 +26,8 @@ export const MetricCard: React.FC<MetricCardProps> = ({
   progressColor = "bg-emerald-500",
   className,
 }) => {
+  const numericProgress = progress !== undefined && progress !== null ? Number(progress) : undefined;
+
   return (
     <Card hover className={clsx("relative overflow-hidden group", className)}>
       <div className="flex items-start justify-between">
@@ -52,19 +54,19 @@ export const MetricCard: React.FC<MetricCardProps> = ({
           <Badge variant={badgeVariant} size="sm">
             {badgeText}
           </Badge>
-          {progress !== undefined && (
+          {numericProgress !== undefined && !isNaN(numericProgress) && (
             <span className="text-xs font-mono text-slate-400">
-              {progress.toFixed(1)}%
+              {numericProgress.toFixed(1)}%
             </span>
           )}
         </div>
       )}
 
-      {progress !== undefined && (
+      {numericProgress !== undefined && !isNaN(numericProgress) && (
         <div className="w-full bg-slate-800 h-1.5 rounded-full mt-3 overflow-hidden">
           <div
             className={`h-full rounded-full transition-all duration-500 ${progressColor}`}
-            style={{ width: `${Math.min(100, Math.max(0, progress))}%` }}
+            style={{ width: `${Math.min(100, Math.max(0, numericProgress))}%` }}
           />
         </div>
       )}

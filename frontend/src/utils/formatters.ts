@@ -1,5 +1,10 @@
-export function formatCurrency(amount: number | undefined | null, currency: string = "VND"): string {
-  if (amount === undefined || amount === null || isNaN(amount)) {
+export function formatCurrency(amount: number | string | undefined | null, currency: string = "VND"): string {
+  if (amount === undefined || amount === null) {
+    return "0 ₫";
+  }
+
+  const num = typeof amount === "number" ? amount : parseFloat(String(amount));
+  if (isNaN(num)) {
     return "0 ₫";
   }
 
@@ -7,14 +12,14 @@ export function formatCurrency(amount: number | undefined | null, currency: stri
     return new Intl.NumberFormat("en-US", {
       style: "currency",
       currency: "USD",
-    }).format(amount);
+    }).format(num);
   }
 
   // Format VND with comma grouping
   return new Intl.NumberFormat("vi-VN", {
     style: "currency",
     currency: "VND",
-  }).format(amount);
+  }).format(num);
 }
 
 export function formatDate(dateString: string | undefined | null, formatStr: string = "dd/MM/yyyy"): string {

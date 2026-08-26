@@ -174,8 +174,8 @@ export const AccountsPage: React.FC = () => {
                       {formatCurrency(acc.latest_statement_balance)}
                     </td>
                     <td className="py-3.5 px-4 text-right font-mono">
-                      <div className={acc.unbilled_net_amount > 0 ? "text-rose-400" : "text-emerald-400"}>
-                        {acc.unbilled_net_amount > 0 ? "+" : ""}
+                      <div className={Number(acc.unbilled_net_amount) > 0 ? "text-rose-400" : "text-emerald-400"}>
+                        {Number(acc.unbilled_net_amount) > 0 ? "+" : ""}
                         {formatCurrency(acc.unbilled_net_amount)}
                       </div>
                       <div className="text-[10px] text-slate-400">

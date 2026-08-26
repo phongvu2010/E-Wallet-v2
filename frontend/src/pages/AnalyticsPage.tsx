@@ -120,7 +120,7 @@ export const AnalyticsPage: React.FC = () => {
                 <div className="w-full bg-slate-800 h-2 rounded-full overflow-hidden">
                   <div
                     className={`h-full rounded-full ${risk.bg}`}
-                    style={{ width: `${Math.min(100, Math.max(0, card.utilization_percentage))}%` }}
+                    style={{ width: `${Math.min(100, Math.max(0, Number(card.utilization_percentage)))}%` }}
                   />
                 </div>
               </div>
