@@ -47,8 +47,11 @@ export const AccountsPage: React.FC = () => {
       ]);
       setAccounts(accRes);
       setLiveBalances(liveRes);
-      if (liveRes.length > 0 && !selectedAcc) {
-        setSelectedAcc(liveRes[0]);
+      const activeBalances = liveRes.filter(
+        (acc) => acc.status !== "CLOSED" && acc.status !== "REPLACED"
+      );
+      if (activeBalances.length > 0 && !selectedAcc) {
+        setSelectedAcc(activeBalances[0]);
       }
     } catch (err) {
       console.error("Error fetching accounts data", err);
@@ -112,14 +115,16 @@ export const AccountsPage: React.FC = () => {
           Thẻ Đang Hoạt Động (Nhấn để chọn đối soát)
         </h3>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {liveBalances.map((acc) => (
-            <CreditCardVisual
-              key={acc.account_id}
-              account={acc}
-              isSelected={selectedAcc?.account_id === acc.account_id}
-              onClick={() => setSelectedAcc(acc)}
-            />
-          ))}
+          {liveBalances
+            .filter((acc) => acc.status !== "CLOSED" && acc.status !== "REPLACED")
+            .map((acc) => (
+              <CreditCardVisual
+                key={acc.account_id}
+                account={acc}
+                isSelected={selectedAcc?.account_id === acc.account_id}
+                onClick={() => setSelectedAcc(acc)}
+              />
+            ))}
         </div>
       </div>
 

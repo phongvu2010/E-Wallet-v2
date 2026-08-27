@@ -37,7 +37,6 @@ services:
   frontend:
     build:
       context: ./frontend
-      dockerfile: Dockerfile
     container_name: credit_wallet_ui
     ports:
       - "3000:80"

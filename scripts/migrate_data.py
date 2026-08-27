@@ -181,7 +181,26 @@ try:
 
     print(f"Migrated {len(account_id_map)} Accounts.")
 
-    # 3. Map Categories
+    # 3. Map & Sync Categories
+    for _, cat_row in df_categories.iterrows():
+        c_p = str(cat_row.get("Category (Cấp 1)", "")).strip()
+        c_sub = str(cat_row.get("Category Detail (Cấp 2)", "")).strip()
+        if c_p and c_sub and c_sub != "None":
+            cur.execute("SELECT id FROM categories WHERE name = %s AND parent_id IS NULL;", (c_p,))
+            p_res = cur.fetchone()
+            if p_res:
+                p_id = p_res[0]
+                cur.execute("SELECT id FROM categories WHERE parent_id = %s AND name = %s;", (p_id, c_sub))
+                if not cur.fetchone():
+                    cur.execute(
+                        """
+                        INSERT INTO categories (parent_id, name, category_type, is_system)
+                        SELECT %s, %s, category_type, TRUE
+                        FROM categories WHERE id = %s;
+                    """,
+                        (p_id, c_sub, p_id),
+                    )
+
     cur.execute("SELECT name, id FROM categories;")
     cat_map = {row[0]: row[1] for row in cur.fetchall()}
 
@@ -357,7 +376,7 @@ try:
 
         cat_str = str(row["Category"]).strip()
         tx_type = "PURCHASE"
-        if cat_det == "Trả góp":
+        if cat_det in ["Trả góp", "Tất toán trả góp"]:
             tx_type = "INSTALLMENT_MONTHLY"
         elif cat_det == "Chuyển đổi sang trả góp":
             tx_type = "INSTALLMENT_PRINCIPAL"
@@ -544,30 +563,53 @@ try:
         base_monthly = round(tot_amt / term, 2)
         accumulated_principal = 0.0
 
+        # Check if plan already exists to ensure idempotency
         cur.execute(
             """
-            INSERT INTO installment_plans (
-                account_id, product_name, start_date, total_amount, conversion_fee,
-                interest_rate_percent, term_months, monthly_principal, monthly_payment,
-                remaining_balance, status
-            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-            RETURNING id;
+            SELECT id FROM installment_plans 
+            WHERE account_id = %s AND product_name = %s AND start_date = %s;
         """,
-            (
-                acc_id,
-                p_name,
-                t_date,
-                tot_amt,
-                conv_fee,
-                0.0,
-                term,
-                base_monthly,
-                base_monthly,
-                0.0 if status == "COMPLETED" else tot_amt,
-                status,
-            ),
+            (acc_id, p_name, t_date),
         )
-        plan_id = cur.fetchone()[0]
+        plan_res = cur.fetchone()
+        if plan_res:
+            plan_id = plan_res[0]
+            cur.execute("DELETE FROM installment_schedules WHERE installment_plan_id = %s;", (plan_id,))
+            cur.execute(
+                """
+                UPDATE installment_plans SET
+                    total_amount = %s, conversion_fee = %s, term_months = %s,
+                    monthly_principal = %s, monthly_payment = %s,
+                    status = %s, remaining_balance = %s
+                WHERE id = %s;
+            """,
+                (tot_amt, conv_fee, term, base_monthly, base_monthly, status, 0.0 if status in ["COMPLETED", "EARLY_SETTLED"] else tot_amt, plan_id),
+            )
+        else:
+            cur.execute(
+                """
+                INSERT INTO installment_plans (
+                    account_id, product_name, start_date, total_amount, conversion_fee,
+                    interest_rate_percent, term_months, monthly_principal, monthly_payment,
+                    remaining_balance, status
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                RETURNING id;
+            """,
+                (
+                    acc_id,
+                    p_name,
+                    t_date,
+                    tot_amt,
+                    conv_fee,
+                    0.0,
+                    term,
+                    base_monthly,
+                    base_monthly,
+                    0.0 if status in ["COMPLETED", "EARLY_SETTLED"] else tot_amt,
+                    status,
+                ),
+            )
+            plan_id = cur.fetchone()[0]
 
         for i in range(1, term + 1):
             if i == term:
@@ -611,31 +653,168 @@ try:
             (plan_id, acc_id, f"%{p_name}%", f"%{p_name}%"),
         )
 
-        # Link monthly transactions to installment_schedules & override with actual billed amount from bank statement
+        # Check if there is an early settlement transaction linked to this plan
         cur.execute(
             """
-            WITH tx_seq AS (
-                SELECT id, statement_id, total_amount, transaction_date,
-                       ROW_NUMBER() OVER (ORDER BY transaction_date ASC) as seq
-                FROM transactions
-                WHERE installment_plan_id = %s AND transaction_type = 'INSTALLMENT_MONTHLY'
-            ),
-            sch_seq AS (
-                SELECT id, installment_index,
-                       ROW_NUMBER() OVER (ORDER BY installment_index ASC) as seq
-                FROM installment_schedules
-                WHERE installment_plan_id = %s
-            )
-            UPDATE installment_schedules s
-            SET statement_id = t.statement_id,
-                total_installment_amount = t.total_amount,
-                is_billed = TRUE
-            FROM tx_seq t
-            JOIN sch_seq sch ON t.seq = sch.seq
-            WHERE s.id = sch.id;
+            SELECT id, statement_id, total_amount, transaction_date
+            FROM transactions
+            WHERE installment_plan_id = %s 
+              AND transaction_type = 'INSTALLMENT_MONTHLY'
+              AND (
+                category_id = (SELECT id FROM categories WHERE name = 'Tất toán trả góp' LIMIT 1)
+                OR note ILIKE '%%tất toán%%' 
+                OR raw_description ILIKE '%%tất toán%%'
+              )
+            ORDER BY transaction_date DESC
+            LIMIT 1;
         """,
-            (plan_id, plan_id),
+            (plan_id,),
         )
+        settle_res = cur.fetchone()
+
+        if settle_res or status == "EARLY_SETTLED":
+            if settle_res:
+                settle_tx_id, settle_stmt_id, settle_amt, settle_date = settle_res
+                # 1. Map normal monthly installments prior to settlement date
+                cur.execute(
+                    """
+                    WITH tx_seq AS (
+                        SELECT id, statement_id, total_amount, transaction_date,
+                               ROW_NUMBER() OVER (ORDER BY transaction_date ASC) as seq
+                        FROM transactions
+                        WHERE installment_plan_id = %s 
+                          AND transaction_type = 'INSTALLMENT_MONTHLY'
+                          AND id != %s
+                          AND transaction_date <= %s
+                    ),
+                    sch_seq AS (
+                        SELECT id, installment_index,
+                               ROW_NUMBER() OVER (ORDER BY installment_index ASC) as seq
+                        FROM installment_schedules
+                        WHERE installment_plan_id = %s
+                    )
+                    UPDATE installment_schedules s
+                    SET statement_id = t.statement_id,
+                        total_installment_amount = t.total_amount,
+                        is_billed = TRUE
+                    FROM tx_seq t
+                    JOIN sch_seq sch ON t.seq = sch.seq
+                    WHERE s.id = sch.id;
+                """,
+                    (plan_id, settle_tx_id, settle_date, plan_id),
+                )
+
+                cur.execute(
+                    """
+                    SELECT COUNT(*) FROM transactions
+                    WHERE installment_plan_id = %s 
+                      AND transaction_type = 'INSTALLMENT_MONTHLY'
+                      AND id != %s
+                      AND transaction_date <= %s;
+                """,
+                    (plan_id, settle_tx_id, settle_date),
+                )
+                normal_count = cur.fetchone()[0]
+
+                # 2. All remaining schedules from (normal_count + 1) to term were settled by this early settlement transaction
+                cur.execute(
+                    """
+                    UPDATE installment_schedules
+                    SET statement_id = %s,
+                        is_billed = TRUE
+                    WHERE installment_plan_id = %s 
+                      AND installment_index > %s;
+                """,
+                    (settle_stmt_id, plan_id, normal_count),
+                )
+            else:
+                cur.execute(
+                    """
+                    UPDATE installment_schedules
+                    SET is_billed = TRUE
+                    WHERE installment_plan_id = %s;
+                """,
+                    (plan_id,),
+                )
+
+            # Ensure remaining balance is 0 and status is EARLY_SETTLED
+            cur.execute(
+                """
+                UPDATE installment_plans
+                SET remaining_balance = 0.00,
+                    status = 'EARLY_SETTLED'
+                WHERE id = %s;
+            """,
+                (plan_id,),
+            )
+        elif status == "COMPLETED":
+            cur.execute(
+                """
+                WITH tx_seq AS (
+                    SELECT id, statement_id, total_amount, transaction_date,
+                           ROW_NUMBER() OVER (ORDER BY transaction_date ASC) as seq
+                    FROM transactions
+                    WHERE installment_plan_id = %s AND transaction_type = 'INSTALLMENT_MONTHLY'
+                ),
+                sch_seq AS (
+                    SELECT id, installment_index,
+                           ROW_NUMBER() OVER (ORDER BY installment_index ASC) as seq
+                    FROM installment_schedules
+                    WHERE installment_plan_id = %s
+                )
+                UPDATE installment_schedules s
+                SET statement_id = t.statement_id,
+                    total_installment_amount = t.total_amount,
+                    is_billed = TRUE
+                FROM tx_seq t
+                JOIN sch_seq sch ON t.seq = sch.seq
+                WHERE s.id = sch.id;
+            """,
+                (plan_id, plan_id),
+            )
+            cur.execute(
+                """
+                UPDATE installment_schedules
+                SET is_billed = TRUE
+                WHERE installment_plan_id = %s;
+            """,
+                (plan_id,),
+            )
+            cur.execute(
+                """
+                UPDATE installment_plans
+                SET remaining_balance = 0.00,
+                    status = 'COMPLETED'
+                WHERE id = %s;
+            """,
+                (plan_id,),
+            )
+        else:
+            # Active plan: sequentially map billed transactions
+            cur.execute(
+                """
+                WITH tx_seq AS (
+                    SELECT id, statement_id, total_amount, transaction_date,
+                           ROW_NUMBER() OVER (ORDER BY transaction_date ASC) as seq
+                    FROM transactions
+                    WHERE installment_plan_id = %s AND transaction_type = 'INSTALLMENT_MONTHLY'
+                ),
+                sch_seq AS (
+                    SELECT id, installment_index,
+                           ROW_NUMBER() OVER (ORDER BY installment_index ASC) as seq
+                    FROM installment_schedules
+                    WHERE installment_plan_id = %s
+                )
+                UPDATE installment_schedules s
+                SET statement_id = t.statement_id,
+                    total_installment_amount = t.total_amount,
+                    is_billed = TRUE
+                FROM tx_seq t
+                JOIN sch_seq sch ON t.seq = sch.seq
+                WHERE s.id = sch.id;
+            """,
+                (plan_id, plan_id),
+            )
 
     print(
         f"Migrated {len(df_instalments)} Installment Plans with dynamic term resolution & statement override."

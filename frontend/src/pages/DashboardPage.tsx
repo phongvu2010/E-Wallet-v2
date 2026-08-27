@@ -156,7 +156,7 @@ export const DashboardPage: React.FC = () => {
           <div>
             <h3 className="text-lg font-bold text-slate-100 flex items-center gap-2">
               <CreditCard className="w-5 h-5 text-emerald-400" />
-              <span>Danh Sách Thẻ Tín Dụng ({accounts.length})</span>
+              <span>Danh Sách Thẻ Tín Dụng ({accounts.filter((acc) => acc.status !== "CLOSED" && acc.status !== "REPLACED").length})</span>
             </h3>
             <p className="text-xs text-slate-400 mt-0.5">
               Nhấn vào từng thẻ để xem chi tiết hạn mức và giao dịch
@@ -171,16 +171,18 @@ export const DashboardPage: React.FC = () => {
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {accounts.map((acc) => (
-            <CreditCardVisual key={acc.account_id} account={acc} />
-          ))}
+          {accounts
+            .filter((acc) => acc.status !== "CLOSED" && acc.status !== "REPLACED")
+            .map((acc) => (
+              <CreditCardVisual key={acc.account_id} account={acc} />
+            ))}
         </div>
       </div>
 
       {/* 4. Charts & Upcoming Obligations Row */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Monthly Spending Donut Chart */}
-        <Card className="lg:col-span-1 flex flex-col justify-between">
+        <Card className="lg:col-span-1 flex flex-col h-full">
           <div className="flex items-center justify-between border-b border-slate-800 pb-3 mb-2">
             <h3 className="text-sm font-bold text-slate-100 flex items-center gap-2">
               <PieIcon className="w-4 h-4 text-emerald-400" />
@@ -201,7 +203,7 @@ export const DashboardPage: React.FC = () => {
         </Card>
 
         {/* Upcoming Payment Obligations */}
-        <Card className="lg:col-span-2 flex flex-col justify-between">
+        <Card className="lg:col-span-2 flex flex-col h-full">
           <div className="flex items-center justify-between border-b border-slate-800 pb-3 mb-4">
             <div>
               <h3 className="text-sm font-bold text-slate-100 flex items-center gap-2">
@@ -228,7 +230,7 @@ export const DashboardPage: React.FC = () => {
               Không có khoản nợ sao kê hoặc trả góp nào đến hạn trong 30 ngày tới
             </div>
           ) : (
-            <div className="space-y-3 max-h-72 overflow-y-auto pr-1">
+            <div className="space-y-3 max-h-72 overflow-y-auto pr-1 flex-1">
               {obligations.slice(0, 4).map((ob, idx) => (
                 <ObligationCard key={idx} obligation={ob} />
               ))}

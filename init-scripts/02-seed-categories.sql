@@ -26,6 +26,7 @@ INSERT INTO categories (parent_id, name, category_type, icon, is_system) VALUES
 ('0666944e-3e4a-4be6-9333-18ebaf270e2e', 'Du lịch', 'EXPENSE', 'map-pin', TRUE),
 ('0666944e-3e4a-4be6-9333-18ebaf270e2e', 'Di chuyển & Vận tải', 'EXPENSE', 'truck', TRUE),
 ('0666944e-3e4a-4be6-9333-18ebaf270e2e', 'Trả góp', 'EXPENSE', 'clock', TRUE),
+('0666944e-3e4a-4be6-9333-18ebaf270e2e', 'Tất toán trả góp', 'EXPENSE', 'check-circle-2', TRUE),
 ('0666944e-3e4a-4be6-9333-18ebaf270e2e', 'Chi tiêu khác', 'EXPENSE', 'more-horizontal', TRUE),
 
 -- Thanh toán

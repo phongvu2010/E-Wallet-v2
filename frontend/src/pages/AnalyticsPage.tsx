@@ -91,7 +91,15 @@ export const AnalyticsPage: React.FC = () => {
           </div>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className={`grid grid-cols-1 sm:grid-cols-2 gap-4 ${
+          utilization.length === 1
+            ? "lg:grid-cols-1"
+            : utilization.length === 2
+            ? "lg:grid-cols-2"
+            : utilization.length === 3
+            ? "lg:grid-cols-3"
+            : "lg:grid-cols-4"
+        }`}>
           {utilization.map((card) => {
             const risk = getRiskLevelColor(card.risk_level);
             return (
@@ -131,7 +139,7 @@ export const AnalyticsPage: React.FC = () => {
 
       {/* 3. Category Spending Breakdown */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <Card className="lg:col-span-1">
+        <Card className="lg:col-span-1 flex flex-col h-full">
           <h3 className="text-sm font-bold text-slate-100 flex items-center gap-2 border-b border-slate-800 pb-3 mb-4">
             <PieChart className="w-4 h-4 text-emerald-400" />
             <span>Phân Bổ Theo Nhóm Danh Mục</span>

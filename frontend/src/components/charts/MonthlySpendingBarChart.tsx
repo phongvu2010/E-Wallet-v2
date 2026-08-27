@@ -53,6 +53,7 @@ export const MonthlySpendingBarChart: React.FC<MonthlySpendingBarChartProps> = (
             tickFormatter={(val) => `${(val / 1000000).toFixed(0)}Tr`}
           />
           <Tooltip
+            cursor={{ fill: "#1e293b", opacity: 0.4 }}
             content={({ active, payload }) => {
               if (active && payload && payload.length) {
                 const item = payload[0].payload;
