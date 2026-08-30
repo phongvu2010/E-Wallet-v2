@@ -9,43 +9,18 @@ import { Select } from "../components/common/Select";
 import { Spinner } from "../components/common/Spinner";
 import { formatCurrency, formatDate } from "../utils/formatters";
 import { Gift, Sparkles, AlertCircle, Coins, Award } from "lucide-react";
+import { useAccounts, useRewards } from "../hooks/useFinanceQueries";
 
 export const RewardsPage: React.FC = () => {
-  const [loading, setLoading] = useState(true);
-  const [rewards, setRewards] = useState<RewardLedger[]>([]);
-  const [accounts, setAccounts] = useState<Account[]>([]);
   const [selectedAccountId, setSelectedAccountId] = useState<string>("");
 
-  useEffect(() => {
-    fetchInitial();
-  }, []);
+  const { data: accounts = [] } = useAccounts();
+  const {
+    data: rewards = [],
+    isLoading: rewardsLoading,
+  } = useRewards(selectedAccountId || undefined);
 
-  useEffect(() => {
-    fetchRewards();
-  }, [selectedAccountId]);
-
-  const fetchInitial = async () => {
-    try {
-      const res = await accountService.getAll();
-      setAccounts(res);
-    } catch (err) {
-      console.error("Error loading accounts", err);
-    }
-  };
-
-  const fetchRewards = async () => {
-    setLoading(true);
-    try {
-      const res = await rewardService.getAll(selectedAccountId || undefined);
-      setRewards(res);
-    } catch (err) {
-      console.error("Error loading rewards", err);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  if (loading) {
+  if (rewardsLoading && rewards.length === 0) {
     return (
       <div className="h-[60vh] flex flex-col items-center justify-center gap-3">
         <Spinner size="lg" />

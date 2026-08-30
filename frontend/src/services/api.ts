@@ -9,8 +9,8 @@ export const api = axios.create({
 });
 
 api.interceptors.response.use(
-  (response) => response,
-  (error) => {
+  (response: any) => response,
+  (error: any) => {
     const message =
       error.response?.data?.detail ||
       error.response?.data?.message ||

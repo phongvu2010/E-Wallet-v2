@@ -36,17 +36,20 @@ import {
   RefreshCw,
   AlertTriangle,
 } from "lucide-react";
+import {
+  useAccounts,
+  useCategories,
+  useTransactions,
+  useTransactionSummary,
+} from "../hooks/useFinanceQueries";
+import {
+  useCreateTransaction,
+  useDeleteTransaction,
+} from "../hooks/useFinanceMutations";
+import { useToast } from "../context/ToastContext";
 
 export const TransactionsPage: React.FC = () => {
-  const [loading, setLoading] = useState(true);
-  const [transactions, setTransactions] = useState<Transaction[]>([]);
-  const [totalCount, setTotalCount] = useState(0);
-  const [totalPages, setTotalPages] = useState(1);
-  const [summary, setSummary] = useState<TransactionSummary | null>(null);
-
-  // Reference lists
-  const [accounts, setAccounts] = useState<Account[]>([]);
-  const [categories, setCategories] = useState<Category[]>([]);
+  const { toast } = useToast();
 
   // Filter state
   const [page, setPage] = useState(1);
@@ -57,7 +60,37 @@ export const TransactionsPage: React.FC = () => {
   const [startDate, setStartDate] = useState<string>("");
   const [endDate, setEndDate] = useState<string>("");
 
-  // Create Modal State
+  // Cached Queries
+  const { data: accounts = [] } = useAccounts();
+  const { data: categories = [] } = useCategories();
+
+  const filterParams: TransactionFilterParams = {
+    page,
+    page_size: pageSize,
+    account_id: selectedAccountId || undefined,
+    transaction_type: (selectedType as TransactionType) || undefined,
+    start_date: startDate || undefined,
+    end_date: endDate || undefined,
+    search: search || undefined,
+  };
+
+  const {
+    data: txData,
+    isLoading: loading,
+    refetch: refetchTransactions,
+  } = useTransactions(filterParams);
+
+  const { data: summary } = useTransactionSummary(selectedAccountId || undefined);
+
+  const transactions = txData?.items || [];
+  const totalCount = txData?.total || 0;
+  const totalPages = txData?.total_pages || 1;
+
+  // Mutations
+  const createMutation = useCreateTransaction();
+  const deleteMutation = useDeleteTransaction();
+
+  // Create Modal State & Validation
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [newAccountId, setNewAccountId] = useState("");
   const [newDate, setNewDate] = useState(new Date().toISOString().split("T")[0]);
@@ -67,71 +100,19 @@ export const TransactionsPage: React.FC = () => {
   const [newFee, setNewFee] = useState("0");
   const [newCategoryId, setNewCategoryId] = useState("");
   const [newNote, setNewNote] = useState("");
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [createErrors, setCreateErrors] = useState<Record<string, string>>({});
 
+  // Ensure default account selected when accounts load
   useEffect(() => {
-    fetchInitialRefs();
-  }, []);
-
-  useEffect(() => {
-    fetchTransactions();
-    fetchSummary();
-  }, [page, selectedAccountId, selectedType, startDate, endDate]);
-
-  const fetchInitialRefs = async () => {
-    try {
-      const [accRes, catRes] = await Promise.all([
-        accountService.getAll(),
-        categoryService.getAll(),
-      ]);
-      setAccounts(accRes);
-      setCategories(catRes);
-      if (accRes.length > 0) {
-        setNewAccountId(accRes[0].id);
-      }
-    } catch (err) {
-      console.error("Error loading references", err);
+    if (accounts.length > 0 && !newAccountId) {
+      setNewAccountId(accounts[0].id);
     }
-  };
-
-  const fetchTransactions = async () => {
-    setLoading(true);
-    try {
-      const params: TransactionFilterParams = {
-        page,
-        page_size: pageSize,
-        account_id: selectedAccountId || undefined,
-        transaction_type: (selectedType as TransactionType) || undefined,
-        start_date: startDate || undefined,
-        end_date: endDate || undefined,
-        search: search || undefined,
-      };
-      const res = await transactionService.getFiltered(params);
-      setTransactions(res.items);
-      setTotalCount(res.total);
-      setTotalPages(res.total_pages);
-    } catch (err) {
-      console.error("Error fetching transactions", err);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const fetchSummary = async () => {
-    try {
-      const res = await transactionService.getSummary(
-        selectedAccountId || undefined
-      );
-      setSummary(res);
-    } catch (err) {
-      console.error("Error fetching summary", err);
-    }
-  };
+  }, [accounts, newAccountId]);
 
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setPage(1);
-    fetchTransactions();
+    refetchTransactions();
   };
 
   const handleResetFilters = () => {
@@ -143,49 +124,69 @@ export const TransactionsPage: React.FC = () => {
     setPage(1);
   };
 
+  const validateCreateForm = () => {
+    const errors: Record<string, string> = {};
+    if (!newAccountId) {
+      errors.account_id = "Vui lòng chọn tài khoản / thẻ tín dụng";
+    }
+    if (!newDate) {
+      errors.transaction_date = "Vui lòng chọn ngày giao dịch";
+    }
+    if (!newDesc.trim()) {
+      errors.raw_description = "Vui lòng nhập nội dung / tên đơn vị chấp nhận thẻ";
+    }
+    const amt = parseFloat(newAmount);
+    if (!newAmount || isNaN(amt) || amt <= 0) {
+      errors.amount = "Số tiền giao dịch phải lớn hơn 0 VNĐ";
+    }
+    const fee = parseFloat(newFee);
+    if (newFee && (isNaN(fee) || fee < 0)) {
+      errors.fee = "Phí giao dịch không thể là số âm";
+    }
+    setCreateErrors(errors);
+    return Object.keys(errors).length === 0;
+  };
+
   const handleCreateTransaction = async (e: React.FormEvent) => {
     e.preventDefault();
-    setIsSubmitting(true);
+    if (!validateCreateForm()) return;
+
     try {
       const parsedAmount = parseFloat(newAmount) || 0;
       const parsedFee = parseFloat(newFee) || 0;
 
-      await transactionService.create({
+      await createMutation.mutateAsync({
         account_id: newAccountId,
         transaction_date: newDate,
-        raw_description: newDesc,
+        raw_description: newDesc.trim(),
         transaction_type: newType,
         amount: parsedAmount,
         fee: parsedFee,
         total_amount: parsedAmount + parsedFee,
         category_id: newCategoryId || undefined,
-        note: newNote || undefined,
+        note: newNote ? newNote.trim() : undefined,
       });
 
+      toast.success("Tạo giao dịch mới thành công!");
       setIsCreateOpen(false);
       // Reset form
       setNewDesc("");
       setNewAmount("");
       setNewFee("0");
       setNewNote("");
-      // Reload list
-      fetchTransactions();
-      fetchSummary();
-    } catch (err) {
-      console.error("Error creating transaction", err);
-    } finally {
-      setIsSubmitting(false);
+      setCreateErrors({});
+    } catch (err: any) {
+      toast.error(`Lỗi tạo giao dịch: ${err.message}`);
     }
   };
 
   const handleDeleteTransaction = async (id: string) => {
     if (!window.confirm("Bạn có chắc chắn muốn xóa giao dịch này?")) return;
     try {
-      await transactionService.delete(id);
-      fetchTransactions();
-      fetchSummary();
-    } catch (err) {
-      console.error("Error deleting transaction", err);
+      await deleteMutation.mutateAsync(id);
+      toast.success("Đã xóa giao dịch thành công!");
+    } catch (err: any) {
+      toast.error(`Lỗi khi xóa giao dịch: ${err.message}`);
     }
   };
 
@@ -474,7 +475,11 @@ export const TransactionsPage: React.FC = () => {
             <Select
               label="Tài Khoản / Thẻ"
               value={newAccountId}
-              onChange={(e) => setNewAccountId(e.target.value)}
+              onChange={(e) => {
+                setNewAccountId(e.target.value);
+                if (createErrors.account_id) setCreateErrors((prev) => ({ ...prev, account_id: "" }));
+              }}
+              error={createErrors.account_id}
               options={accounts.map((a) => ({
                 value: a.id,
                 label: `${a.account_name} (${a.card_number_last4})${
@@ -494,7 +499,11 @@ export const TransactionsPage: React.FC = () => {
               label="Ngày Giao Dịch"
               type="date"
               value={newDate}
-              onChange={(e) => setNewDate(e.target.value)}
+              onChange={(e) => {
+                setNewDate(e.target.value);
+                if (createErrors.transaction_date) setCreateErrors((prev) => ({ ...prev, transaction_date: "" }));
+              }}
+              error={createErrors.transaction_date}
               required
             />
           </div>
@@ -510,7 +519,11 @@ export const TransactionsPage: React.FC = () => {
             label="Nội Dung / Đơn Vị Chấp Nhận Thẻ"
             placeholder="VD: STARBUCKS NGUYEN THI MINH KHAI"
             value={newDesc}
-            onChange={(e) => setNewDesc(e.target.value)}
+            onChange={(e) => {
+              setNewDesc(e.target.value);
+              if (createErrors.raw_description) setCreateErrors((prev) => ({ ...prev, raw_description: "" }));
+            }}
+            error={createErrors.raw_description}
             required
           />
 
@@ -545,19 +558,34 @@ export const TransactionsPage: React.FC = () => {
           </div>
 
           <div className="grid grid-cols-2 gap-3">
-            <Input
-              label="Số Tiền (VNĐ)"
-              type="number"
-              placeholder="VD: 150000"
-              value={newAmount}
-              onChange={(e) => setNewAmount(e.target.value)}
-              required
-            />
+            <div>
+              <Input
+                label="Số Tiền (VNĐ)"
+                type="number"
+                placeholder="VD: 150000"
+                value={newAmount}
+                onChange={(e) => {
+                  setNewAmount(e.target.value);
+                  if (createErrors.amount) setCreateErrors((prev) => ({ ...prev, amount: "" }));
+                }}
+                error={createErrors.amount}
+                required
+              />
+              {newAmount && !createErrors.amount && parseFloat(newAmount) > 0 && (
+                <p className="mt-1 text-[11px] text-emerald-400 font-mono">
+                  ≈ {Number(newAmount).toLocaleString("vi-VN")} ₫
+                </p>
+              )}
+            </div>
             <Input
               label="Phí Đi Kèm (VNĐ)"
               type="number"
               value={newFee}
-              onChange={(e) => setNewFee(e.target.value)}
+              onChange={(e) => {
+                setNewFee(e.target.value);
+                if (createErrors.fee) setCreateErrors((prev) => ({ ...prev, fee: "" }));
+              }}
+              error={createErrors.fee}
             />
           </div>
 
@@ -582,7 +610,11 @@ export const TransactionsPage: React.FC = () => {
             >
               Hủy
             </Button>
-            <Button type="submit" variant="primary" isLoading={isSubmitting}>
+            <Button
+              type="submit"
+              variant="primary"
+              isLoading={createMutation.isLoading}
+            >
               Tạo Giao Dịch
             </Button>
           </div>

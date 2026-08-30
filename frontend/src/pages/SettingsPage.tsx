@@ -15,47 +15,42 @@ import {
   Terminal,
 } from "lucide-react";
 
+import { useCategoryTree } from "../hooks/useFinanceQueries";
+import { useToast } from "../context/ToastContext";
+import { useQueryClient } from "../providers/QueryProvider";
+
 export const SettingsPage: React.FC = () => {
-  const [categories, setCategories] = useState<CategoryTreeNode[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { data: categories = [], isLoading: catLoading } = useCategoryTree();
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
 
   // ETL Sync state
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncOutput, setSyncOutput] = useState<string>("");
   const [syncStatus, setSyncStatus] = useState<"idle" | "success" | "error">("idle");
 
-  useEffect(() => {
-    fetchCategories();
-  }, []);
-
-  const fetchCategories = async () => {
-    setLoading(true);
-    try {
-      const res = await categoryService.getTree();
-      setCategories(res);
-    } catch (err) {
-      console.error("Error loading categories", err);
-    } finally {
-      setLoading(false);
-    }
-  };
-
   const handleTriggerSync = async () => {
     setIsSyncing(true);
     setSyncStatus("idle");
     setSyncOutput("Bắt đầu thực thi ETL Migration script từ Excel và PDF...");
+    toast.info("Đang chạy đồng bộ dữ liệu sao kê...");
     try {
       const res = await etlService.sync();
       if (res.success) {
         setSyncStatus("success");
         setSyncOutput(res.data.output || "Đồng bộ thành công!");
+        toast.success("Đồng bộ dữ liệu ETL thành công!");
+        // Automatically refresh all cached queries across the app
+        queryClient.invalidateQueries();
       } else {
         setSyncStatus("error");
         setSyncOutput(res.message + "\n" + (res.data.output || ""));
+        toast.error(`Đồng bộ thất bại: ${res.message}`);
       }
     } catch (err: any) {
       setSyncStatus("error");
       setSyncOutput(`Lỗi thực thi: ${err.message}`);
+      toast.error(`Lỗi thực thi: ${err.message}`);
     } finally {
       setIsSyncing(false);
     }
@@ -123,7 +118,7 @@ export const SettingsPage: React.FC = () => {
           </div>
         </div>
 
-        {loading ? (
+        {catLoading && categories.length === 0 ? (
           <div className="h-40 flex items-center justify-center">
             <Spinner />
           </div>

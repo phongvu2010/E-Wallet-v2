@@ -18,72 +18,73 @@ import {
   Percent,
   Check,
 } from "lucide-react";
+import { useInstallments, useInstallmentForecast } from "../hooks/useFinanceQueries";
+import { useEarlySettleInstallment } from "../hooks/useFinanceMutations";
+import { useToast } from "../context/ToastContext";
 
 export const InstallmentsPage: React.FC = () => {
-  const [loading, setLoading] = useState(true);
-  const [plans, setPlans] = useState<InstallmentPlan[]>([]);
-  const [forecast, setForecast] = useState<InstallmentForecast[]>([]);
-  const [selectedPlan, setSelectedPlan] = useState<InstallmentPlan | null>(null);
+  const { data: plans = [], isLoading: plansLoading } = useInstallments();
+  const { data: forecast = [] } = useInstallmentForecast();
+  const [selectedPlanId, setSelectedPlanId] = useState<string | null>(null);
 
-  // Early Settle Modal
+  const { toast } = useToast();
+  const earlySettleMutation = useEarlySettleInstallment();
+
+  // Early Settle Modal State & Validation
   const [isEarlySettleOpen, setIsEarlySettleOpen] = useState(false);
   const [settlePlanId, setSettlePlanId] = useState<string | null>(null);
   const [settlePlanName, setSettlePlanName] = useState<string>("");
   const [settleFeePercent, setSettleFeePercent] = useState<string>("2.0");
   const [settleCustomFee, setSettleCustomFee] = useState<string>("");
-  const [isSettling, setIsSettling] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
 
-  useEffect(() => {
-    fetchInstallmentData();
-  }, []);
-
-  const fetchInstallmentData = async () => {
-    setLoading(true);
-    try {
-      const [plansRes, forecastRes] = await Promise.all([
-        installmentService.getAll(),
-        installmentService.getForecast(),
-      ]);
-      setPlans(plansRes);
-      setForecast(forecastRes);
-      if (plansRes.length > 0 && !selectedPlan) {
-        setSelectedPlan(plansRes[0]);
-      }
-    } catch (err) {
-      console.error("Error fetching installment data", err);
-    } finally {
-      setLoading(false);
-    }
-  };
+  const selectedPlan =
+    plans.find((p) => p.id === selectedPlanId) || (plans.length > 0 ? plans[0] : null);
 
   const handleOpenEarlySettle = (plan: InstallmentPlan) => {
     setSettlePlanId(plan.id);
     setSettlePlanName(plan.product_name);
     setSettleFeePercent("2.0");
     setSettleCustomFee("");
+    setFormError(null);
     setIsEarlySettleOpen(true);
   };
 
   const handleExecuteEarlySettle = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!settlePlanId) return;
-    setIsSettling(true);
+
+    // Validate fee inputs
+    const feePct = parseFloat(settleFeePercent);
+    if (isNaN(feePct) || feePct < 0 || feePct > 100) {
+      setFormError("Phí phạt tất toán (%) phải từ 0% đến 100%");
+      return;
+    }
+    if (settleCustomFee) {
+      const customFeeNum = parseFloat(settleCustomFee);
+      if (isNaN(customFeeNum) || customFeeNum < 0) {
+        setFormError("Phí tùy chỉnh không thể là số âm");
+        return;
+      }
+    }
+
+    setFormError(null);
     try {
-      await installmentService.earlySettle(settlePlanId, {
-        fee_percent: parseFloat(settleFeePercent) || 2.0,
-        custom_fee: settleCustomFee ? parseFloat(settleCustomFee) : undefined,
+      await earlySettleMutation.mutateAsync({
+        planId: settlePlanId,
+        payload: {
+          fee_percent: feePct,
+          custom_fee: settleCustomFee ? parseFloat(settleCustomFee) : undefined,
+        },
       });
-      alert(`Đã tất toán thành công gói trả góp "${settlePlanName}"!`);
+      toast.success(`Đã tất toán thành công gói trả góp "${settlePlanName}"!`);
       setIsEarlySettleOpen(false);
-      await fetchInstallmentData();
     } catch (err: any) {
-      alert(`Lỗi khi tất toán: ${err.message}`);
-    } finally {
-      setIsSettling(false);
+      toast.error(`Lỗi khi tất toán: ${err.message}`);
     }
   };
 
-  if (loading) {
+  if (plansLoading && plans.length === 0) {
     return (
       <div className="h-[60vh] flex flex-col items-center justify-center gap-3">
         <Spinner size="lg" />
@@ -275,6 +276,12 @@ export const InstallmentsPage: React.FC = () => {
             />
           </div>
 
+          {formError && (
+            <div className="p-2.5 bg-rose-500/10 border border-rose-500/20 rounded-xl text-xs text-rose-400 font-medium">
+              {formError}
+            </div>
+          )}
+
           <div className="flex justify-end gap-3 pt-4 border-t border-slate-800">
             <Button
               type="button"
@@ -283,7 +290,11 @@ export const InstallmentsPage: React.FC = () => {
             >
               Hủy
             </Button>
-            <Button type="submit" variant="danger" isLoading={isSettling}>
+            <Button
+              type="submit"
+              variant="danger"
+              isLoading={earlySettleMutation.isLoading}
+            >
               Xác nhận Tất Toán
             </Button>
           </div>

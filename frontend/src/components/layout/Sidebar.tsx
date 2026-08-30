@@ -71,7 +71,7 @@ export const Sidebar: React.FC<{ isOpen: boolean; onClose: () => void }> = ({
               key={item.path}
               to={item.path}
               onClick={onClose}
-              className={({ isActive }) =>
+              className={({ isActive }: { isActive: boolean }) =>
                 clsx(
                   "flex items-center gap-3.5 px-3.5 py-2.5 rounded-xl text-sm font-medium transition-all duration-200",
                   isActive

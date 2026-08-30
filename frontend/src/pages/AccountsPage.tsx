@@ -18,80 +18,75 @@ import {
   AlertCircle,
   CheckCircle2,
 } from "lucide-react";
+import { useAccounts, useAccountLiveBalances } from "../hooks/useFinanceQueries";
+import { useUpdateAccount, useUpdateAccountStatus } from "../hooks/useFinanceMutations";
+import { useToast } from "../context/ToastContext";
 
 export const AccountsPage: React.FC = () => {
-  const [loading, setLoading] = useState(true);
-  const [accounts, setAccounts] = useState<Account[]>([]);
-  const [liveBalances, setLiveBalances] = useState<AccountLiveBalance[]>([]);
-  const [selectedAcc, setSelectedAcc] = useState<AccountLiveBalance | null>(null);
+  const { data: accounts = [], isLoading: accountsLoading } = useAccounts();
+  const { data: liveBalances = [], isLoading: liveBalancesLoading } = useAccountLiveBalances();
+  const [selectedAccId, setSelectedAccId] = useState<string | null>(null);
+
+  const { toast } = useToast();
+  const updateMutation = useUpdateAccount();
+  const statusMutation = useUpdateAccountStatus();
 
   // Status Filter State
   const [statusFilter, setStatusFilter] = useState<"ALL" | "ACTIVE" | "LOCKED" | "OTHER">("ALL");
 
-  // Edit Modal State
+  // Edit Modal State & Validation
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [editAccountId, setEditAccountId] = useState<string | null>(null);
   const [editLimit, setEditLimit] = useState<string>("");
   const [editNote, setEditNote] = useState<string>("");
   const [editStatus, setEditStatus] = useState<AccountStatus>("ACTIVE");
-  const [isUpdating, setIsUpdating] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
 
   // Quick Toggle / Confirm Modal State
   const [isConfirmOpen, setIsConfirmOpen] = useState(false);
   const [targetAccount, setTargetAccount] = useState<Account | null>(null);
   const [targetNewStatus, setTargetNewStatus] = useState<AccountStatus>("LOCKED");
-  const [isTogglingStatus, setIsTogglingStatus] = useState(false);
 
-  useEffect(() => {
-    fetchAccountsData();
-  }, []);
+  const activeBalances = liveBalances.filter(
+    (acc) => acc.status !== "CLOSED" && acc.status !== "REPLACED"
+  );
 
-  const fetchAccountsData = async () => {
-    setLoading(true);
-    try {
-      const [accRes, liveRes] = await Promise.all([
-        accountService.getAll(),
-        accountService.getLiveBalances(),
-      ]);
-      setAccounts(accRes);
-      setLiveBalances(liveRes);
-      const activeBalances = liveRes.filter(
-        (acc) => acc.status !== "CLOSED" && acc.status !== "REPLACED"
-      );
-      if (activeBalances.length > 0 && !selectedAcc) {
-        setSelectedAcc(activeBalances[0]);
-      }
-    } catch (err) {
-      console.error("Error fetching accounts data", err);
-    } finally {
-      setLoading(false);
-    }
-  };
+  const selectedAcc =
+    liveBalances.find((acc) => acc.account_id === selectedAccId) ||
+    (activeBalances.length > 0 ? activeBalances[0] : null);
 
   const handleOpenEdit = (acc: Account) => {
     setEditAccountId(acc.id);
     setEditLimit(String(acc.credit_limit));
     setEditNote(acc.note || "");
     setEditStatus(acc.status);
+    setEditError(null);
     setIsEditOpen(true);
   };
 
   const handleSaveEdit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editAccountId) return;
-    setIsUpdating(true);
+
+    const parsedLimit = parseFloat(editLimit);
+    if (isNaN(parsedLimit) || parsedLimit < 0) {
+      setEditError("Hạn mức tín dụng phải là số không âm");
+      return;
+    }
+
     try {
-      await accountService.update(editAccountId, {
-        credit_limit: parseFloat(editLimit) || 0,
-        note: editNote,
-        status: editStatus,
+      await updateMutation.mutateAsync({
+        id: editAccountId,
+        payload: {
+          credit_limit: parsedLimit,
+          note: editNote.trim(),
+          status: editStatus,
+        },
       });
+      toast.success("Cập nhật thông tin thẻ thành công!");
       setIsEditOpen(false);
-      await fetchAccountsData();
-    } catch (err) {
-      console.error("Error updating account", err);
-    } finally {
-      setIsUpdating(false);
+    } catch (err: any) {
+      toast.error(`Lỗi cập nhật thẻ: ${err.message}`);
     }
   };
 
@@ -103,16 +98,20 @@ export const AccountsPage: React.FC = () => {
 
   const handleConfirmToggleStatus = async () => {
     if (!targetAccount) return;
-    setIsTogglingStatus(true);
     try {
-      await accountService.updateStatus(targetAccount.id, targetNewStatus);
+      await statusMutation.mutateAsync({
+        id: targetAccount.id,
+        status: targetNewStatus,
+      });
+      toast.success(
+        targetNewStatus === "ACTIVE"
+          ? `Đã mở khóa thẻ "${targetAccount.account_name}" thành công!`
+          : `Đã khóa thẻ "${targetAccount.account_name}"!`
+      );
       setIsConfirmOpen(false);
       setTargetAccount(null);
-      await fetchAccountsData();
-    } catch (err) {
-      console.error("Error updating account status", err);
-    } finally {
-      setIsTogglingStatus(false);
+    } catch (err: any) {
+      toast.error(`Lỗi đổi trạng thái thẻ: ${err.message}`);
     }
   };
 
@@ -144,7 +143,7 @@ export const AccountsPage: React.FC = () => {
   const lockedCount = liveBalances.filter((a) => a.status === "LOCKED").length;
   const otherCount = liveBalances.filter((a) => a.status !== "ACTIVE" && a.status !== "LOCKED").length;
 
-  if (loading) {
+  if ((accountsLoading || liveBalancesLoading) && accounts.length === 0) {
     return (
       <div className="h-[60vh] flex flex-col items-center justify-center gap-3">
         <Spinner size="lg" />
@@ -181,7 +180,7 @@ export const AccountsPage: React.FC = () => {
                 key={acc.account_id}
                 account={acc}
                 isSelected={selectedAcc?.account_id === acc.account_id}
-                onClick={() => setSelectedAcc(acc)}
+                onClick={() => setSelectedAccId(acc.account_id)}
               />
             ))}
         </div>
@@ -368,13 +367,24 @@ export const AccountsPage: React.FC = () => {
         title="Cập Nhật Thông Tin Thẻ Tín Dụng"
       >
         <form onSubmit={handleSaveEdit} className="space-y-4">
-          <Input
-            label="Hạn Mức Tín Dụng (VNĐ)"
-            type="number"
-            value={editLimit}
-            onChange={(e) => setEditLimit(e.target.value)}
-            required
-          />
+          <div>
+            <Input
+              label="Hạn Mức Tín Dụng (VNĐ)"
+              type="number"
+              value={editLimit}
+              onChange={(e) => {
+                setEditLimit(e.target.value);
+                if (editError) setEditError(null);
+              }}
+              error={editError || undefined}
+              required
+            />
+            {editLimit && !editError && parseFloat(editLimit) >= 0 && (
+              <p className="mt-1 text-[11px] text-emerald-400 font-mono">
+                ≈ {Number(editLimit).toLocaleString("vi-VN")} ₫
+              </p>
+            )}
+          </div>
 
           <Select
             label="Trạng Thái Thẻ"
@@ -410,7 +420,11 @@ export const AccountsPage: React.FC = () => {
             >
               Hủy
             </Button>
-            <Button type="submit" variant="primary" isLoading={isUpdating}>
+            <Button
+              type="submit"
+              variant="primary"
+              isLoading={updateMutation.isLoading}
+            >
               Lưu thay đổi
             </Button>
           </div>
@@ -420,7 +434,7 @@ export const AccountsPage: React.FC = () => {
       {/* 5. Quick Confirm Status Modal */}
       <Modal
         isOpen={isConfirmOpen}
-        onClose={() => !isTogglingStatus && setIsConfirmOpen(false)}
+        onClose={() => !statusMutation.isLoading && setIsConfirmOpen(false)}
         title={targetNewStatus === "LOCKED" ? "Xác Nhận Khóa Thẻ" : "Xác Nhận Mở Khóa Thẻ"}
         maxWidth="md"
       >
@@ -453,7 +467,7 @@ export const AccountsPage: React.FC = () => {
               type="button"
               variant="outline"
               onClick={() => setIsConfirmOpen(false)}
-              disabled={isTogglingStatus}
+              disabled={statusMutation.isLoading}
             >
               Hủy
             </Button>
@@ -461,7 +475,7 @@ export const AccountsPage: React.FC = () => {
               type="button"
               variant={targetNewStatus === "LOCKED" ? "danger" : "primary"}
               onClick={handleConfirmToggleStatus}
-              isLoading={isTogglingStatus}
+              isLoading={statusMutation.isLoading}
             >
               {targetNewStatus === "LOCKED" ? "Khóa thẻ ngay" : "Kích hoạt lại thẻ"}
             </Button>

@@ -22,39 +22,22 @@ import {
   Sparkles,
 } from "lucide-react";
 import { Link } from "react-router-dom";
+import {
+  useDashboardOverview,
+  useAccountLiveBalances,
+  useMonthlySpending,
+} from "../hooks/useFinanceQueries";
+import { useQuery } from "../providers/QueryProvider";
 
 export const DashboardPage: React.FC = () => {
-  const [loading, setLoading] = useState(true);
-  const [overview, setOverview] = useState<DashboardOverview | null>(null);
-  const [accounts, setAccounts] = useState<AccountLiveBalance[]>([]);
-  const [obligations, setObligations] = useState<UpcomingObligation[]>([]);
-  const [monthlySpending, setMonthlySpending] = useState<MonthlyCategorySpending[]>([]);
+  const { data: overview, isLoading: overviewLoading } = useDashboardOverview();
+  const { data: accounts = [], isLoading: accountsLoading } = useAccountLiveBalances();
+  const { data: obligations = [] } = useQuery(["upcoming-obligations", 30], () =>
+    analyticsService.getUpcomingObligations(30)
+  );
+  const { data: monthlySpending = [] } = useMonthlySpending(20);
 
-  useEffect(() => {
-    fetchDashboardData();
-  }, []);
-
-  const fetchDashboardData = async () => {
-    setLoading(true);
-    try {
-      const [ovRes, accRes, obRes, spRes] = await Promise.all([
-        analyticsService.getOverview(),
-        accountService.getLiveBalances(),
-        analyticsService.getUpcomingObligations(30),
-        analyticsService.getMonthlySpending(20),
-      ]);
-      setOverview(ovRes);
-      setAccounts(accRes);
-      setObligations(obRes);
-      setMonthlySpending(spRes);
-    } catch (err) {
-      console.error("Error fetching dashboard data", err);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  if (loading || !overview) {
+  if ((overviewLoading && !overview) || !overview) {
     return (
       <div className="h-[60vh] flex flex-col items-center justify-center gap-3">
         <Spinner size="lg" />

@@ -8,33 +8,19 @@ import { SpendingDonutChart } from "../components/charts/SpendingDonutChart";
 import { MonthlySpendingBarChart } from "../components/charts/MonthlySpendingBarChart";
 import { formatCurrency, formatDate, getRiskLevelColor } from "../utils/formatters";
 import { BarChart3, PieChart, ShieldAlert, TrendingUp } from "lucide-react";
+import { useMonthlySpending, useCreditUtilization } from "../hooks/useFinanceQueries";
 
 export const AnalyticsPage: React.FC = () => {
-  const [loading, setLoading] = useState(true);
-  const [monthlySpending, setMonthlySpending] = useState<MonthlyCategorySpending[]>([]);
-  const [utilization, setUtilization] = useState<CreditUtilization[]>([]);
+  const {
+    data: monthlySpending = [],
+    isLoading: spendingLoading,
+  } = useMonthlySpending(50);
+  const {
+    data: utilization = [],
+    isLoading: utLoading,
+  } = useCreditUtilization();
 
-  useEffect(() => {
-    fetchAnalyticsData();
-  }, []);
-
-  const fetchAnalyticsData = async () => {
-    setLoading(true);
-    try {
-      const [spRes, utRes] = await Promise.all([
-        analyticsService.getMonthlySpending(50),
-        analyticsService.getCreditUtilization(),
-      ]);
-      setMonthlySpending(spRes);
-      setUtilization(utRes);
-    } catch (err) {
-      console.error("Error loading analytics", err);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  if (loading) {
+  if ((spendingLoading || utLoading) && monthlySpending.length === 0 && utilization.length === 0) {
     return (
       <div className="h-[60vh] flex flex-col items-center justify-center gap-3">
         <Spinner size="lg" />

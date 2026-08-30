@@ -22,48 +22,30 @@ import {
 } from "lucide-react";
 import { clsx } from "clsx";
 
+import {
+  useAccounts,
+  useStatementPaymentStatus,
+  useStatementReconciliation,
+} from "../hooks/useFinanceQueries";
+
 export const StatementsPage: React.FC = () => {
   const [activeTab, setActiveTab] = useState<"payment" | "reconciliation">("payment");
-  const [loading, setLoading] = useState(true);
-  const [accounts, setAccounts] = useState<Account[]>([]);
   const [selectedAccountId, setSelectedAccountId] = useState<string>("");
 
-  const [paymentStatuses, setPaymentStatuses] = useState<StatementPaymentStatus[]>([]);
-  const [reconciliations, setReconciliations] = useState<StatementReconciliation[]>([]);
+  const { data: accounts = [] } = useAccounts();
+  const {
+    data: paymentStatuses = [],
+    isLoading: paymentLoading,
+  } = useStatementPaymentStatus(selectedAccountId || undefined);
+  const {
+    data: reconciliations = [],
+    isLoading: reconLoading,
+  } = useStatementReconciliation(selectedAccountId || undefined);
 
-  useEffect(() => {
-    fetchAccounts();
-  }, []);
-
-  useEffect(() => {
-    fetchStatementsData();
-  }, [selectedAccountId, activeTab]);
-
-  const fetchAccounts = async () => {
-    try {
-      const res = await accountService.getAll();
-      setAccounts(res);
-    } catch (err) {
-      console.error("Error loading accounts", err);
-    }
-  };
-
-  const fetchStatementsData = async () => {
-    setLoading(true);
-    try {
-      if (activeTab === "payment") {
-        const res = await statementService.getPaymentStatus(selectedAccountId || undefined);
-        setPaymentStatuses(res);
-      } else {
-        const res = await statementService.getReconciliation(selectedAccountId || undefined);
-        setReconciliations(res);
-      }
-    } catch (err) {
-      console.error("Error fetching statements data", err);
-    } finally {
-      setLoading(false);
-    }
-  };
+  const loading =
+    activeTab === "payment"
+      ? paymentLoading && paymentStatuses.length === 0
+      : reconLoading && reconciliations.length === 0;
 
   return (
     <div className="space-y-6">
