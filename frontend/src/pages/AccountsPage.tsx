@@ -1,23 +1,21 @@
 import React, { useEffect, useState } from "react";
 import { accountService } from "../services/accountService";
-import { Account, AccountLiveBalance } from "../types/account";
+import { Account, AccountLiveBalance, AccountStatus } from "../types/account";
 import { Card } from "../components/common/Card";
 import { Button } from "../components/common/Button";
 import { Badge } from "../components/common/Badge";
 import { Modal } from "../components/common/Modal";
 import { Input } from "../components/common/Input";
+import { Select } from "../components/common/Select";
 import { Spinner } from "../components/common/Spinner";
 import { CreditCardVisual } from "../components/cards/CreditCardVisual";
 import { formatCurrency, formatDate, getRiskLevelColor } from "../utils/formatters";
 import {
   CreditCard,
-  Plus,
   Edit2,
-  Calendar,
+  Lock,
+  Unlock,
   AlertCircle,
-  TrendingUp,
-  TrendingDown,
-  ArrowRightLeft,
   CheckCircle2,
 } from "lucide-react";
 
@@ -27,12 +25,22 @@ export const AccountsPage: React.FC = () => {
   const [liveBalances, setLiveBalances] = useState<AccountLiveBalance[]>([]);
   const [selectedAcc, setSelectedAcc] = useState<AccountLiveBalance | null>(null);
 
+  // Status Filter State
+  const [statusFilter, setStatusFilter] = useState<"ALL" | "ACTIVE" | "LOCKED" | "OTHER">("ALL");
+
   // Edit Modal State
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [editAccountId, setEditAccountId] = useState<string | null>(null);
   const [editLimit, setEditLimit] = useState<string>("");
   const [editNote, setEditNote] = useState<string>("");
+  const [editStatus, setEditStatus] = useState<AccountStatus>("ACTIVE");
   const [isUpdating, setIsUpdating] = useState(false);
+
+  // Quick Toggle / Confirm Modal State
+  const [isConfirmOpen, setIsConfirmOpen] = useState(false);
+  const [targetAccount, setTargetAccount] = useState<Account | null>(null);
+  const [targetNewStatus, setTargetNewStatus] = useState<AccountStatus>("LOCKED");
+  const [isTogglingStatus, setIsTogglingStatus] = useState(false);
 
   useEffect(() => {
     fetchAccountsData();
@@ -64,6 +72,7 @@ export const AccountsPage: React.FC = () => {
     setEditAccountId(acc.id);
     setEditLimit(String(acc.credit_limit));
     setEditNote(acc.note || "");
+    setEditStatus(acc.status);
     setIsEditOpen(true);
   };
 
@@ -75,6 +84,7 @@ export const AccountsPage: React.FC = () => {
       await accountService.update(editAccountId, {
         credit_limit: parseFloat(editLimit) || 0,
         note: editNote,
+        status: editStatus,
       });
       setIsEditOpen(false);
       await fetchAccountsData();
@@ -84,6 +94,55 @@ export const AccountsPage: React.FC = () => {
       setIsUpdating(false);
     }
   };
+
+  const handleOpenConfirmStatus = (acc: Account, newStatus: AccountStatus) => {
+    setTargetAccount(acc);
+    setTargetNewStatus(newStatus);
+    setIsConfirmOpen(true);
+  };
+
+  const handleConfirmToggleStatus = async () => {
+    if (!targetAccount) return;
+    setIsTogglingStatus(true);
+    try {
+      await accountService.updateStatus(targetAccount.id, targetNewStatus);
+      setIsConfirmOpen(false);
+      setTargetAccount(null);
+      await fetchAccountsData();
+    } catch (err) {
+      console.error("Error updating account status", err);
+    } finally {
+      setIsTogglingStatus(false);
+    }
+  };
+
+  const getStatusBadge = (status: string) => {
+    switch (status) {
+      case "ACTIVE":
+        return { variant: "success" as const, label: "HOẠT ĐỘNG" };
+      case "LOCKED":
+        return { variant: "danger" as const, label: "ĐÃ KHÓA" };
+      case "CLOSED":
+        return { variant: "neutral" as const, label: "ĐÃ ĐÓNG" };
+      case "EXPIRED":
+        return { variant: "neutral" as const, label: "HẾT HẠN" };
+      case "REPLACED":
+        return { variant: "warning" as const, label: "ĐÃ ĐỔI THẺ" };
+      default:
+        return { variant: "neutral" as const, label: status };
+    }
+  };
+
+  const filteredBalances = liveBalances.filter((acc) => {
+    if (statusFilter === "ACTIVE") return acc.status === "ACTIVE";
+    if (statusFilter === "LOCKED") return acc.status === "LOCKED";
+    if (statusFilter === "OTHER") return acc.status !== "ACTIVE" && acc.status !== "LOCKED";
+    return true;
+  });
+
+  const activeCount = liveBalances.filter((a) => a.status === "ACTIVE").length;
+  const lockedCount = liveBalances.filter((a) => a.status === "LOCKED").length;
+  const otherCount = liveBalances.filter((a) => a.status !== "ACTIVE" && a.status !== "LOCKED").length;
 
   if (loading) {
     return (
@@ -130,7 +189,7 @@ export const AccountsPage: React.FC = () => {
 
       {/* 3. Detailed Account Audit & Breakdown Table */}
       <Card>
-        <div className="flex items-center justify-between border-b border-slate-800 pb-4 mb-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-slate-800 pb-4 mb-4 gap-4">
           <div>
             <h3 className="text-base font-bold text-slate-100">
               Chi Tiết Dư Nợ & Hạn Mức Khả Dụng Thực Tế (Live Breakdown)
@@ -138,6 +197,52 @@ export const AccountsPage: React.FC = () => {
             <p className="text-xs text-slate-400 mt-0.5">
               Công thức: Dư nợ sao kê gần nhất + Chi tiêu chưa sao kê - Thanh toán chưa sao kê = Dư nợ thực tế
             </p>
+          </div>
+
+          {/* Status Filter Tabs */}
+          <div className="flex items-center gap-1.5 p-1 bg-slate-950/80 border border-slate-800/80 rounded-xl text-xs">
+            <button
+              onClick={() => setStatusFilter("ALL")}
+              className={`px-3 py-1.5 rounded-lg font-medium transition-all ${
+                statusFilter === "ALL"
+                  ? "bg-slate-800 text-slate-100 shadow-sm"
+                  : "text-slate-400 hover:text-slate-200"
+              }`}
+            >
+              Tất cả ({liveBalances.length})
+            </button>
+            <button
+              onClick={() => setStatusFilter("ACTIVE")}
+              className={`px-3 py-1.5 rounded-lg font-medium transition-all ${
+                statusFilter === "ACTIVE"
+                  ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
+                  : "text-slate-400 hover:text-slate-200"
+              }`}
+            >
+              Hoạt động ({activeCount})
+            </button>
+            <button
+              onClick={() => setStatusFilter("LOCKED")}
+              className={`px-3 py-1.5 rounded-lg font-medium transition-all ${
+                statusFilter === "LOCKED"
+                  ? "bg-rose-500/20 text-rose-400 border border-rose-500/30"
+                  : "text-slate-400 hover:text-slate-200"
+              }`}
+            >
+              Đã khóa ({lockedCount})
+            </button>
+            {otherCount > 0 && (
+              <button
+                onClick={() => setStatusFilter("OTHER")}
+                className={`px-3 py-1.5 rounded-lg font-medium transition-all ${
+                  statusFilter === "OTHER"
+                    ? "bg-slate-800 text-slate-200"
+                    : "text-slate-400 hover:text-slate-200"
+                }`}
+              >
+                Khác ({otherCount})
+              </button>
+            )}
           </div>
         </div>
 
@@ -157,69 +262,100 @@ export const AccountsPage: React.FC = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800/60 font-medium">
-              {liveBalances.map((acc) => {
-                const rawAcc = accounts.find((a) => a.id === acc.account_id);
-                const risk = getRiskLevelColor(acc.live_risk_level);
-                return (
-                  <tr
-                    key={acc.account_id}
-                    className="hover:bg-slate-800/40 transition-colors"
-                  >
-                    <td className="py-3.5 px-4">
-                      <div className="font-semibold text-slate-200">{acc.account_name}</div>
-                      <div className="text-[11px] text-slate-400">{acc.bank_name}</div>
-                    </td>
-                    <td className="py-3.5 px-4 font-mono text-slate-300">
-                      {acc.card_number_masked}
-                    </td>
-                    <td className="py-3.5 px-4 text-right font-mono text-slate-300">
-                      {formatCurrency(acc.credit_limit)}
-                    </td>
-                    <td className="py-3.5 px-4 text-right font-mono text-slate-300">
-                      {formatCurrency(acc.latest_statement_balance)}
-                    </td>
-                    <td className="py-3.5 px-4 text-right font-mono">
-                      <div className={Number(acc.unbilled_net_amount) > 0 ? "text-rose-400" : "text-emerald-400"}>
-                        {Number(acc.unbilled_net_amount) > 0 ? "+" : ""}
-                        {formatCurrency(acc.unbilled_net_amount)}
-                      </div>
-                      <div className="text-[10px] text-slate-400">
-                        {acc.unbilled_transaction_count} giao dịch
-                      </div>
-                    </td>
-                    <td className="py-3.5 px-4 text-right font-mono font-bold text-slate-100">
-                      {formatCurrency(acc.live_current_balance)}
-                    </td>
-                    <td className="py-3.5 px-4 text-right font-mono font-bold text-emerald-400">
-                      {formatCurrency(acc.live_available_limit)}
-                    </td>
-                    <td className="py-3.5 px-4 text-center">
-                      <Badge
-                        variant={
-                          acc.status === "ACTIVE"
-                            ? "success"
-                            : acc.status === "REPLACED"
-                            ? "warning"
-                            : "neutral"
-                        }
-                      >
-                        {acc.status}
-                      </Badge>
-                    </td>
-                    <td className="py-3.5 px-4 text-center">
-                      {rawAcc && (
-                        <button
-                          onClick={() => handleOpenEdit(rawAcc)}
-                          className="p-1.5 text-slate-400 hover:text-emerald-400 hover:bg-slate-800 rounded-lg transition-colors"
-                          title="Chỉnh sửa hạn mức / ghi chú"
-                        >
-                          <Edit2 className="w-4 h-4" />
-                        </button>
-                      )}
-                    </td>
-                  </tr>
-                );
-              })}
+              {filteredBalances.length === 0 ? (
+                <tr>
+                  <td colSpan={9} className="py-8 text-center text-slate-400">
+                    Không có thẻ nào phù hợp với bộ lọc đã chọn.
+                  </td>
+                </tr>
+              ) : (
+                filteredBalances.map((acc) => {
+                  const rawAcc = accounts.find((a) => a.id === acc.account_id);
+                  const badgeInfo = getStatusBadge(acc.status);
+                  const isLocked = acc.status === "LOCKED";
+
+                  return (
+                    <tr
+                      key={acc.account_id}
+                      className={`hover:bg-slate-800/40 transition-colors ${
+                        isLocked ? "bg-rose-950/10" : ""
+                      }`}
+                    >
+                      <td className="py-3.5 px-4">
+                        <div className="font-semibold text-slate-200 flex items-center gap-1.5">
+                          {acc.account_name}
+                          {isLocked && (
+                            <span title="Thẻ bị khóa/vô hiệu hóa">
+                              <Lock className="w-3.5 h-3.5 text-rose-400" />
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-[11px] text-slate-400">{acc.bank_name}</div>
+                      </td>
+                      <td className="py-3.5 px-4 font-mono text-slate-300">
+                        {acc.card_number_masked}
+                      </td>
+                      <td className="py-3.5 px-4 text-right font-mono text-slate-300">
+                        {formatCurrency(acc.credit_limit)}
+                      </td>
+                      <td className="py-3.5 px-4 text-right font-mono text-slate-300">
+                        {formatCurrency(acc.latest_statement_balance)}
+                      </td>
+                      <td className="py-3.5 px-4 text-right font-mono">
+                        <div className={Number(acc.unbilled_net_amount) > 0 ? "text-rose-400" : "text-emerald-400"}>
+                          {Number(acc.unbilled_net_amount) > 0 ? "+" : ""}
+                          {formatCurrency(acc.unbilled_net_amount)}
+                        </div>
+                        <div className="text-[10px] text-slate-400">
+                          {acc.unbilled_transaction_count} giao dịch
+                        </div>
+                      </td>
+                      <td className="py-3.5 px-4 text-right font-mono font-bold text-slate-100">
+                        {formatCurrency(acc.live_current_balance)}
+                      </td>
+                      <td className="py-3.5 px-4 text-right font-mono font-bold text-emerald-400">
+                        {formatCurrency(acc.live_available_limit)}
+                      </td>
+                      <td className="py-3.5 px-4 text-center">
+                        <Badge variant={badgeInfo.variant}>
+                          {badgeInfo.label}
+                        </Badge>
+                      </td>
+                      <td className="py-3.5 px-4 text-center">
+                        <div className="flex items-center justify-center gap-1.5">
+                          {rawAcc && rawAcc.status === "ACTIVE" && (
+                            <button
+                              onClick={() => handleOpenConfirmStatus(rawAcc, "LOCKED")}
+                              className="p-1.5 text-slate-400 hover:text-rose-400 hover:bg-rose-950/40 rounded-lg transition-colors"
+                              title="Vô hiệu hóa / Khóa thẻ"
+                            >
+                              <Lock className="w-4 h-4" />
+                            </button>
+                          )}
+                          {rawAcc && rawAcc.status === "LOCKED" && (
+                            <button
+                              onClick={() => handleOpenConfirmStatus(rawAcc, "ACTIVE")}
+                              className="p-1.5 text-amber-400 hover:text-emerald-400 hover:bg-emerald-950/40 rounded-lg transition-colors"
+                              title="Mở khóa / Kích hoạt lại thẻ"
+                            >
+                              <Unlock className="w-4 h-4" />
+                            </button>
+                          )}
+                          {rawAcc && (
+                            <button
+                              onClick={() => handleOpenEdit(rawAcc)}
+                              className="p-1.5 text-slate-400 hover:text-emerald-400 hover:bg-slate-800 rounded-lg transition-colors"
+                              title="Chỉnh sửa thông tin thẻ"
+                            >
+                              <Edit2 className="w-4 h-4" />
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
             </tbody>
           </table>
         </div>
@@ -239,6 +375,20 @@ export const AccountsPage: React.FC = () => {
             onChange={(e) => setEditLimit(e.target.value)}
             required
           />
+
+          <Select
+            label="Trạng Thái Thẻ"
+            value={editStatus}
+            onChange={(e) => setEditStatus(e.target.value as AccountStatus)}
+            options={[
+              { value: "ACTIVE", label: "ACTIVE - Đang hoạt động" },
+              { value: "LOCKED", label: "LOCKED - Đã khóa / Vô hiệu hóa" },
+              { value: "CLOSED", label: "CLOSED - Đã đóng thẻ" },
+              { value: "EXPIRED", label: "EXPIRED - Hết hạn" },
+              { value: "REPLACED", label: "REPLACED - Đã thay thế" },
+            ]}
+          />
+
           <div>
             <label className="block text-xs font-medium text-slate-400 mb-1.5">
               Ghi Chú Cá Nhân
@@ -265,6 +415,58 @@ export const AccountsPage: React.FC = () => {
             </Button>
           </div>
         </form>
+      </Modal>
+
+      {/* 5. Quick Confirm Status Modal */}
+      <Modal
+        isOpen={isConfirmOpen}
+        onClose={() => !isTogglingStatus && setIsConfirmOpen(false)}
+        title={targetNewStatus === "LOCKED" ? "Xác Nhận Khóa Thẻ" : "Xác Nhận Mở Khóa Thẻ"}
+        maxWidth="md"
+      >
+        <div className="space-y-4">
+          <div className="flex items-start gap-3 p-3.5 rounded-xl bg-slate-950/60 border border-slate-800">
+            {targetNewStatus === "LOCKED" ? (
+              <AlertCircle className="w-6 h-6 text-rose-400 shrink-0 mt-0.5" />
+            ) : (
+              <CheckCircle2 className="w-6 h-6 text-emerald-400 shrink-0 mt-0.5" />
+            )}
+            <div className="text-xs text-slate-300 space-y-1">
+              <p className="font-semibold text-sm text-slate-100">
+                {targetNewStatus === "LOCKED"
+                  ? `Vô hiệu hóa thẻ "${targetAccount?.account_name}"?`
+                  : `Kích hoạt lại thẻ "${targetAccount?.account_name}"?`}
+              </p>
+              <p className="text-slate-400">
+                {targetNewStatus === "LOCKED"
+                  ? "Thẻ sẽ được chuyển sang trạng thái ĐÃ KHÓA (LOCKED). Bạn sẽ tạm ngưng chi tiêu mới trên thẻ này cho đến khi mở khóa lại."
+                  : "Thẻ sẽ được chuyển về trạng thái HOẠT ĐỘNG (ACTIVE) và sẵn sàng tiếp tục sử dụng."}
+              </p>
+              <div className="pt-2 font-mono text-[11px] text-slate-400">
+                Số thẻ: <span className="text-slate-200">{targetAccount?.card_number_masked}</span>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex justify-end gap-3 pt-3 border-t border-slate-800">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setIsConfirmOpen(false)}
+              disabled={isTogglingStatus}
+            >
+              Hủy
+            </Button>
+            <Button
+              type="button"
+              variant={targetNewStatus === "LOCKED" ? "danger" : "primary"}
+              onClick={handleConfirmToggleStatus}
+              isLoading={isTogglingStatus}
+            >
+              {targetNewStatus === "LOCKED" ? "Khóa thẻ ngay" : "Kích hoạt lại thẻ"}
+            </Button>
+          </div>
+        </div>
       </Modal>
     </div>
   );

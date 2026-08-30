@@ -9,6 +9,7 @@ from app.schemas.account import (
     AccountRead,
     AccountCreate,
     AccountUpdate,
+    AccountStatusUpdate,
     AccountLiveBalanceRead,
     AccountOverviewRead,
 )
@@ -64,3 +65,36 @@ async def update_account(
     db: AsyncSession = Depends(get_db),
 ):
     return await AccountService.update(db, account_id, payload)
+
+
+@router.patch("/{account_id}/status", response_model=AccountRead, summary="Update account / card status")
+async def update_account_status(
+    account_id: UUID,
+    payload: AccountStatusUpdate,
+    db: AsyncSession = Depends(get_db),
+):
+    return await AccountService.update_status(db, account_id, payload.status)
+
+
+@router.patch("/{account_id}/disable", response_model=AccountRead, summary="Disable / Lock a credit card")
+async def disable_account(
+    account_id: UUID,
+    db: AsyncSession = Depends(get_db),
+):
+    return await AccountService.update_status(db, account_id, AccountStatusEnum.LOCKED)
+
+
+@router.patch("/{account_id}/enable", response_model=AccountRead, summary="Enable / Unlock a credit card")
+async def enable_account(
+    account_id: UUID,
+    db: AsyncSession = Depends(get_db),
+):
+    return await AccountService.update_status(db, account_id, AccountStatusEnum.ACTIVE)
+
+
+@router.patch("/{account_id}/toggle-status", response_model=AccountRead, summary="Toggle account status between ACTIVE and LOCKED")
+async def toggle_account_status(
+    account_id: UUID,
+    db: AsyncSession = Depends(get_db),
+):
+    return await AccountService.toggle_status(db, account_id)

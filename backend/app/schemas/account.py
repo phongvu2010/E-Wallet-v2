@@ -40,6 +40,10 @@ class AccountUpdate(BaseModel):
     note: Optional[str] = None
 
 
+class AccountStatusUpdate(BaseModel):
+    status: AccountStatusEnum
+
+
 class AccountRead(AccountBase):
     id: UUID
     user_id: Optional[UUID] = None

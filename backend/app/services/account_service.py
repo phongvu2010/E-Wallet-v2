@@ -59,6 +59,34 @@ class AccountService:
         return await AccountService.get_by_id(db, account.id)
 
     @staticmethod
+    async def update_status(
+        db: AsyncSession,
+        account_id: UUID,
+        new_status: AccountStatusEnum,
+    ) -> Account:
+        account = await AccountService.get_by_id(db, account_id)
+        account.status = new_status
+        await db.commit()
+        await db.refresh(account)
+        return await AccountService.get_by_id(db, account.id)
+
+    @staticmethod
+    async def toggle_status(db: AsyncSession, account_id: UUID) -> Account:
+        account = await AccountService.get_by_id(db, account_id)
+        if account.status == AccountStatusEnum.ACTIVE:
+            account.status = AccountStatusEnum.LOCKED
+        elif account.status == AccountStatusEnum.LOCKED:
+            account.status = AccountStatusEnum.ACTIVE
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Cannot toggle status of card with status {account.status}",
+            )
+        await db.commit()
+        await db.refresh(account)
+        return await AccountService.get_by_id(db, account.id)
+
+    @staticmethod
     async def get_live_balances(
         db: AsyncSession,
         account_id: Optional[UUID] = None,

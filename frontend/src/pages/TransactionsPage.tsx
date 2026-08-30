@@ -34,6 +34,7 @@ import {
   TrendingUp,
   Percent,
   RefreshCw,
+  AlertTriangle,
 } from "lucide-react";
 
 export const TransactionsPage: React.FC = () => {
@@ -476,7 +477,15 @@ export const TransactionsPage: React.FC = () => {
               onChange={(e) => setNewAccountId(e.target.value)}
               options={accounts.map((a) => ({
                 value: a.id,
-                label: `${a.account_name} (${a.card_number_last4})`,
+                label: `${a.account_name} (${a.card_number_last4})${
+                  a.status === "LOCKED"
+                    ? " [ĐÃ KHÓA]"
+                    : a.status === "CLOSED"
+                    ? " [ĐÃ ĐÓNG]"
+                    : a.status === "REPLACED"
+                    ? " [ĐÃ ĐỔI]"
+                    : ""
+                }`,
               }))}
               required
             />
@@ -489,6 +498,13 @@ export const TransactionsPage: React.FC = () => {
               required
             />
           </div>
+
+          {accounts.find((a) => a.id === newAccountId)?.status === "LOCKED" && (
+            <div className="flex items-center gap-2 p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-300 text-xs">
+              <AlertTriangle className="w-4 h-4 shrink-0" />
+              <span>Thẻ này hiện đang ở trạng thái <strong>ĐÃ KHÓA / VÔ HIỆU HÓA</strong>. Hãy lưu ý nếu đây là giao dịch chi tiêu mới.</span>
+            </div>
+          )}
 
           <Input
             label="Nội Dung / Đơn Vị Chấp Nhận Thẻ"

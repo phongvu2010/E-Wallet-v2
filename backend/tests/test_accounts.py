@@ -37,3 +37,63 @@ async def test_accounts_overview(client: AsyncClient):
     assert isinstance(data, list)
     assert len(data) >= 1
     assert "latest_statement_balance" in data[0]
+
+
+@pytest.mark.asyncio
+async def test_disable_and_enable_account(client: AsyncClient):
+    # 1. Get an existing account
+    acc_res = await client.get("/api/v1/accounts")
+    assert acc_res.status_code == 200
+    accounts = acc_res.json()
+    assert len(accounts) >= 1
+    acc_id = accounts[0]["id"]
+    orig_status = accounts[0]["status"]
+
+    # 2. Disable account
+    disable_res = await client.patch(f"/api/v1/accounts/{acc_id}/disable")
+    assert disable_res.status_code == 200
+    assert disable_res.json()["status"] == "LOCKED"
+
+    # 3. Verify in get by ID
+    get_res = await client.get(f"/api/v1/accounts/{acc_id}")
+    assert get_res.status_code == 200
+    assert get_res.json()["status"] == "LOCKED"
+
+    # 4. Enable account
+    enable_res = await client.patch(f"/api/v1/accounts/{acc_id}/enable")
+    assert enable_res.status_code == 200
+    assert enable_res.json()["status"] == "ACTIVE"
+
+    # 5. Restore original status if needed
+    if orig_status != "ACTIVE":
+        await client.patch(f"/api/v1/accounts/{acc_id}/status", json={"status": orig_status})
+
+
+@pytest.mark.asyncio
+async def test_toggle_and_patch_account_status(client: AsyncClient):
+    acc_res = await client.get("/api/v1/accounts")
+    assert acc_res.status_code == 200
+    accounts = acc_res.json()
+    assert len(accounts) >= 1
+    acc_id = accounts[0]["id"]
+
+    # Ensure starts as ACTIVE
+    await client.patch(f"/api/v1/accounts/{acc_id}/enable")
+
+    # Toggle to LOCKED
+    toggle1 = await client.patch(f"/api/v1/accounts/{acc_id}/toggle-status")
+    assert toggle1.status_code == 200
+    assert toggle1.json()["status"] == "LOCKED"
+
+    # Toggle back to ACTIVE
+    toggle2 = await client.patch(f"/api/v1/accounts/{acc_id}/toggle-status")
+    assert toggle2.status_code == 200
+    assert toggle2.json()["status"] == "ACTIVE"
+
+    # Update status explicitly
+    patch_res = await client.patch(f"/api/v1/accounts/{acc_id}/status", json={"status": "LOCKED"})
+    assert patch_res.status_code == 200
+    assert patch_res.json()["status"] == "LOCKED"
+
+    # Restore
+    await client.patch(f"/api/v1/accounts/{acc_id}/enable")

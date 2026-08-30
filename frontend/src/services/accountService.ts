@@ -1,6 +1,7 @@
 import { api } from "./api";
 import {
   Account,
+  AccountStatus,
   AccountOverview,
   AccountLiveBalance,
   AccountCreatePayload,
@@ -39,4 +40,25 @@ export const accountService = {
     const res = await api.put<Account>(`/accounts/${id}`, payload);
     return res.data;
   },
+
+  updateStatus: async (id: string, status: AccountStatus): Promise<Account> => {
+    const res = await api.patch<Account>(`/accounts/${id}/status`, { status });
+    return res.data;
+  },
+
+  disable: async (id: string): Promise<Account> => {
+    const res = await api.patch<Account>(`/accounts/${id}/disable`);
+    return res.data;
+  },
+
+  enable: async (id: string): Promise<Account> => {
+    const res = await api.patch<Account>(`/accounts/${id}/enable`);
+    return res.data;
+  },
+
+  toggleStatus: async (id: string): Promise<Account> => {
+    const res = await api.patch<Account>(`/accounts/${id}/toggle-status`);
+    return res.data;
+  },
 };
+

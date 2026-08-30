@@ -1,7 +1,7 @@
 import React from "react";
 import { formatCurrency, getBankGradient } from "../../utils/formatters";
 import { AccountLiveBalance } from "../../types/account";
-import { Wifi, Sparkles } from "lucide-react";
+import { Wifi, Sparkles, Lock } from "lucide-react";
 import { clsx } from "clsx";
 
 interface CreditCardVisualProps {
@@ -15,6 +15,7 @@ export const CreditCardVisual: React.FC<CreditCardVisualProps> = ({
   onClick,
   isSelected = false,
 }) => {
+  const isLocked = account.status === "LOCKED";
   const bankGradient = getBankGradient(account.bank_name || account.account_name);
   const utilization = Math.min(100, Math.max(0, Number(account.live_utilization_percentage) || 0));
 
@@ -24,6 +25,7 @@ export const CreditCardVisual: React.FC<CreditCardVisualProps> = ({
       className={clsx(
         "relative w-full rounded-2xl p-6 bg-gradient-to-br border shadow-xl transition-all duration-300 overflow-hidden cursor-pointer select-none",
         bankGradient,
+        isLocked && "grayscale-[0.45] opacity-85 border-rose-500/40",
         isSelected
           ? "ring-2 ring-emerald-500 scale-[1.02] shadow-glow"
           : "hover:scale-[1.01] hover:shadow-2xl"
@@ -45,7 +47,14 @@ export const CreditCardVisual: React.FC<CreditCardVisualProps> = ({
         </div>
         <div className="flex items-center gap-2 text-white/60">
           <Wifi className="w-5 h-5 rotate-90" />
-          <Sparkles className="w-4 h-4 text-amber-400" />
+          {isLocked ? (
+            <span className="flex items-center gap-1 bg-rose-500/25 border border-rose-400/40 text-rose-200 text-[10px] font-bold px-2 py-0.5 rounded-full shadow-sm">
+              <Lock className="w-3 h-3" />
+              ĐÃ KHÓA
+            </span>
+          ) : (
+            <Sparkles className="w-4 h-4 text-amber-400" />
+          )}
         </div>
       </div>
 
