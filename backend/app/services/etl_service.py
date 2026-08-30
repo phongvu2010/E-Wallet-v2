@@ -58,3 +58,13 @@ class ETLService:
                 "message": f"Execution error: {str(e)}",
                 "output": "",
             }
+
+    @staticmethod
+    async def run_migration_script_async() -> Dict[str, Any]:
+        """
+        Executes scripts/migrate_data.py asynchronously via a worker thread
+        so the main async event loop remains unblocked.
+        """
+        import asyncio
+
+        return await asyncio.to_thread(ETLService.run_migration_script)

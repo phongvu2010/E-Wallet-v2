@@ -6,8 +6,8 @@ router = APIRouter()
 
 
 @router.post("/sync", response_model=APIResponse[dict], summary="Trigger ETL Migration & Data Sync from Excel/PDF")
-async def trigger_etl_sync(background_tasks: BackgroundTasks):
-    result = ETLService.run_migration_script()
+async def trigger_etl_sync():
+    result = await ETLService.run_migration_script_async()
     return APIResponse[dict](
         success=result["success"],
         message=result["message"],
