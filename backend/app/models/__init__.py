@@ -1,15 +1,15 @@
-from backend.app.models.institution import Institution
-from backend.app.models.account import Account, AccountTypeEnum, AccountStatusEnum
-from backend.app.models.category import Category, CategoryTypeEnum
-from backend.app.models.merchant import Merchant, MerchantAlias
-from backend.app.models.statement import Statement, StatementStatusEnum
-from backend.app.models.transaction import Transaction, TransactionTypeEnum
-from backend.app.models.installment import (
+from app.models.institution import Institution
+from app.models.account import Account, AccountTypeEnum, AccountStatusEnum
+from app.models.category import Category, CategoryTypeEnum
+from app.models.merchant import Merchant, MerchantAlias
+from app.models.statement import Statement, StatementStatusEnum
+from app.models.transaction import Transaction, TransactionTypeEnum
+from app.models.installment import (
     InstallmentPlan,
     InstallmentSchedule,
     InstallmentStatusEnum,
 )
-from backend.app.models.reward import RewardLedger, RewardTypeEnum
+from app.models.reward import RewardLedger, RewardTypeEnum
 
 __all__ = [
     "Institution",

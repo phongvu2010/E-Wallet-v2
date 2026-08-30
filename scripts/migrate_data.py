@@ -837,22 +837,39 @@ try:
             else ("MILE" if "MILE" in r_type_str.upper() else "POINT")
         )
 
-        tm_reward = clean_num(row["This month reward"], 0.0)
-        exp_amt = clean_num(row["Reward will be expired"], 0.0)
-        exp_date = parse_date(row["Expired date"])
+        tm_reward = clean_num(row.get("This month reward"), 0.0)
+        used_amt = clean_num(row.get("This month used"), 0.0)
+        avail_bal = clean_num(row.get("Available reward"), 0.0)
+        prev_rem = round(avail_bal - tm_reward + used_amt, 2)
+        exp_amt = clean_num(row.get("Reward will be expired"), 0.0)
+        exp_date = parse_date(row.get("Expired date"))
 
         cur.execute(
             """
             INSERT INTO reward_ledgers (
-                account_id, statement_id, reward_type, earned_this_month,
+                account_id, statement_id, reward_type,
+                previous_remaining, earned_this_month, used_this_month, available_balance,
                 expiring_amount, expiration_date
-            ) VALUES (%s, %s, %s, %s, %s, %s)
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
             ON CONFLICT (account_id, statement_id, reward_type) DO UPDATE SET
+                previous_remaining = EXCLUDED.previous_remaining,
                 earned_this_month = EXCLUDED.earned_this_month,
+                used_this_month = EXCLUDED.used_this_month,
+                available_balance = EXCLUDED.available_balance,
                 expiring_amount = EXCLUDED.expiring_amount,
                 expiration_date = EXCLUDED.expiration_date;
         """,
-            (acc_id, stmt_id, r_type, tm_reward, exp_amt, exp_date),
+            (
+                acc_id,
+                stmt_id,
+                r_type,
+                prev_rem,
+                tm_reward,
+                used_amt,
+                avail_bal,
+                exp_amt,
+                exp_date,
+            ),
         )
         reward_count += 1
 

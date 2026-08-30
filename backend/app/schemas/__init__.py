@@ -1,20 +1,20 @@
-from backend.app.schemas.common import (
+from app.schemas.common import (
     APIResponse,
     PaginationParams,
     PaginatedResponse,
 )
-from backend.app.schemas.institution import (
+from app.schemas.institution import (
     InstitutionBase,
     InstitutionCreate,
     InstitutionRead,
 )
-from backend.app.schemas.category import (
+from app.schemas.category import (
     CategoryBase,
     CategoryCreate,
     CategoryRead,
     CategoryTreeNode,
 )
-from backend.app.schemas.merchant import (
+from app.schemas.merchant import (
     MerchantBase,
     MerchantCreate,
     MerchantRead,
@@ -23,7 +23,7 @@ from backend.app.schemas.merchant import (
     MerchantAliasCreate,
     MerchantAliasRead,
 )
-from backend.app.schemas.account import (
+from app.schemas.account import (
     AccountBase,
     AccountCreate,
     AccountUpdate,
@@ -31,14 +31,14 @@ from backend.app.schemas.account import (
     AccountOverviewRead,
     AccountLiveBalanceRead,
 )
-from backend.app.schemas.statement import (
+from app.schemas.statement import (
     StatementBase,
     StatementCreate,
     StatementRead,
     StatementReconciliationRead,
     StatementPaymentStatusRead,
 )
-from backend.app.schemas.transaction import (
+from app.schemas.transaction import (
     TransactionBase,
     TransactionCreate,
     TransactionUpdate,
@@ -46,7 +46,7 @@ from backend.app.schemas.transaction import (
     TransactionFilterParams,
     TransactionSummaryRead,
 )
-from backend.app.schemas.installment import (
+from app.schemas.installment import (
     InstallmentPlanBase,
     InstallmentPlanCreate,
     InstallmentPlanRead,
@@ -56,12 +56,12 @@ from backend.app.schemas.installment import (
     EarlySettleResponse,
     InstallmentForecastRead,
 )
-from backend.app.schemas.reward import (
+from app.schemas.reward import (
     RewardLedgerBase,
     RewardLedgerCreate,
     RewardLedgerRead,
 )
-from backend.app.schemas.analytics import (
+from app.schemas.analytics import (
     MonthlyCategorySpendingRead,
     CreditUtilizationRead,
     UpcomingObligationRead,

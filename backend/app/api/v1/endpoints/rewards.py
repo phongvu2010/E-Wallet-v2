@@ -4,9 +4,9 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
-from backend.app.core.database import get_db
-from backend.app.models.reward import RewardLedger, RewardTypeEnum
-from backend.app.schemas.reward import RewardLedgerRead, RewardLedgerCreate
+from app.core.database import get_db
+from app.models.reward import RewardLedger, RewardTypeEnum
+from app.schemas.reward import RewardLedgerRead, RewardLedgerCreate
 
 router = APIRouter()
 

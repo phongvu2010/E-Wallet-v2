@@ -5,9 +5,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy import text
 
-from backend.app.core.database import get_db
-from backend.app.models.statement import Statement
-from backend.app.schemas.statement import (
+from app.core.database import get_db
+from app.models.statement import Statement
+from app.schemas.statement import (
     StatementRead,
     StatementCreate,
     StatementReconciliationRead,

@@ -20,15 +20,19 @@ services:
 
   backend:
     build:
-      context: .
-      dockerfile: backend/Dockerfile
+      context: ./backend
     container_name: credit_wallet_api
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-credit_wallet}
       DEBUG: "true"
       PROJECT_NAME: "Credit Wallet 2.0 API"
     ports:
       - "8000:8000"
+    volumes:
+      - ./backend:/app
+      - ./data:/app/data
+      - ./scripts:/app/scripts
     depends_on:
       postgres:
         condition: service_healthy
@@ -37,9 +41,15 @@ services:
   frontend:
     build:
       context: ./frontend
+      target: dev
     container_name: credit_wallet_ui
+    environment:
+      - VITE_BACKEND_URL=http://backend:8000
     ports:
-      - "3000:80"
+      - "3000:3000"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
     depends_on:
       - backend
     restart: unless-stopped

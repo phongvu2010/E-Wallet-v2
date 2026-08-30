@@ -2,14 +2,14 @@ from typing import List
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.app.core.database import get_db
-from backend.app.schemas.analytics import (
+from app.core.database import get_db
+from app.schemas.analytics import (
     MonthlyCategorySpendingRead,
     CreditUtilizationRead,
     UpcomingObligationRead,
     DashboardOverviewRead,
 )
-from backend.app.services.analytics_service import AnalyticsService
+from app.services.analytics_service import AnalyticsService
 
 router = APIRouter()
 

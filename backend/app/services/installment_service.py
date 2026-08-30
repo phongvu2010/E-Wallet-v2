@@ -8,12 +8,12 @@ from sqlalchemy.orm import selectinload
 from sqlalchemy import text
 from fastapi import HTTPException, status
 
-from backend.app.models.installment import (
+from app.models.installment import (
     InstallmentPlan,
     InstallmentSchedule,
     InstallmentStatusEnum,
 )
-from backend.app.schemas.installment import (
+from app.schemas.installment import (
     InstallmentPlanCreate,
     EarlySettleRequest,
     EarlySettleResponse,

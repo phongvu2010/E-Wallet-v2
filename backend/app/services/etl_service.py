@@ -10,13 +10,22 @@ class ETLService:
         """
         Executes scripts/migrate_data.py synchronously and captures output.
         """
-        root_dir = Path(__file__).resolve().parent.parent.parent.parent
-        script_path = root_dir / "scripts" / "migrate_data.py"
+        # Search upwards for scripts/migrate_data.py
+        cur = Path(__file__).resolve().parent
+        root_dir = None
+        script_path = None
+        for _ in range(5):
+            candidate = cur / "scripts" / "migrate_data.py"
+            if candidate.exists():
+                script_path = candidate
+                root_dir = cur
+                break
+            cur = cur.parent
 
-        if not script_path.exists():
+        if not script_path:
             return {
                 "success": False,
-                "message": f"Script not found at {script_path}",
+                "message": "Migration script not found at scripts/migrate_data.py",
                 "output": "",
             }
 

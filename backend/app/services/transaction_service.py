@@ -7,14 +7,14 @@ from sqlalchemy.orm import selectinload
 from sqlalchemy import func, or_, text
 from fastapi import HTTPException, status
 
-from backend.app.models.transaction import Transaction, TransactionTypeEnum
-from backend.app.schemas.transaction import (
+from app.models.transaction import Transaction, TransactionTypeEnum
+from app.schemas.transaction import (
     TransactionCreate,
     TransactionUpdate,
     TransactionFilterParams,
     TransactionSummaryRead,
 )
-from backend.app.schemas.common import PaginationParams
+from app.schemas.common import PaginationParams
 
 
 class TransactionService:

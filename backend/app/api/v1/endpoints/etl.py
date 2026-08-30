@@ -1,6 +1,6 @@
 from fastapi import APIRouter, status, BackgroundTasks
-from backend.app.schemas.common import APIResponse
-from backend.app.services.etl_service import ETLService
+from app.schemas.common import APIResponse
+from app.services.etl_service import ETLService
 
 router = APIRouter()
 

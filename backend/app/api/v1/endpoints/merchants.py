@@ -5,9 +5,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy.orm import selectinload
 
-from backend.app.core.database import get_db
-from backend.app.models.merchant import Merchant, MerchantAlias
-from backend.app.schemas.merchant import (
+from app.core.database import get_db
+from app.models.merchant import Merchant, MerchantAlias
+from app.schemas.merchant import (
     MerchantRead,
     MerchantCreate,
     MerchantAliasRead,

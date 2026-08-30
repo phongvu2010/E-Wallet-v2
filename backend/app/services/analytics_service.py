@@ -3,7 +3,7 @@ from decimal import Decimal
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import text
 
-from backend.app.schemas.analytics import (
+from app.schemas.analytics import (
     MonthlyCategorySpendingRead,
     CreditUtilizationRead,
     UpcomingObligationRead,

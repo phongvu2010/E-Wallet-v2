@@ -39,7 +39,7 @@ pip install -r backend/requirements.txt
 python scripts/migrate_data.py
 
 # 3. Chạy FastAPI Server
-uvicorn backend.app.main:app --reload --port 8000
+cd backend && uvicorn app.main:app --reload --port 8000
 ```
 
 ### B. Khởi chạy Frontend React Vite

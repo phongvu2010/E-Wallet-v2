@@ -3,16 +3,16 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.app.core.database import get_db
-from backend.app.models.installment import InstallmentStatusEnum
-from backend.app.schemas.installment import (
+from app.core.database import get_db
+from app.models.installment import InstallmentStatusEnum
+from app.schemas.installment import (
     InstallmentPlanRead,
     InstallmentPlanCreate,
     EarlySettleRequest,
     EarlySettleResponse,
     InstallmentForecastRead,
 )
-from backend.app.services.installment_service import InstallmentService
+from app.services.installment_service import InstallmentService
 
 router = APIRouter()
 

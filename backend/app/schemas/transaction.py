@@ -3,9 +3,9 @@ from uuid import UUID
 from datetime import date, datetime
 from decimal import Decimal
 from pydantic import BaseModel, ConfigDict, Field
-from backend.app.models.transaction import TransactionTypeEnum
-from backend.app.schemas.category import CategoryRead
-from backend.app.schemas.merchant import MerchantSimpleRead
+from app.models.transaction import TransactionTypeEnum
+from app.schemas.category import CategoryRead
+from app.schemas.merchant import MerchantSimpleRead
 
 
 class TransactionBase(BaseModel):

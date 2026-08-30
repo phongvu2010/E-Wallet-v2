@@ -6,17 +6,17 @@ from decimal import Decimal
 from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.app.core.database import get_db
-from backend.app.models.transaction import TransactionTypeEnum
-from backend.app.schemas.transaction import (
+from app.core.database import get_db
+from app.models.transaction import TransactionTypeEnum
+from app.schemas.transaction import (
     TransactionRead,
     TransactionCreate,
     TransactionUpdate,
     TransactionFilterParams,
     TransactionSummaryRead,
 )
-from backend.app.schemas.common import PaginationParams, PaginatedResponse
-from backend.app.services.transaction_service import TransactionService
+from app.schemas.common import PaginationParams, PaginatedResponse
+from app.services.transaction_service import TransactionService
 
 router = APIRouter()
 

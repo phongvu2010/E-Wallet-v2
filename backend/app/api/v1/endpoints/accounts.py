@@ -3,17 +3,17 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.app.core.database import get_db
-from backend.app.models.account import AccountStatusEnum
-from backend.app.schemas.account import (
+from app.core.database import get_db
+from app.models.account import AccountStatusEnum
+from app.schemas.account import (
     AccountRead,
     AccountCreate,
     AccountUpdate,
     AccountLiveBalanceRead,
     AccountOverviewRead,
 )
-from backend.app.schemas.common import APIResponse
-from backend.app.services.account_service import AccountService
+from app.schemas.common import APIResponse
+from app.services.account_service import AccountService
 
 router = APIRouter()
 

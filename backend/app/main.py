@@ -4,9 +4,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy import text
 
-from backend.app.core.config import settings
-from backend.app.core.database import async_engine
-from backend.app.api.v1.api import api_router
+from app.core.config import settings
+from app.core.database import async_engine
+from app.api.v1.api import api_router
 
 
 @asynccontextmanager

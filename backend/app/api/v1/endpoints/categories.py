@@ -5,9 +5,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy.orm import selectinload
 
-from backend.app.core.database import get_db
-from backend.app.models.category import Category, CategoryTypeEnum
-from backend.app.schemas.category import CategoryRead, CategoryCreate, CategoryTreeNode
+from app.core.database import get_db
+from app.models.category import Category, CategoryTypeEnum
+from app.schemas.category import CategoryRead, CategoryCreate, CategoryTreeNode
 
 router = APIRouter()
 

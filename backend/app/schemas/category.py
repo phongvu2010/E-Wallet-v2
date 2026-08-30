@@ -2,7 +2,7 @@ from typing import Optional, List
 from uuid import UUID
 from datetime import datetime
 from pydantic import BaseModel, ConfigDict
-from backend.app.models.category import CategoryTypeEnum
+from app.models.category import CategoryTypeEnum
 
 
 class CategoryBase(BaseModel):

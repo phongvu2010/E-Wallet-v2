@@ -3,8 +3,8 @@ from uuid import UUID
 from datetime import date, datetime
 from decimal import Decimal
 from pydantic import BaseModel, ConfigDict, Field
-from backend.app.models.account import AccountTypeEnum, AccountStatusEnum
-from backend.app.schemas.institution import InstitutionRead
+from app.models.account import AccountTypeEnum, AccountStatusEnum
+from app.schemas.institution import InstitutionRead
 
 
 class AccountBase(BaseModel):

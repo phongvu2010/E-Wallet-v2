@@ -6,8 +6,8 @@ from sqlalchemy.orm import selectinload
 from sqlalchemy import text
 from fastapi import HTTPException, status
 
-from backend.app.models.account import Account, AccountStatusEnum
-from backend.app.schemas.account import (
+from app.models.account import Account, AccountStatusEnum
+from app.schemas.account import (
     AccountCreate,
     AccountUpdate,
     AccountLiveBalanceRead,

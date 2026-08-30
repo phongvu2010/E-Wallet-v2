@@ -3,8 +3,8 @@ from uuid import UUID
 from datetime import date, datetime
 from decimal import Decimal
 from pydantic import BaseModel, ConfigDict, Field
-from backend.app.models.installment import InstallmentStatusEnum
-from backend.app.schemas.merchant import MerchantSimpleRead
+from app.models.installment import InstallmentStatusEnum
+from app.schemas.merchant import MerchantSimpleRead
 
 
 class InstallmentScheduleBase(BaseModel):

@@ -3,7 +3,7 @@ from uuid import UUID
 from datetime import date, datetime
 from decimal import Decimal
 from pydantic import BaseModel, ConfigDict, Field
-from backend.app.models.reward import RewardTypeEnum
+from app.models.reward import RewardTypeEnum
 
 
 class RewardLedgerBase(BaseModel):
