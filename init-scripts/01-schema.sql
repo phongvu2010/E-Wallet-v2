@@ -730,12 +730,10 @@ unbilled_transactions_summary AS (
     FROM accounts a
     LEFT JOIN latest_statement_per_account ls ON a.id = ls.account_id
     LEFT JOIN transactions t ON t.account_id = a.id
+        AND t.statement_id IS NULL
         AND (
-            -- Giao dịch chưa được gắn vào bất kỳ sao kê nào
-            t.statement_id IS NULL
-            OR
-            -- Hoặc giao dịch phát sinh sau ngày chốt sao kê gần nhất
-            (ls.latest_statement_date IS NOT NULL AND t.transaction_date > ls.latest_statement_date)
+            ls.latest_statement_date IS NULL
+            OR COALESCE(t.post_date, t.transaction_date) > ls.latest_statement_date
         )
     GROUP BY a.id
 )

@@ -17,7 +17,7 @@ import {
 
 import { useCategoryTree } from "../hooks/useFinanceQueries";
 import { useToast } from "../context/ToastContext";
-import { useQueryClient } from "../providers/QueryProvider";
+import { useQueryClient } from "@tanstack/react-query";
 
 export const SettingsPage: React.FC = () => {
   const { data: categories = [], isLoading: catLoading } = useCategoryTree();

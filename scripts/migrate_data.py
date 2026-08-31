@@ -1,9 +1,20 @@
-import openpyxl, os, datetime, re, warnings, hashlib
+import openpyxl, os, datetime, re, warnings, hashlib, calendar
 from pathlib import Path
 import pandas as pd
 import psycopg2
 
 warnings.filterwarnings("ignore", category=UserWarning, module="openpyxl")
+
+
+def add_months_to_date(base_date, months_to_add, target_day=None):
+    if not base_date:
+        return None
+    year = base_date.year + (base_date.month + months_to_add - 1) // 12
+    month = (base_date.month + months_to_add - 1) % 12 + 1
+    max_days = calendar.monthrange(year, month)[1]
+    day = target_day if target_day is not None else base_date.day
+    day = min(max(1, day), max_days)
+    return datetime.date(year, month, day)
 
 # Automatically load .env if available
 env_file = Path(__file__).resolve().parent.parent / ".env"
@@ -611,6 +622,11 @@ try:
             )
             plan_id = cur.fetchone()[0]
 
+        # Fetch billing_day_of_month from accounts if available
+        cur.execute("SELECT billing_day_of_month FROM accounts WHERE id = %s;", (acc_id,))
+        b_res = cur.fetchone()
+        billing_day = b_res[0] if b_res and b_res[0] else None
+
         for i in range(1, term + 1):
             if i == term:
                 # Kỳ cuối cùng gánh phần lẻ làm tròn còn dư
@@ -619,7 +635,7 @@ try:
                 period_principal = base_monthly
                 accumulated_principal += period_principal
 
-            due_date = t_date + datetime.timedelta(days=30 * i)
+            due_date = add_months_to_date(t_date, i, billing_day)
 
             cur.execute(
                 """

@@ -26,15 +26,13 @@ import {
   useDashboardOverview,
   useAccountLiveBalances,
   useMonthlySpending,
+  useUpcomingObligations,
 } from "../hooks/useFinanceQueries";
-import { useQuery } from "../providers/QueryProvider";
 
 export const DashboardPage: React.FC = () => {
   const { data: overview, isLoading: overviewLoading } = useDashboardOverview();
   const { data: accounts = [], isLoading: accountsLoading } = useAccountLiveBalances();
-  const { data: obligations = [] } = useQuery(["upcoming-obligations", 30], () =>
-    analyticsService.getUpcomingObligations(30)
-  );
+  const { data: obligations = [] } = useUpcomingObligations(30);
   const { data: monthlySpending = [] } = useMonthlySpending(20);
 
   if ((overviewLoading && !overview) || !overview) {

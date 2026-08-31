@@ -3,14 +3,26 @@ import { clsx } from "clsx";
 import { twMerge } from "tailwind-merge";
 import { ChevronDown } from "lucide-react";
 
+export interface SelectOption {
+  value: string;
+  label: string;
+  disabled?: boolean;
+}
+
+export interface SelectGroup {
+  label: string;
+  options: SelectOption[];
+}
+
 interface SelectProps extends React.SelectHTMLAttributes<HTMLSelectElement> {
   label?: string;
   error?: string;
-  options: { value: string; label: string }[];
+  options?: SelectOption[];
+  groups?: SelectGroup[];
 }
 
 export const Select = React.forwardRef<HTMLSelectElement, SelectProps>(
-  ({ label, error, options, className, ...props }, ref) => {
+  ({ label, error, options, groups, className, ...props }, ref) => {
     return (
       <div className="w-full">
         {label && (
@@ -31,11 +43,37 @@ export const Select = React.forwardRef<HTMLSelectElement, SelectProps>(
             )}
             {...props}
           >
-            {options.map((opt) => (
-              <option key={opt.value} value={opt.value} className="bg-slate-900 text-slate-100">
-                {opt.label}
-              </option>
-            ))}
+            {options &&
+              options.map((opt) => (
+                <option
+                  key={opt.value}
+                  value={opt.value}
+                  disabled={opt.disabled}
+                  className="bg-slate-900 text-slate-100"
+                >
+                  {opt.label}
+                </option>
+              ))}
+
+            {groups &&
+              groups.map((group) => (
+                <optgroup
+                  key={group.label}
+                  label={group.label}
+                  className="bg-slate-950 font-bold text-emerald-400"
+                >
+                  {group.options.map((opt) => (
+                    <option
+                      key={opt.value}
+                      value={opt.value}
+                      disabled={opt.disabled}
+                      className="bg-slate-900 font-normal text-slate-100"
+                    >
+                      {opt.label}
+                    </option>
+                  ))}
+                </optgroup>
+              ))}
           </select>
           <div className="absolute inset-y-0 right-0 flex items-center pr-3.5 pointer-events-none text-slate-400">
             <ChevronDown className="h-4 w-4" />
@@ -46,5 +84,6 @@ export const Select = React.forwardRef<HTMLSelectElement, SelectProps>(
     );
   }
 );
+
 
 Select.displayName = "Select";

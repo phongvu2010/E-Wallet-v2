@@ -1,4 +1,5 @@
 import datetime
+import calendar
 from decimal import Decimal
 from typing import List, Optional
 from uuid import UUID
@@ -8,6 +9,7 @@ from sqlalchemy.orm import selectinload
 from sqlalchemy import text
 from fastapi import HTTPException, status
 
+from app.models.account import Account
 from app.models.installment import (
     InstallmentPlan,
     InstallmentSchedule,
@@ -19,6 +21,15 @@ from app.schemas.installment import (
     EarlySettleResponse,
     InstallmentForecastRead,
 )
+
+
+def add_months_to_date(base_date: datetime.date, months_to_add: int, target_day: Optional[int] = None) -> datetime.date:
+    year = base_date.year + (base_date.month + months_to_add - 1) // 12
+    month = (base_date.month + months_to_add - 1) % 12 + 1
+    max_days = calendar.monthrange(year, month)[1]
+    day = target_day if target_day is not None else base_date.day
+    day = min(max(1, day), max_days)
+    return datetime.date(year, month, day)
 
 
 class InstallmentService:
@@ -77,6 +88,11 @@ class InstallmentService:
         base_monthly = round(tot_amt / term, 2)
         accumulated_principal = Decimal("0.00")
 
+        # Get account billing_day_of_month
+        acc_stmt = select(Account.billing_day_of_month).where(Account.id == payload.account_id)
+        acc_res = await db.execute(acc_stmt)
+        billing_day = acc_res.scalar_one_or_none()
+
         plan = InstallmentPlan(
             account_id=payload.account_id,
             origin_transaction_id=payload.origin_transaction_id,
@@ -102,7 +118,7 @@ class InstallmentService:
                 period_principal = base_monthly
                 accumulated_principal += period_principal
 
-            due_date = payload.start_date + datetime.timedelta(days=30 * i)
+            due_date = add_months_to_date(payload.start_date, i, billing_day)
 
             sched = InstallmentSchedule(
                 installment_plan_id=plan.id,
@@ -115,8 +131,15 @@ class InstallmentService:
             )
             db.add(sched)
 
-        await db.commit()
-        return await InstallmentService.get_by_id(db, plan.id)
+        try:
+            await db.commit()
+            return await InstallmentService.get_by_id(db, plan.id)
+        except Exception as e:
+            await db.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Failed to create installment plan: {str(e)}",
+            )
 
     @staticmethod
     async def early_settle(

@@ -44,9 +44,15 @@ class AccountService:
     async def create(db: AsyncSession, payload: AccountCreate) -> Account:
         account = Account(**payload.model_dump())
         db.add(account)
-        await db.commit()
-        await db.refresh(account)
-        return await AccountService.get_by_id(db, account.id)
+        try:
+            await db.commit()
+            return await AccountService.get_by_id(db, account.id)
+        except Exception as e:
+            await db.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Failed to create account: {str(e)}",
+            )
 
     @staticmethod
     async def update(db: AsyncSession, account_id: UUID, payload: AccountUpdate) -> Account:
@@ -54,9 +60,15 @@ class AccountService:
         update_data = payload.model_dump(exclude_unset=True)
         for key, value in update_data.items():
             setattr(account, key, value)
-        await db.commit()
-        await db.refresh(account)
-        return await AccountService.get_by_id(db, account.id)
+        try:
+            await db.commit()
+            return await AccountService.get_by_id(db, account.id)
+        except Exception as e:
+            await db.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Failed to update account: {str(e)}",
+            )
 
     @staticmethod
     async def update_status(
@@ -66,9 +78,15 @@ class AccountService:
     ) -> Account:
         account = await AccountService.get_by_id(db, account_id)
         account.status = new_status
-        await db.commit()
-        await db.refresh(account)
-        return await AccountService.get_by_id(db, account.id)
+        try:
+            await db.commit()
+            return await AccountService.get_by_id(db, account.id)
+        except Exception as e:
+            await db.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Failed to update account status: {str(e)}",
+            )
 
     @staticmethod
     async def toggle_status(db: AsyncSession, account_id: UUID) -> Account:
@@ -82,9 +100,15 @@ class AccountService:
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Cannot toggle status of card with status {account.status}",
             )
-        await db.commit()
-        await db.refresh(account)
-        return await AccountService.get_by_id(db, account.id)
+        try:
+            await db.commit()
+            return await AccountService.get_by_id(db, account.id)
+        except Exception as e:
+            await db.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Failed to toggle account status: {str(e)}",
+            )
 
     @staticmethod
     async def get_live_balances(

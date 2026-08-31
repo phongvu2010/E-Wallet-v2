@@ -6,6 +6,7 @@ import { Button } from "../components/common/Button";
 import { Badge } from "../components/common/Badge";
 import { Modal } from "../components/common/Modal";
 import { Input } from "../components/common/Input";
+import { CurrencyInput } from "../components/common/CurrencyInput";
 import { Spinner } from "../components/common/Spinner";
 import { InstallmentForecastChart } from "../components/charts/InstallmentForecastChart";
 import { formatCurrency, formatDate } from "../utils/formatters";
@@ -267,14 +268,15 @@ export const InstallmentsPage: React.FC = () => {
               onChange={(e) => setSettleFeePercent(e.target.value)}
               placeholder="VD: 2.0"
             />
-            <Input
+            <CurrencyInput
               label="Hoặc Phí tùy chỉnh (VNĐ)"
-              type="number"
               value={settleCustomFee}
-              onChange={(e) => setSettleCustomFee(e.target.value)}
-              placeholder="Để trống nếu tính theo %"
+              onValueChange={(val) => setSettleCustomFee(val ? String(val) : "")}
+              onChangeRaw={(raw) => setSettleCustomFee(raw)}
+              placeholder="Để trống nếu tính %"
             />
           </div>
+
 
           {formError && (
             <div className="p-2.5 bg-rose-500/10 border border-rose-500/20 rounded-xl text-xs text-rose-400 font-medium">

@@ -1,3 +1,4 @@
+import asyncio
 import subprocess
 import sys
 from pathlib import Path
@@ -5,6 +6,9 @@ from typing import Dict, Any
 
 
 class ETLService:
+    _lock = asyncio.Lock()
+    _is_running = False
+
     @staticmethod
     def run_migration_script() -> Dict[str, Any]:
         """
@@ -63,8 +67,18 @@ class ETLService:
     async def run_migration_script_async() -> Dict[str, Any]:
         """
         Executes scripts/migrate_data.py asynchronously via a worker thread
-        so the main async event loop remains unblocked.
+        with Mutex Lock so only one migration process runs at any time.
         """
-        import asyncio
+        if ETLService._lock.locked() or ETLService._is_running:
+            return {
+                "success": False,
+                "message": "Quá trình đồng bộ ETL đang được thực thi. Vui lòng đợi tiến trình hiện tại hoàn tất.",
+                "output": "Migration is already in progress.",
+            }
 
-        return await asyncio.to_thread(ETLService.run_migration_script)
+        async with ETLService._lock:
+            ETLService._is_running = True
+            try:
+                return await asyncio.to_thread(ETLService.run_migration_script)
+            finally:
+                ETLService._is_running = False

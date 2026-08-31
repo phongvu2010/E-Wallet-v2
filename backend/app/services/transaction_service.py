@@ -123,9 +123,15 @@ class TransactionService:
 
         tx = Transaction(**tx_data)
         db.add(tx)
-        await db.commit()
-        await db.refresh(tx)
-        return await TransactionService.get_by_id(db, tx.id)
+        try:
+            await db.commit()
+            return await TransactionService.get_by_id(db, tx.id)
+        except Exception as e:
+            await db.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Failed to create transaction: {str(e)}",
+            )
 
     @staticmethod
     async def update(db: AsyncSession, transaction_id: UUID, payload: TransactionUpdate) -> Transaction:
@@ -133,16 +139,29 @@ class TransactionService:
         update_data = payload.model_dump(exclude_unset=True)
         for key, value in update_data.items():
             setattr(tx, key, value)
-        await db.commit()
-        await db.refresh(tx)
-        return await TransactionService.get_by_id(db, tx.id)
+        try:
+            await db.commit()
+            return await TransactionService.get_by_id(db, tx.id)
+        except Exception as e:
+            await db.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Failed to update transaction: {str(e)}",
+            )
 
     @staticmethod
     async def delete(db: AsyncSession, transaction_id: UUID) -> bool:
         tx = await TransactionService.get_by_id(db, transaction_id)
-        await db.delete(tx)
-        await db.commit()
-        return True
+        try:
+            await db.delete(tx)
+            await db.commit()
+            return True
+        except Exception as e:
+            await db.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Failed to delete transaction: {str(e)}",
+            )
 
     @staticmethod
     async def get_summary(

@@ -6,6 +6,7 @@ import { Button } from "../components/common/Button";
 import { Badge } from "../components/common/Badge";
 import { Modal } from "../components/common/Modal";
 import { Input } from "../components/common/Input";
+import { CurrencyInput } from "../components/common/CurrencyInput";
 import { Select } from "../components/common/Select";
 import { Spinner } from "../components/common/Spinner";
 import { CreditCardVisual } from "../components/cards/CreditCardVisual";
@@ -368,23 +369,20 @@ export const AccountsPage: React.FC = () => {
       >
         <form onSubmit={handleSaveEdit} className="space-y-4">
           <div>
-            <Input
+            <CurrencyInput
               label="Hạn Mức Tín Dụng (VNĐ)"
-              type="number"
               value={editLimit}
-              onChange={(e) => {
-                setEditLimit(e.target.value);
+              placeholder="VD: 50,000,000"
+              onValueChange={(val) => {
+                setEditLimit(String(val));
                 if (editError) setEditError(null);
               }}
+              onChangeRaw={(raw) => setEditLimit(raw)}
               error={editError || undefined}
               required
             />
-            {editLimit && !editError && parseFloat(editLimit) >= 0 && (
-              <p className="mt-1 text-[11px] text-emerald-400 font-mono">
-                ≈ {Number(editLimit).toLocaleString("vi-VN")} ₫
-              </p>
-            )}
           </div>
+
 
           <Select
             label="Trạng Thái Thẻ"

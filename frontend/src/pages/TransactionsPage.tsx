@@ -14,6 +14,7 @@ import { Card } from "../components/common/Card";
 import { Button } from "../components/common/Button";
 import { Badge } from "../components/common/Badge";
 import { Input } from "../components/common/Input";
+import { CurrencyInput } from "../components/common/CurrencyInput";
 import { Select } from "../components/common/Select";
 import { Modal } from "../components/common/Modal";
 import { Pagination } from "../components/common/Pagination";
@@ -39,6 +40,7 @@ import {
 import {
   useAccounts,
   useCategories,
+  useCategoryTree,
   useTransactions,
   useTransactionSummary,
 } from "../hooks/useFinanceQueries";
@@ -47,6 +49,20 @@ import {
   useDeleteTransaction,
 } from "../hooks/useFinanceMutations";
 import { useToast } from "../context/ToastContext";
+
+const TRANSACTION_TYPES: { value: TransactionType; label: string; defaultKeywords: string[] }[] = [
+  { value: "PURCHASE", label: "Chi tiêu mua sắm thông thường", defaultKeywords: ["Nhà hàng", "Ăn uống", "Cửa hàng", "Chi tiêu"] },
+  { value: "REPAYMENT", label: "Thanh toán dư nợ / Nạp tiền", defaultKeywords: ["Thanh toán dư nợ", "Thanh toán", "Nạp tiền"] },
+  { value: "INSTALLMENT_MONTHLY", label: "Trả góp định kỳ hàng tháng", defaultKeywords: ["Trả góp", "Tất toán trả góp"] },
+  { value: "INSTALLMENT_PRINCIPAL", label: "Ghi có chuyển đổi trả góp", defaultKeywords: ["Chuyển đổi sang trả góp", "Trả góp"] },
+  { value: "FEE", label: "Phí dịch vụ / Phí thường niên / Phí SMS", defaultKeywords: ["Phí thường niên", "Phí SMS", "Phí chuyển đổi", "Phí & Lãi"] },
+  { value: "INTEREST", label: "Lãi suất phát sinh", defaultKeywords: ["Lãi suất", "Phí & Lãi"] },
+  { value: "REFUND", label: "Hoàn tiền đơn hàng hủy", defaultKeywords: ["Hủy giao dịch", "Điều chỉnh / Hủy"] },
+  { value: "CASHBACK_CREDIT", label: "Tiền hoàn Cashback ghi có", defaultKeywords: ["Hoàn tiền Cashback", "Hoàn tiền"] },
+  { value: "CASH_ADVANCE", label: "Ứng tiền mặt qua thẻ", defaultKeywords: ["Chi tiêu khác", "Chi tiêu"] },
+  { value: "ADJUSTMENT", label: "Điều chỉnh giao dịch", defaultKeywords: ["Điều chỉnh / Hủy", "Chi tiêu khác"] },
+  { value: "TRANSFER", label: "Chuyển tiền nội bộ", defaultKeywords: ["Thanh toán", "Chuyển khoản"] },
+];
 
 export const TransactionsPage: React.FC = () => {
   const { toast } = useToast();
@@ -63,6 +79,10 @@ export const TransactionsPage: React.FC = () => {
   // Cached Queries
   const { data: accounts = [] } = useAccounts();
   const { data: categories = [] } = useCategories();
+  const { data: categoryTree = [] } = useCategoryTree();
+
+  // Only ACTIVE accounts are selectable for creating new transactions
+  const activeAccounts = accounts.filter((a) => a.status === "ACTIVE");
 
   const filterParams: TransactionFilterParams = {
     page,
@@ -102,12 +122,58 @@ export const TransactionsPage: React.FC = () => {
   const [newNote, setNewNote] = useState("");
   const [createErrors, setCreateErrors] = useState<Record<string, string>>({});
 
-  // Ensure default account selected when accounts load
-  useEffect(() => {
-    if (accounts.length > 0 && !newAccountId) {
-      setNewAccountId(accounts[0].id);
+  // Helper to match category from DB based on transaction type
+  const findDefaultCategoryId = (type: TransactionType): string => {
+    const typeConfig = TRANSACTION_TYPES.find((t) => t.value === type);
+    if (!typeConfig || categories.length === 0) return "";
+
+    for (const kw of typeConfig.defaultKeywords) {
+      const found = categories.find((c) => c.name.toLowerCase().includes(kw.toLowerCase()));
+      if (found) return found.id;
     }
-  }, [accounts, newAccountId]);
+    return categories[0]?.id || "";
+  };
+
+  const handleTypeChange = (type: TransactionType) => {
+    setNewType(type);
+    const matchedId = findDefaultCategoryId(type);
+    if (matchedId) {
+      setNewCategoryId(matchedId);
+    }
+  };
+
+  // Ensure default active account selected when activeAccounts load
+  useEffect(() => {
+    if (activeAccounts.length > 0) {
+      if (!newAccountId || !activeAccounts.some((a) => a.id === newAccountId)) {
+        setNewAccountId(activeAccounts[0].id);
+      }
+    }
+  }, [activeAccounts, newAccountId]);
+
+  // Ensure default category selected when categories load
+  useEffect(() => {
+    if (categories.length > 0 && !newCategoryId) {
+      const matchedId = findDefaultCategoryId(newType);
+      if (matchedId) {
+        setNewCategoryId(matchedId);
+      }
+    }
+  }, [categories, newCategoryId, newType]);
+
+  // Build grouped options from categoryTree in Database
+  const categoryGroups = categoryTree.map((parent) => ({
+    label: parent.name,
+    options: [
+      ...(parent.children && parent.children.length > 0
+        ? parent.children.map((child) => ({
+            value: child.id,
+            label: child.name,
+          }))
+        : [{ value: parent.id, label: `${parent.name} (Chung)` }]),
+    ],
+  }));
+
 
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -473,25 +539,21 @@ export const TransactionsPage: React.FC = () => {
         <form onSubmit={handleCreateTransaction} className="space-y-4">
           <div className="grid grid-cols-2 gap-3">
             <Select
-              label="Tài Khoản / Thẻ"
+              label="Tài Khoản / Thẻ (Đang hoạt động)"
               value={newAccountId}
               onChange={(e) => {
                 setNewAccountId(e.target.value);
                 if (createErrors.account_id) setCreateErrors((prev) => ({ ...prev, account_id: "" }));
               }}
               error={createErrors.account_id}
-              options={accounts.map((a) => ({
-                value: a.id,
-                label: `${a.account_name} (${a.card_number_last4})${
-                  a.status === "LOCKED"
-                    ? " [ĐÃ KHÓA]"
-                    : a.status === "CLOSED"
-                    ? " [ĐÃ ĐÓNG]"
-                    : a.status === "REPLACED"
-                    ? " [ĐÃ ĐỔI]"
-                    : ""
-                }`,
-              }))}
+              options={
+                activeAccounts.length > 0
+                  ? activeAccounts.map((a) => ({
+                      value: a.id,
+                      label: `${a.account_name} (•••• ${a.card_number_last4})`,
+                    }))
+                  : [{ value: "", label: "Không có thẻ đang hoạt động", disabled: true }]
+              }
               required
             />
 
@@ -507,13 +569,6 @@ export const TransactionsPage: React.FC = () => {
               required
             />
           </div>
-
-          {accounts.find((a) => a.id === newAccountId)?.status === "LOCKED" && (
-            <div className="flex items-center gap-2 p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-300 text-xs">
-              <AlertTriangle className="w-4 h-4 shrink-0" />
-              <span>Thẻ này hiện đang ở trạng thái <strong>ĐÃ KHÓA / VÔ HIỆU HÓA</strong>. Hãy lưu ý nếu đây là giao dịch chi tiêu mới.</span>
-            </div>
-          )}
 
           <Input
             label="Nội Dung / Đơn Vị Chấp Nhận Thẻ"
@@ -531,63 +586,49 @@ export const TransactionsPage: React.FC = () => {
             <Select
               label="Loại Giao Dịch"
               value={newType}
-              onChange={(e) => setNewType(e.target.value as TransactionType)}
-              options={[
-                { value: "PURCHASE", label: "Chi tiêu mua sắm" },
-                { value: "REPAYMENT", label: "Thanh toán nợ thẻ" },
-                { value: "INSTALLMENT_MONTHLY", label: "Trả góp kỳ" },
-                { value: "FEE", label: "Phí thường niên / Phí khác" },
-                { value: "INTEREST", label: "Lãi suất" },
-                { value: "REFUND", label: "Hoàn tiền" },
-                { value: "CASHBACK_CREDIT", label: "Cashback" },
-              ]}
+              onChange={(e) => handleTypeChange(e.target.value as TransactionType)}
+              options={TRANSACTION_TYPES.map((t) => ({
+                value: t.value,
+                label: t.label,
+              }))}
             />
 
             <Select
-              label="Danh Mục"
+              label="Danh Mục (Cơ sở dữ liệu)"
               value={newCategoryId}
               onChange={(e) => setNewCategoryId(e.target.value)}
-              options={[
-                { value: "", label: "-- Chọn danh mục --" },
-                ...categories.map((c) => ({
-                  value: c.id,
-                  label: c.name,
-                })),
-              ]}
+              options={[{ value: "", label: "-- Chọn danh mục --" }]}
+              groups={categoryGroups}
             />
           </div>
 
+
           <div className="grid grid-cols-2 gap-3">
-            <div>
-              <Input
-                label="Số Tiền (VNĐ)"
-                type="number"
-                placeholder="VD: 150000"
-                value={newAmount}
-                onChange={(e) => {
-                  setNewAmount(e.target.value);
-                  if (createErrors.amount) setCreateErrors((prev) => ({ ...prev, amount: "" }));
-                }}
-                error={createErrors.amount}
-                required
-              />
-              {newAmount && !createErrors.amount && parseFloat(newAmount) > 0 && (
-                <p className="mt-1 text-[11px] text-emerald-400 font-mono">
-                  ≈ {Number(newAmount).toLocaleString("vi-VN")} ₫
-                </p>
-              )}
-            </div>
-            <Input
+            <CurrencyInput
+              label="Số Tiền (VNĐ)"
+              placeholder="VD: 150,000"
+              value={newAmount}
+              onValueChange={(val) => {
+                setNewAmount(String(val));
+                if (createErrors.amount) setCreateErrors((prev) => ({ ...prev, amount: "" }));
+              }}
+              onChangeRaw={(raw) => setNewAmount(raw)}
+              error={createErrors.amount}
+              required
+            />
+            <CurrencyInput
               label="Phí Đi Kèm (VNĐ)"
-              type="number"
+              placeholder="0"
               value={newFee}
-              onChange={(e) => {
-                setNewFee(e.target.value);
+              onValueChange={(val) => {
+                setNewFee(String(val));
                 if (createErrors.fee) setCreateErrors((prev) => ({ ...prev, fee: "" }));
               }}
+              onChangeRaw={(raw) => setNewFee(raw)}
               error={createErrors.fee}
             />
           </div>
+
 
           <div>
             <label className="block text-xs font-medium text-slate-400 mb-1.5">
