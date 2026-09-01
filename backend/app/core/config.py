@@ -1,6 +1,5 @@
-import os
 from typing import List, Union
-from pydantic import AnyHttpUrl, field_validator
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -12,14 +11,33 @@ class Settings(BaseSettings):
     # Database
     POSTGRES_DB: str = "credit_wallet"
     POSTGRES_USER: str = "postgres"
-    POSTGRES_PASSWORD: str = "postgres"
-    POSTGRES_HOST: str = "localhost"
+    POSTGRES_PASSWORD: str = ""
+    POSTGRES_HOST: str = "db"
     POSTGRES_PORT: int = 5432
-    DATABASE_URL: str = "postgresql://postgres:postgres@localhost:5432/credit_wallet"
+    POSTGRES_SSLMODE: Union[str, None] = None  # None (local) or 'require' (Supabase/Cloud)
+    DATABASE_URL: Union[str, None] = None
+
     DB_POOL_SIZE: int = 10
     DB_MAX_OVERFLOW: int = 20
     DB_POOL_TIMEOUT: int = 30
     DB_POOL_PRE_PING: bool = True
+
+    @model_validator(mode="after")
+    def assemble_database_url(self) -> "Settings":
+        """
+        If DATABASE_URL is not explicitly specified, auto-construct it from
+        POSTGRES_USER, POSTGRES_PASSWORD, POSTGRES_HOST, POSTGRES_PORT, POSTGRES_DB, and POSTGRES_SSLMODE.
+        """
+        if not self.DATABASE_URL:
+            import urllib.parse
+
+            user = urllib.parse.quote_plus(self.POSTGRES_USER) if self.POSTGRES_USER else "postgres"
+            pwd_part = f":{urllib.parse.quote_plus(self.POSTGRES_PASSWORD)}" if self.POSTGRES_PASSWORD else ""
+            ssl_param = f"?sslmode={self.POSTGRES_SSLMODE}" if self.POSTGRES_SSLMODE else ""
+            self.DATABASE_URL = (
+                f"postgresql://{user}{pwd_part}@{self.POSTGRES_HOST}:{self.POSTGRES_PORT}/{self.POSTGRES_DB}{ssl_param}"
+            )
+        return self
 
     # CORS
     BACKEND_CORS_ORIGINS: List[str] = [
@@ -43,12 +61,22 @@ class Settings(BaseSettings):
     def async_database_url(self) -> str:
         """
         Convert standard postgresql:// URL to postgresql+asyncpg://
+        and normalize SSL parameters for asyncpg compatibility (e.g. Supabase / Cloud).
         """
         url = self.DATABASE_URL
         if url.startswith("postgresql://"):
-            return url.replace("postgresql://", "postgresql+asyncpg://", 1)
+            url = url.replace("postgresql://", "postgresql+asyncpg://", 1)
         elif url.startswith("postgres://"):
-            return url.replace("postgres://", "postgresql+asyncpg://", 1)
+            url = url.replace("postgres://", "postgresql+asyncpg://", 1)
+
+        # asyncpg does not support libpq's 'sslmode=require', it expects 'ssl=require'
+        if "sslmode=" in url:
+            url = (
+                url.replace("sslmode=require", "ssl=require")
+                .replace("?sslmode=", "?ssl=")
+                .replace("&sslmode=", "&ssl=")
+            )
+
         return url
 
     @property

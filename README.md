@@ -9,14 +9,17 @@ Hệ thống sổ cái tài chính cá nhân hoàn chỉnh chuyên sâu cho th�
 Chạy toàn bộ hệ thống gồm Database PostgreSQL, Backend API và Frontend Dashboard chỉ với một câu lệnh:
 
 ```bash
-# 1. Khởi động toàn bộ Database, Backend & Frontend
+# A. KHI DÙNG SUPABASE CLOUD (Chỉ chạy Backend & Frontend, không tốn tài nguyên chạy DB local):
 docker compose up -d --build
 
-# 2. Kiểm tra trạng thái các containers
+# B. KHI DÙNG DOCKER POSTGRES CỤC BỘ (Khởi chạy đầy đủ cả PostgreSQL, Backend & Frontend):
+docker compose --profile local up -d --build
+
+# Kiểm tra trạng thái các containers
 docker compose ps
 
-# 3. Dừng hệ thống
-docker compose down
+# Dừng hệ thống
+docker compose --profile local down
 ```
 
 ### Các cổng dịch vụ truy cập:
@@ -89,10 +92,10 @@ cd frontend && npm run build
 ```dotenv
 POSTGRES_DB=credit_wallet
 POSTGRES_USER=postgres
-POSTGRES_PASSWORD=postgres
+POSTGRES_PASSWORD=your_password_here
 POSTGRES_PORT=5432
 POSTGRES_HOST=localhost
-DATABASE_URL=postgresql://postgres:postgres@localhost:5432/credit_wallet
+DATABASE_URL=postgresql://your_user:your_password_here@localhost:5432/credit_wallet
 DEBUG=true
 PROJECT_NAME="Credit Wallet 2.0 API"
 ```

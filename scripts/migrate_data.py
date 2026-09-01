@@ -1,7 +1,8 @@
-import openpyxl, os, datetime, re, warnings, hashlib, calendar
+import openpyxl, os, datetime, re, warnings, hashlib, calendar, urllib.parse
 from pathlib import Path
 import pandas as pd
 import psycopg2
+from psycopg2.extras import execute_values
 
 warnings.filterwarnings("ignore", category=UserWarning, module="openpyxl")
 
@@ -26,9 +27,17 @@ if env_file.exists():
                 k, v = line.split("=", 1)
                 os.environ.setdefault(k.strip(), v.strip())
 
-DB_URL = os.getenv(
-    "DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/credit_wallet"
-)
+DB_URL = os.getenv("DATABASE_URL")
+if not DB_URL:
+    pg_user = urllib.parse.quote_plus(os.getenv("POSTGRES_USER", "postgres"))
+    pg_pwd = os.getenv("POSTGRES_PASSWORD", "")
+    pwd_part = f":{urllib.parse.quote_plus(pg_pwd)}" if pg_pwd else ""
+    pg_host = os.getenv("POSTGRES_HOST", "db")
+    pg_port = os.getenv("POSTGRES_PORT", "5432")
+    pg_db = os.getenv("POSTGRES_DB", "credit_wallet")
+    pg_ssl = os.getenv("POSTGRES_SSLMODE", "")
+    ssl_part = f"?sslmode={pg_ssl}" if pg_ssl else ""
+    DB_URL = f"postgresql://{pg_user}{pwd_part}@{pg_host}:{pg_port}/{pg_db}{ssl_part}"
 
 excel_path = "data/My Credit Wallet 2.0.xlsx"
 wb = openpyxl.load_workbook(excel_path, data_only=True)
@@ -242,7 +251,9 @@ try:
 
     print(f"Migrated {len(merchant_id_map)} Merchants.")
 
-    # Seed common merchant aliases from raw descriptions
+    # Seed common merchant aliases from raw descriptions (Bulk Insert)
+    alias_records = []
+    seen_alias_patterns = set()
     for _, row in df_transactions.iterrows():
         raw_desc = (
             str(row["Transaction Detail"]).strip()
@@ -252,17 +263,26 @@ try:
         m_name = str(row["Merchant"]).strip() if not pd.isna(row["Merchant"]) else None
         m_id = merchant_id_map.get(m_name)
         if raw_desc and m_id and raw_desc != m_name:
-            cur.execute(
-                """
-                INSERT INTO merchant_aliases (merchant_id, pattern)
-                VALUES (%s, %s)
-                ON CONFLICT (pattern) DO NOTHING;
-            """,
-                (m_id, raw_desc),
-            )
+            if raw_desc not in seen_alias_patterns:
+                seen_alias_patterns.add(raw_desc)
+                alias_records.append((m_id, raw_desc))
 
-    # 5. Migrate Statements
-    statement_id_map = {}
+    if alias_records:
+        execute_values(
+            cur,
+            """
+            INSERT INTO merchant_aliases (merchant_id, pattern)
+            VALUES %s
+            ON CONFLICT (pattern) DO NOTHING;
+            """,
+            alias_records,
+            page_size=500,
+        )
+    print(f"Migrated {len(alias_records)} Merchant Aliases (Bulk Insert).")
+
+    # 5. Migrate Statements (Bulk Insert)
+    statement_records = []
+    seen_stmt_keys = set()
     for _, row in df_statements.iterrows():
         acc_num = str(row["Account Number"]).strip()
         acc_id = account_id_map.get(acc_num)
@@ -270,6 +290,12 @@ try:
         due_date = parse_date(row["Payment Due Date"])
         if not stmt_date or not acc_id:
             continue
+
+        stmt_key = (acc_id, stmt_date)
+        if stmt_key in seen_stmt_keys:
+            continue
+
+        seen_stmt_keys.add(stmt_key)
 
         limit_val = clean_num(row["Credit Limit"], 40000000.0)
         purch_val = clean_num(row["Purchase & Cash Advance"])
@@ -283,20 +309,7 @@ try:
 
         start_date = stmt_date - datetime.timedelta(days=30)
 
-        cur.execute(
-            """
-            INSERT INTO statements (
-                account_id, statement_date, start_date, end_date, payment_due_date, credit_limit,
-                previous_balance, purchases_amount, installments_amount, fees_and_charges,
-                payments_received, statement_balance, minimum_payment, surplus_amount, source_file_path
-            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-            ON CONFLICT (account_id, statement_date) DO UPDATE SET
-                credit_limit = EXCLUDED.credit_limit,
-                statement_balance = EXCLUDED.statement_balance,
-                minimum_payment = EXCLUDED.minimum_payment,
-                source_file_path = EXCLUDED.source_file_path
-            RETURNING id;
-        """,
+        statement_records.append(
             (
                 acc_id,
                 stmt_date,
@@ -313,10 +326,37 @@ try:
                 min_val,
                 surplus_val,
                 fn,
-            ),
+            )
         )
-        stmt_id = cur.fetchone()[0]
-        statement_id_map[(acc_num, stmt_date)] = stmt_id
+
+    if statement_records:
+        execute_values(
+            cur,
+            """
+            INSERT INTO statements (
+                account_id, statement_date, start_date, end_date, payment_due_date, credit_limit,
+                previous_balance, purchases_amount, installments_amount, fees_and_charges,
+                payments_received, statement_balance, minimum_payment, surplus_amount, source_file_path
+            ) VALUES %s
+            ON CONFLICT (account_id, statement_date) DO UPDATE SET
+                credit_limit = EXCLUDED.credit_limit,
+                statement_balance = EXCLUDED.statement_balance,
+                minimum_payment = EXCLUDED.minimum_payment,
+                source_file_path = EXCLUDED.source_file_path;
+            """,
+            statement_records,
+            page_size=500,
+        )
+
+    # Build statement_id_map from database
+    cur.execute(
+        """
+        SELECT s.id, a.card_number_masked, s.statement_date 
+        FROM statements s 
+        JOIN accounts a ON s.account_id = a.id;
+        """
+    )
+    statement_id_map = {(row[1], row[2]): row[0] for row in cur.fetchall()}
 
     # Auto-update start_date and previous_balance based on chronological statement history
     cur.execute(
@@ -339,15 +379,15 @@ try:
                 ORDER BY prev.statement_date DESC 
                 LIMIT 1
             ), 0.00);
-    """
+        """
     )
 
     print(
         f"Migrated {len(statement_id_map)} Statements and updated start_date & previous_balance history."
     )
 
-    # 6. Migrate Transactions (With Fingerprint Deduplication & Enforced Sign Conventions)
-    tx_count = 0
+    # 6. Migrate Transactions (Bulk Insert with Fingerprint Deduplication & Enforced Sign Conventions)
+    tx_records = []
     seen_tx_counts = {}
 
     for _, row in df_transactions.iterrows():
@@ -472,22 +512,7 @@ try:
                 preceding_stmts.sort(key=lambda x: x[0], reverse=True)
                 settles_stmt_id = preceding_stmts[0][1]
 
-        cur.execute(
-            """
-            INSERT INTO transactions (
-                account_id, statement_id, settles_statement_id, transaction_date, post_date, raw_description,
-                merchant_id, category_id, transaction_type,
-                original_amount, original_currency, exchange_rate, foreign_fee,
-                amount, fee, total_amount, note, is_installment, tx_fingerprint
-            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-            ON CONFLICT (tx_fingerprint) DO UPDATE SET
-                statement_id = EXCLUDED.statement_id,
-                settles_statement_id = EXCLUDED.settles_statement_id,
-                category_id = EXCLUDED.category_id,
-                merchant_id = EXCLUDED.merchant_id,
-                note = EXCLUDED.note,
-                is_installment = EXCLUDED.is_installment;
-        """,
+        tx_records.append(
             (
                 acc_id,
                 stmt_id,
@@ -508,11 +533,32 @@ try:
                 note,
                 (tx_type == "INSTALLMENT_MONTHLY"),
                 tx_fp,
-            ),
+            )
         )
-        tx_count += 1
 
-    print(f"Migrated {tx_count} Transactions (with fingerprint deduplication & settlement mapping).")
+    if tx_records:
+        execute_values(
+            cur,
+            """
+            INSERT INTO transactions (
+                account_id, statement_id, settles_statement_id, transaction_date, post_date, raw_description,
+                merchant_id, category_id, transaction_type,
+                original_amount, original_currency, exchange_rate, foreign_fee,
+                amount, fee, total_amount, note, is_installment, tx_fingerprint
+            ) VALUES %s
+            ON CONFLICT (tx_fingerprint) DO UPDATE SET
+                statement_id = EXCLUDED.statement_id,
+                settles_statement_id = EXCLUDED.settles_statement_id,
+                category_id = EXCLUDED.category_id,
+                merchant_id = EXCLUDED.merchant_id,
+                note = EXCLUDED.note,
+                is_installment = EXCLUDED.is_installment;
+            """,
+            tx_records,
+            page_size=1000,
+        )
+
+    print(f"Migrated {len(tx_records)} Transactions (Bulk Insert with fingerprint deduplication & settlement mapping).")
 
     # 7. Migrate Installment Plans & Schedules (Dynamic Term Resolution & Rounding Offsets)
     for _, row in df_instalments.iterrows():
@@ -627,6 +673,7 @@ try:
         b_res = cur.fetchone()
         billing_day = b_res[0] if b_res and b_res[0] else None
 
+        plan_schedules = []
         for i in range(1, term + 1):
             if i == term:
                 # Kỳ cuối cùng gánh phần lẻ làm tròn còn dư
@@ -637,13 +684,7 @@ try:
 
             due_date = add_months_to_date(t_date, i, billing_day)
 
-            cur.execute(
-                """
-                INSERT INTO installment_schedules (
-                    installment_plan_id, installment_index, total_installments,
-                    due_date, principal_amount, total_installment_amount, is_billed
-                ) VALUES (%s, %s, %s, %s, %s, %s, %s);
-            """,
+            plan_schedules.append(
                 (
                     plan_id,
                     i,
@@ -652,7 +693,20 @@ try:
                     period_principal,
                     period_principal,
                     False,
-                ),
+                )
+            )
+
+        if plan_schedules:
+            execute_values(
+                cur,
+                """
+                INSERT INTO installment_schedules (
+                    installment_plan_id, installment_index, total_installments,
+                    due_date, principal_amount, total_installment_amount, is_billed
+                ) VALUES %s;
+                """,
+                plan_schedules,
+                page_size=50,
             )
 
         # Link related monthly transactions to this installment plan
@@ -836,8 +890,9 @@ try:
         f"Migrated {len(df_instalments)} Installment Plans with dynamic term resolution & statement override."
     )
 
-    # 8. Migrate Rewards
-    reward_count = 0
+    # 8. Migrate Rewards (Bulk Insert)
+    reward_records = []
+    seen_reward_keys = set()
     for _, row in df_rewards.iterrows():
         acc_num = str(row["Account Number"]).strip()
         acc_id = account_id_map.get(acc_num)
@@ -853,6 +908,11 @@ try:
             else ("MILE" if "MILE" in r_type_str.upper() else "POINT")
         )
 
+        reward_key = (acc_id, stmt_id, r_type)
+        if reward_key in seen_reward_keys:
+            continue
+        seen_reward_keys.add(reward_key)
+
         tm_reward = clean_num(row.get("This month reward"), 0.0)
         used_amt = clean_num(row.get("This month used"), 0.0)
         avail_bal = clean_num(row.get("Available reward"), 0.0)
@@ -860,21 +920,7 @@ try:
         exp_amt = clean_num(row.get("Reward will be expired"), 0.0)
         exp_date = parse_date(row.get("Expired date"))
 
-        cur.execute(
-            """
-            INSERT INTO reward_ledgers (
-                account_id, statement_id, reward_type,
-                previous_remaining, earned_this_month, used_this_month, available_balance,
-                expiring_amount, expiration_date
-            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-            ON CONFLICT (account_id, statement_id, reward_type) DO UPDATE SET
-                previous_remaining = EXCLUDED.previous_remaining,
-                earned_this_month = EXCLUDED.earned_this_month,
-                used_this_month = EXCLUDED.used_this_month,
-                available_balance = EXCLUDED.available_balance,
-                expiring_amount = EXCLUDED.expiring_amount,
-                expiration_date = EXCLUDED.expiration_date;
-        """,
+        reward_records.append(
             (
                 acc_id,
                 stmt_id,
@@ -885,11 +931,31 @@ try:
                 avail_bal,
                 exp_amt,
                 exp_date,
-            ),
+            )
         )
-        reward_count += 1
 
-    print(f"Migrated {reward_count} Reward Ledger records.")
+    if reward_records:
+        execute_values(
+            cur,
+            """
+            INSERT INTO reward_ledgers (
+                account_id, statement_id, reward_type,
+                previous_remaining, earned_this_month, used_this_month, available_balance,
+                expiring_amount, expiration_date
+            ) VALUES %s
+            ON CONFLICT (account_id, statement_id, reward_type) DO UPDATE SET
+                previous_remaining = EXCLUDED.previous_remaining,
+                earned_this_month = EXCLUDED.earned_this_month,
+                used_this_month = EXCLUDED.used_this_month,
+                available_balance = EXCLUDED.available_balance,
+                expiring_amount = EXCLUDED.expiring_amount,
+                expiration_date = EXCLUDED.expiration_date;
+            """,
+            reward_records,
+            page_size=1000,
+        )
+
+    print(f"Migrated {len(reward_records)} Reward Ledger records (Bulk Insert).")
 
     conn.commit()
     print("\nALL DATA MIGRATED SUCCESSFULLY TO POSTGRESQL ON DOCKER!")

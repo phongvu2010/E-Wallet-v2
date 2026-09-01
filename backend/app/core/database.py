@@ -19,9 +19,20 @@ if "sqlite" not in settings.async_database_url:
         }
     )
 
+# Connection arguments for asyncpg (e.g. Supabase / PgBouncer / Transaction pooler compatibility)
+async_connect_args = {}
+if settings.DATABASE_URL and (
+    "supabase.co" in settings.DATABASE_URL
+    or "pooler.supabase.com" in settings.DATABASE_URL
+    or ":6543" in settings.DATABASE_URL
+):
+    # Transaction pooler (PgBouncer/Supavisor) does not support prepared statements cache
+    async_connect_args["statement_cache_size"] = 0
+
 # Async Engine (Default for FastAPI routes)
 async_engine = create_async_engine(
     settings.async_database_url,
+    connect_args=async_connect_args,
     **engine_kwargs,
 )
 

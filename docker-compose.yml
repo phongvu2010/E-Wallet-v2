@@ -1,11 +1,14 @@
 services:
-  postgres:
+  db:
     image: postgres:16-alpine
     container_name: credit_wallet_db
+    profiles: ["local"]
+    env_file:
+      - .env
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-credit_wallet}
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     ports:
       - "${POSTGRES_PORT:-5432}:5432"
     volumes:
@@ -23,8 +26,9 @@ services:
       context: ./backend
     container_name: credit_wallet_api
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    env_file:
+      - .env
     environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-credit_wallet}
       DEBUG: "true"
       PROJECT_NAME: "Credit Wallet 2.0 API"
     ports:
@@ -34,8 +38,9 @@ services:
       - ./data:/app/data
       - ./scripts:/app/scripts
     depends_on:
-      postgres:
+      db:
         condition: service_healthy
+        required: false
     restart: unless-stopped
 
   frontend:
