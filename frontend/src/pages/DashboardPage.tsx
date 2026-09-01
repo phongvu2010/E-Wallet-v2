@@ -13,8 +13,10 @@ import {
 import { CreditCardVisual } from "../components/cards/CreditCardVisual";
 import { MetricCard } from "../components/cards/MetricCard";
 import { ObligationCard } from "../components/cards/ObligationCard";
+import { CardRecommendationWidget } from "../components/cards/CardRecommendationWidget";
 import { MonthlySpendingBarChart } from "../components/charts/MonthlySpendingBarChart";
 import { SpendingDonutChart } from "../components/charts/SpendingDonutChart";
+
 import { Card } from "../components/common/Card";
 import { Spinner } from "../components/common/Spinner";
 import {
@@ -158,8 +160,12 @@ export const DashboardPage: React.FC = () => {
         </div>
       </div>
 
-      {/* 4. Charts & Upcoming Obligations Row */}
+      {/* 4. Smart Card Recommendation Engine Widget */}
+      <CardRecommendationWidget />
+
+      {/* 5. Charts & Upcoming Obligations Row */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+
         {/* Monthly Spending Donut Chart */}
         <Card className="lg:col-span-1 flex flex-col h-full">
           <div className="flex items-center justify-between border-b border-slate-800 pb-3 mb-2">

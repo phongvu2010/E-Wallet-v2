@@ -2,12 +2,15 @@ from fastapi import APIRouter
 
 from app.api.v1.endpoints import (
     accounts,
+    ai,
     analytics,
     categories,
     etl,
     installments,
     institutions,
     merchants,
+    notifications,
+    recommendations,
     rewards,
     statements,
     transactions,
@@ -37,5 +40,14 @@ api_router.include_router(
 api_router.include_router(rewards.router, prefix="/rewards", tags=["Reward Ledgers"])
 api_router.include_router(
     analytics.router, prefix="/analytics", tags=["Analytics & Dashboard"]
+)
+api_router.include_router(
+    notifications.router, prefix="/notifications", tags=["Smart Notifications"]
+)
+api_router.include_router(
+    recommendations.router, prefix="/recommendations", tags=["Card Recommendations"]
+)
+api_router.include_router(
+    ai.router, prefix="/ai", tags=["AI Copilot & Document Extraction"]
 )
 api_router.include_router(etl.router, prefix="/etl", tags=["ETL & Sync"])

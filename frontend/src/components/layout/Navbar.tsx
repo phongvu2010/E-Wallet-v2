@@ -1,6 +1,7 @@
 import React from "react";
-import { Menu, Bell, RefreshCw } from "lucide-react";
+import { Menu, RefreshCw } from "lucide-react";
 import { Button } from "../common/Button";
+import { NotificationBell } from "../common/NotificationBell";
 
 interface NavbarProps {
   onMenuClick: () => void;
@@ -46,11 +47,7 @@ export const Navbar: React.FC<NavbarProps> = ({
           </Button>
         )}
 
-        <div className="relative">
-          <button className="p-2 text-slate-400 rounded-xl hover:text-white hover:bg-slate-800/60 transition-colors border border-slate-800">
-            <Bell className="w-5 h-5" />
-          </button>
-        </div>
+        <NotificationBell />
 
         <div className="flex items-center gap-3 pl-3 border-l border-slate-800">
           <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-emerald-600 to-teal-500 flex items-center justify-center font-bold text-xs text-white shadow-md shadow-emerald-950/50">

@@ -7,6 +7,13 @@ from app.models.installment import (
 )
 from app.models.institution import Institution
 from app.models.merchant import Merchant, MerchantAlias
+from app.models.card_benefit import CardBenefit
+from app.models.notification import (
+    Notification,
+    NotificationSeverityEnum,
+    NotificationSettings,
+    NotificationTypeEnum,
+)
 from app.models.reward import RewardLedger, RewardTypeEnum
 from app.models.statement import Statement, StatementStatusEnum
 from app.models.transaction import Transaction, TransactionTypeEnum
@@ -29,4 +36,9 @@ __all__ = [
     "InstallmentStatusEnum",
     "RewardLedger",
     "RewardTypeEnum",
+    "Notification",
+    "NotificationSettings",
+    "NotificationTypeEnum",
+    "NotificationSeverityEnum",
+    "CardBenefit",
 ]

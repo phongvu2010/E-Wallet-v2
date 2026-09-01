@@ -150,6 +150,9 @@ export function useCreditUtilization() {
   });
 }
 
+import { notificationService } from "../services/notificationService";
+import { recommendationService } from "../services/recommendationService";
+
 /**
  * Query hook to fetch all categories as flat list.
  */
@@ -170,3 +173,43 @@ export function useCategoryTree() {
   });
 }
 
+/**
+ * Query hook to fetch notification summary & unread count (auto-refreshed every 30s).
+ */
+export function useNotificationSummary() {
+  return useQuery({
+    queryKey: ["notification-summary"],
+    queryFn: () => notificationService.getSummary(),
+    refetchInterval: 30000,
+  });
+}
+
+/**
+ * Query hook to fetch notifications list.
+ */
+export function useNotifications(limit = 50, unreadOnly = false) {
+  return useQuery({
+    queryKey: ["notifications", limit, unreadOnly],
+    queryFn: () => notificationService.getAll(limit, unreadOnly),
+  });
+}
+
+/**
+ * Query hook to fetch notification & Telegram settings.
+ */
+export function useNotificationSettings() {
+  return useQuery({
+    queryKey: ["notification-settings"],
+    queryFn: () => notificationService.getSettings(),
+  });
+}
+
+/**
+ * Query hook to fetch card benefits matrix.
+ */
+export function useCardBenefits(accountId?: string) {
+  return useQuery({
+    queryKey: ["card-benefits", accountId || "all"],
+    queryFn: () => recommendationService.getBenefits(accountId),
+  });
+}

@@ -1,10 +1,12 @@
 import React, { useState } from "react";
 import {
   AlertCircle,
+  Award,
   CheckCircle2,
   CreditCard,
   Edit2,
   Lock,
+  Sparkles,
   Unlock,
 } from "lucide-react";
 import { CreditCardVisual } from "../components/cards/CreditCardVisual";
@@ -18,13 +20,16 @@ import { Select } from "../components/common/Select";
 import { Spinner } from "../components/common/Spinner";
 import { useToast } from "../context/ToastContext";
 import { useUpdateAccount, useUpdateAccountStatus } from "../hooks/useFinanceMutations";
-import { useAccountLiveBalances, useAccounts } from "../hooks/useFinanceQueries";
+import { useAccountLiveBalances, useAccounts, useCardBenefits } from "../hooks/useFinanceQueries";
 import { Account, AccountLiveBalance, AccountStatus } from "../types/account";
+import { CardBenefit } from "../types/cardRecommendation";
 import { formatCurrency, getRiskLevelColor } from "../utils/formatters";
+
 
 export const AccountsPage: React.FC = () => {
   const { data: accounts = [] } = useAccounts();
   const { data: liveBalances = [], isLoading: liveBalancesLoading } = useAccountLiveBalances();
+  const { data: benefits = [] } = useCardBenefits();
   const [selectedAccId, setSelectedAccId] = useState<string | null>(null);
 
   const { toast } = useToast();
@@ -359,6 +364,59 @@ export const AccountsPage: React.FC = () => {
           </table>
         </div>
       </Card>
+
+      {/* 4. Card Benefits & Cashback Policy Matrix */}
+      <Card>
+        <div className="flex items-center justify-between border-b border-slate-800 pb-3 mb-4">
+          <div>
+            <h3 className="text-base font-bold text-slate-100 flex items-center gap-2">
+              <Award className="w-5 h-5 text-emerald-400" />
+              <span>Chính Sách Ưu Đãi & Hoàn Tiền Thẻ (Card Benefits Matrix)</span>
+            </h3>
+            <p className="text-xs text-slate-400 mt-0.5">
+              Ma trận đặc quyền tích lũy điểm thưởng Shinhan Points và hoàn tiền Cashback HSBC/Sacombank
+            </p>
+          </div>
+        </div>
+
+        {benefits.length === 0 ? (
+          <div className="h-32 flex items-center justify-center text-slate-500 text-xs">
+            Chưa có chính sách ưu đãi nào được cấu hình
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {benefits.map((b: CardBenefit) => (
+              <div
+                key={b.id}
+                className="p-4 bg-slate-950/60 rounded-2xl border border-slate-800 space-y-2.5 flex flex-col justify-between"
+              >
+                <div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-slate-200">{b.account_name}</span>
+                    <Badge variant={b.reward_type === "CASHBACK" ? "success" : "warning"}>
+                      {b.reward_type === "CASHBACK" ? "Hoàn Tiền" : "Tích Điểm"}
+                    </Badge>
+                  </div>
+                  <div className="text-[11px] text-emerald-400 font-semibold mt-1">
+                    {b.category_keyword || b.category_name || "Mọi chi tiêu"}
+                  </div>
+                  <p className="text-xs text-slate-300 mt-1 leading-relaxed">
+                    {b.description}
+                  </p>
+                </div>
+
+                <div className="pt-2 border-t border-slate-800/80 flex items-center justify-between text-xs">
+                  <span className="text-slate-400">Tỷ lệ ưu đãi:</span>
+                  <span className="font-bold text-emerald-400 font-mono text-sm">
+                    {Number(b.reward_rate_percent)}%
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </Card>
+
 
       {/* 4. Edit Account Modal */}
       <Modal

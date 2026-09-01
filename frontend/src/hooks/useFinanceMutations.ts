@@ -2,9 +2,13 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { transactionService } from "../services/transactionService";
 import { installmentService } from "../services/installmentService";
 import { accountService } from "../services/accountService";
+import { notificationService } from "../services/notificationService";
+import { recommendationService } from "../services/recommendationService";
 import { TransactionCreatePayload, TransactionUpdatePayload } from "../types/transaction";
 import { EarlySettlePayload } from "../types/installment";
 import { AccountUpdatePayload, AccountStatus } from "../types/account";
+import { NotificationSettingsUpdate } from "../types/notification";
+import { CardRecommendationRequest } from "../types/cardRecommendation";
 
 export function useCreateTransaction() {
   const queryClient = useQueryClient();
@@ -95,11 +99,69 @@ export function useToggleAccountStatus() {
   return useMutation({
     mutationFn: (id: string) => accountService.toggleStatus(id),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["accounts"] });
-      queryClient.invalidateQueries({ queryKey: ["accounts-live"] });
       queryClient.invalidateQueries({ queryKey: ["dashboard-overview"] });
       queryClient.invalidateQueries({ queryKey: ["credit-utilization"] });
     },
   });
 }
 
+export function useMarkNotificationRead() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => notificationService.markRead(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["notification-summary"] });
+      queryClient.invalidateQueries({ queryKey: ["notifications"] });
+    },
+  });
+}
+
+export function useMarkAllNotificationsRead() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => notificationService.markAllRead(),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["notification-summary"] });
+      queryClient.invalidateQueries({ queryKey: ["notifications"] });
+    },
+  });
+}
+
+export function useScanAlerts() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => notificationService.scanAlerts(),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["notification-summary"] });
+      queryClient.invalidateQueries({ queryKey: ["notifications"] });
+    },
+  });
+}
+
+export function useUpdateNotificationSettings() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: NotificationSettingsUpdate) =>
+      notificationService.updateSettings(payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["notification-settings"] });
+    },
+  });
+}
+
+export function useTestTelegram() {
+  return useMutation({
+    mutationFn: (payload?: {
+      bot_token?: string;
+      chat_id?: string;
+      custom_message?: string;
+    }) => notificationService.testTelegram(payload),
+  });
+}
+
+export function useCardRecommendation() {
+  return useMutation({
+    mutationFn: (payload: CardRecommendationRequest) =>
+      recommendationService.getBestCard(payload),
+  });
+}

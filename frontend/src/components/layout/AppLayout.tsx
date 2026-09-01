@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { Outlet, useLocation } from "react-router-dom";
 import { Sidebar } from "./Sidebar";
 import { Navbar } from "./Navbar";
+import { AICopilotDrawer } from "../ai/AICopilotDrawer";
 
 const routeTitles: Record<string, { title: string; subtitle: string }> = {
   "/": { title: "Tổng quan Tài chính", subtitle: "Dư nợ tức thời, hạn mức khả dụng và chỉ số tín dụng" },
@@ -38,6 +39,9 @@ export const AppLayout: React.FC = () => {
           <Outlet />
         </main>
       </div>
+
+      {/* Global AI Financial Copilot */}
+      <AICopilotDrawer />
     </div>
   );
 };
