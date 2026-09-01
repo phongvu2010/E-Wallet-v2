@@ -1,32 +1,27 @@
-import React, { useEffect, useState } from "react";
-import { statementService } from "../services/statementService";
-import { accountService } from "../services/accountService";
+import React, { useState } from "react";
+import { clsx } from "clsx";
 import {
-  Statement,
-  StatementReconciliation,
-  StatementPaymentStatus,
-} from "../types/statement";
-import { Account } from "../types/account";
-import { Card } from "../components/common/Card";
-import { Badge } from "../components/common/Badge";
-import { Select } from "../components/common/Select";
-import { Spinner } from "../components/common/Spinner";
-import { formatCurrency, formatDate } from "../utils/formatters";
-import {
-  FileSpreadsheet,
-  CheckCircle,
   AlertTriangle,
+  CheckCircle,
   Clock,
-  Calendar,
+  FileSpreadsheet,
   Layers,
 } from "lucide-react";
-import { clsx } from "clsx";
-
+import { Badge } from "../components/common/Badge";
+import { Card } from "../components/common/Card";
+import { Select } from "../components/common/Select";
+import { Spinner } from "../components/common/Spinner";
 import {
   useAccounts,
   useStatementPaymentStatus,
   useStatementReconciliation,
 } from "../hooks/useFinanceQueries";
+import { Account } from "../types/account";
+import {
+  StatementPaymentStatus,
+  StatementReconciliation,
+} from "../types/statement";
+import { formatCurrency, formatDate } from "../utils/formatters";
 
 export const StatementsPage: React.FC = () => {
   const [activeTab, setActiveTab] = useState<"payment" | "reconciliation">("payment");
@@ -67,7 +62,7 @@ export const StatementsPage: React.FC = () => {
             onChange={(e) => setSelectedAccountId(e.target.value)}
             options={[
               { value: "", label: "Tất cả các thẻ" },
-              ...accounts.map((a) => ({
+              ...accounts.map((a: Account) => ({
                 value: a.id,
                 label: `${a.account_name} (${a.card_number_last4})`,
               })),
@@ -133,7 +128,7 @@ export const StatementsPage: React.FC = () => {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-800/60 font-medium">
-                  {paymentStatuses.map((st) => (
+                  {paymentStatuses.map((st: StatementPaymentStatus) => (
                     <tr key={st.statement_id} className="hover:bg-slate-800/40 transition-colors">
                       <td className="py-3.5 px-4 font-semibold text-slate-200">
                         {st.account_name} ({st.card_number_masked.slice(-4)})
@@ -198,7 +193,7 @@ export const StatementsPage: React.FC = () => {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-800/60 font-medium">
-                  {reconciliations.map((rec) => (
+                  {reconciliations.map((rec: StatementReconciliation) => (
                     <tr key={rec.statement_id} className="hover:bg-slate-800/40 transition-colors">
                       <td className="py-3.5 px-4 font-semibold text-slate-200">
                         {rec.account_name} ({rec.card_number_masked.slice(-4)})

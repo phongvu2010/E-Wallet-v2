@@ -1,8 +1,10 @@
-from typing import Optional, List
-from uuid import UUID
 from datetime import date, datetime
 from decimal import Decimal
+from typing import List, Optional
+from uuid import UUID
+
 from pydantic import BaseModel, ConfigDict, Field
+
 from app.models.installment import InstallmentStatusEnum
 from app.schemas.merchant import MerchantSimpleRead
 

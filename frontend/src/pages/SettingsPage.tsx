@@ -1,23 +1,20 @@
-import React, { useEffect, useState } from "react";
-import { etlService } from "../services/etlService";
-import { categoryService } from "../services/categoryService";
-import { CategoryTreeNode } from "../types/category";
-import { Card } from "../components/common/Card";
-import { Button } from "../components/common/Button";
-import { Badge } from "../components/common/Badge";
-import { Spinner } from "../components/common/Spinner";
+import React, { useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import {
-  Settings,
-  RefreshCw,
-  FolderTree,
   Database,
-  CheckCircle2,
+  FolderTree,
+  RefreshCw,
+  Settings,
   Terminal,
 } from "lucide-react";
-
-import { useCategoryTree } from "../hooks/useFinanceQueries";
+import { Badge } from "../components/common/Badge";
+import { Button } from "../components/common/Button";
+import { Card } from "../components/common/Card";
+import { Spinner } from "../components/common/Spinner";
 import { useToast } from "../context/ToastContext";
-import { useQueryClient } from "@tanstack/react-query";
+import { useCategoryTree } from "../hooks/useFinanceQueries";
+import { etlService } from "../services/etlService";
+import { Category, CategoryTreeNode } from "../types/category";
 
 export const SettingsPage: React.FC = () => {
   const { data: categories = [], isLoading: catLoading } = useCategoryTree();
@@ -124,7 +121,7 @@ export const SettingsPage: React.FC = () => {
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {categories.map((parent) => (
+            {categories.map((parent: CategoryTreeNode) => (
               <div
                 key={parent.id}
                 className="p-4 bg-slate-950/60 rounded-2xl border border-slate-800 space-y-2.5"
@@ -138,7 +135,7 @@ export const SettingsPage: React.FC = () => {
 
                 <div className="space-y-1 pt-1 border-t border-slate-800/80">
                   {parent.children && parent.children.length > 0 ? (
-                    parent.children.map((child) => (
+                    parent.children.map((child: Category) => (
                       <div
                         key={child.id}
                         className="flex items-center justify-between text-xs py-1 px-2 rounded-lg hover:bg-slate-800/40 text-slate-300"

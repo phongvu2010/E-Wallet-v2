@@ -1,12 +1,14 @@
+import enum
 import uuid
+
 from sqlalchemy import (
     Column,
-    String,
-    Numeric,
     Date,
     DateTime,
-    ForeignKey,
     Enum,
+    ForeignKey,
+    Numeric,
+    String,
     UniqueConstraint,
     text,
 )
@@ -14,7 +16,6 @@ from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 
 from app.core.database import Base
-import enum
 
 
 class StatementStatusEnum(str, enum.Enum):
@@ -59,7 +60,9 @@ class Statement(Base):
     )
     source_file_path = Column(String(255), nullable=True)
     file_hash = Column(String(64), nullable=True)
-    created_at = Column(DateTime(timezone=True), server_default=text("CURRENT_TIMESTAMP"))
+    created_at = Column(
+        DateTime(timezone=True), server_default=text("CURRENT_TIMESTAMP")
+    )
 
     # Relationships
     account = relationship("Account", back_populates="statements")
@@ -73,5 +76,9 @@ class Statement(Base):
         foreign_keys="Transaction.settles_statement_id",
         back_populates="settles_statement",
     )
-    installment_schedules = relationship("InstallmentSchedule", back_populates="statement")
-    reward_ledgers = relationship("RewardLedger", back_populates="statement", cascade="all, delete-orphan")
+    installment_schedules = relationship(
+        "InstallmentSchedule", back_populates="statement"
+    )
+    reward_ledgers = relationship(
+        "RewardLedger", back_populates="statement", cascade="all, delete-orphan"
+    )

@@ -1,5 +1,6 @@
 import uuid
-from sqlalchemy import Column, String, DateTime, text
+
+from sqlalchemy import Column, DateTime, String, text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 
@@ -16,7 +17,9 @@ class Institution(Base):
     logo_url = Column(String(255))
     hotline = Column(String(20))
     website = Column(String(150))
-    created_at = Column(DateTime(timezone=True), server_default=text("CURRENT_TIMESTAMP"))
+    created_at = Column(
+        DateTime(timezone=True), server_default=text("CURRENT_TIMESTAMP")
+    )
 
     # Relationships
     accounts = relationship("Account", back_populates="institution")

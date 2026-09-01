@@ -1,21 +1,22 @@
+import enum
 import uuid
+
 from sqlalchemy import (
+    Boolean,
     Column,
-    String,
-    Numeric,
     Date,
     DateTime,
-    Boolean,
-    ForeignKey,
-    Text,
     Enum,
+    ForeignKey,
+    Numeric,
+    String,
+    Text,
     text,
 )
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 
 from app.core.database import Base
-import enum
 
 
 class TransactionTypeEnum(str, enum.Enum):
@@ -94,17 +95,27 @@ class Transaction(Base):
     note = Column(Text, nullable=True)
     is_installment = Column(Boolean, default=False)
     tx_fingerprint = Column(String(64), unique=True, nullable=True)
-    created_at = Column(DateTime(timezone=True), server_default=text("CURRENT_TIMESTAMP"))
+    created_at = Column(
+        DateTime(timezone=True), server_default=text("CURRENT_TIMESTAMP")
+    )
 
     # Relationships
-    account = relationship("Account", foreign_keys=[account_id], back_populates="transactions")
-    statement = relationship("Statement", foreign_keys=[statement_id], back_populates="transactions")
+    account = relationship(
+        "Account", foreign_keys=[account_id], back_populates="transactions"
+    )
+    statement = relationship(
+        "Statement", foreign_keys=[statement_id], back_populates="transactions"
+    )
     settles_statement = relationship(
         "Statement",
         foreign_keys=[settles_statement_id],
         back_populates="settling_transactions",
     )
-    installment_plan = relationship("InstallmentPlan", foreign_keys=[installment_plan_id], back_populates="transactions")
+    installment_plan = relationship(
+        "InstallmentPlan",
+        foreign_keys=[installment_plan_id],
+        back_populates="transactions",
+    )
     transfer_to_account = relationship("Account", foreign_keys=[transfer_to_account_id])
     merchant = relationship("Merchant", back_populates="transactions")
     category = relationship("Category", back_populates="transactions")

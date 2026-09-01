@@ -66,7 +66,9 @@ async def test_disable_and_enable_account(client: AsyncClient):
 
     # 5. Restore original status if needed
     if orig_status != "ACTIVE":
-        await client.patch(f"/api/v1/accounts/{acc_id}/status", json={"status": orig_status})
+        await client.patch(
+            f"/api/v1/accounts/{acc_id}/status", json={"status": orig_status}
+        )
 
 
 @pytest.mark.asyncio
@@ -91,7 +93,9 @@ async def test_toggle_and_patch_account_status(client: AsyncClient):
     assert toggle2.json()["status"] == "ACTIVE"
 
     # Update status explicitly
-    patch_res = await client.patch(f"/api/v1/accounts/{acc_id}/status", json={"status": "LOCKED"})
+    patch_res = await client.patch(
+        f"/api/v1/accounts/{acc_id}/status", json={"status": "LOCKED"}
+    )
     assert patch_res.status_code == 200
     assert patch_res.json()["status"] == "LOCKED"
 

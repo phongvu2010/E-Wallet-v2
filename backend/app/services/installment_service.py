@@ -1,13 +1,14 @@
-import datetime
 import calendar
+import datetime
 from decimal import Decimal
 from typing import List, Optional
 from uuid import UUID
+
+from fastapi import HTTPException, status
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy.orm import selectinload
-from sqlalchemy import text
-from fastapi import HTTPException, status
 
 from app.models.account import Account
 from app.models.installment import (
@@ -16,14 +17,29 @@ from app.models.installment import (
     InstallmentStatusEnum,
 )
 from app.schemas.installment import (
-    InstallmentPlanCreate,
     EarlySettleRequest,
     EarlySettleResponse,
     InstallmentForecastRead,
+    InstallmentPlanCreate,
 )
 
 
-def add_months_to_date(base_date: datetime.date, months_to_add: int, target_day: Optional[int] = None) -> datetime.date:
+def add_months_to_date(
+    base_date: datetime.date, months_to_add: int, target_day: Optional[int] = None
+) -> datetime.date:
+    """Calculate the target due date after adding `months_to_add` months to `base_date`.
+
+    Safely handles month-end bounds (e.g. Feb 28/29 or April 30) and aligns with the card's
+    billing cycle closing day if provided.
+
+    Args:
+        base_date (datetime.date): The starting transaction date.
+        months_to_add (int): Number of months to advance.
+        target_day (Optional[int]): Desired day of month (e.g. card billing day). Defaults to base_date.day.
+
+    Returns:
+        datetime.date: The computed target date bounded by valid calendar days.
+    """
     year = base_date.year + (base_date.month + months_to_add - 1) // 12
     month = (base_date.month + months_to_add - 1) % 12 + 1
     max_days = calendar.monthrange(year, month)[1]
@@ -33,30 +49,57 @@ def add_months_to_date(base_date: datetime.date, months_to_add: int, target_day:
 
 
 class InstallmentService:
+    """Service layer managing 0% and fee-based Credit Card Installment Plans.
+
+    Handles creation of monthly installment amortization schedules, tracking of billed periods,
+    cashflow forecasting, and automated early settlement via database stored functions.
+    """
+
     @staticmethod
     async def get_all(
         db: AsyncSession,
         account_id: Optional[UUID] = None,
         status_filter: Optional[InstallmentStatusEnum] = None,
     ) -> List[InstallmentPlan]:
-        query = (
-            select(InstallmentPlan)
-            .options(
-                selectinload(InstallmentPlan.merchant),
-                selectinload(InstallmentPlan.schedules),
-            )
+        """Retrieve all installment plans with their schedules and merchant details.
+
+        Args:
+            db (AsyncSession): Active asynchronous database session.
+            account_id (Optional[UUID]): Optional filter by credit card account.
+            status_filter (Optional[InstallmentStatusEnum]): Optional status filter (ACTIVE/SETTLED/CANCELLED).
+
+        Returns:
+            List[InstallmentPlan]: List of plans ordered by start date and creation timestamp.
+        """
+        query = select(InstallmentPlan).options(
+            selectinload(InstallmentPlan.merchant),
+            selectinload(InstallmentPlan.schedules),
         )
         if account_id:
             query = query.where(InstallmentPlan.account_id == account_id)
         if status_filter:
             query = query.where(InstallmentPlan.status == status_filter)
 
-        query = query.order_by(InstallmentPlan.start_date.desc(), InstallmentPlan.created_at.desc())
+        query = query.order_by(
+            InstallmentPlan.start_date.desc(), InstallmentPlan.created_at.desc()
+        )
         result = await db.execute(query)
         return result.scalars().all()
 
     @staticmethod
     async def get_by_id(db: AsyncSession, plan_id: UUID) -> InstallmentPlan:
+        """Retrieve a specific installment plan by primary UUID.
+
+        Args:
+            db (AsyncSession): Active asynchronous database session.
+            plan_id (UUID): Installment plan identifier.
+
+        Returns:
+            InstallmentPlan: Plan with merchant, account, and schedules loaded.
+
+        Raises:
+            HTTPException: 404 Not Found if plan does not exist.
+        """
         query = (
             select(InstallmentPlan)
             .options(
@@ -76,7 +119,23 @@ class InstallmentService:
         return plan
 
     @staticmethod
-    async def create(db: AsyncSession, payload: InstallmentPlanCreate) -> InstallmentPlan:
+    async def create(
+        db: AsyncSession, payload: InstallmentPlanCreate
+    ) -> InstallmentPlan:
+        """Create an installment plan and automatically generate its periodic amortization schedules.
+
+        Calculates monthly principal installments and balances any rounding odd cents into the final month.
+
+        Args:
+            db (AsyncSession): Active asynchronous database session.
+            payload (InstallmentPlanCreate): Plan configuration (amount, term_months, conversion_fee, etc.).
+
+        Returns:
+            InstallmentPlan: The newly created plan and generated schedule items.
+
+        Raises:
+            HTTPException: 400 Bad Request if term <= 0 or creation fails.
+        """
         term = payload.term_months
         if term <= 0:
             raise HTTPException(
@@ -89,7 +148,9 @@ class InstallmentService:
         accumulated_principal = Decimal("0.00")
 
         # Get account billing_day_of_month
-        acc_stmt = select(Account.billing_day_of_month).where(Account.id == payload.account_id)
+        acc_stmt = select(Account.billing_day_of_month).where(
+            Account.id == payload.account_id
+        )
         acc_res = await db.execute(acc_stmt)
         billing_day = acc_res.scalar_one_or_none()
 
@@ -147,7 +208,26 @@ class InstallmentService:
         plan_id: UUID,
         payload: EarlySettleRequest,
     ) -> EarlySettleResponse:
-        # Call PostgreSQL Stored Function fn_early_settle_installment_plan
+        """Execute early settlement for an active installment plan via PostgreSQL stored procedure.
+
+        Invokes `fn_early_settle_installment_plan` which:
+        1. Identifies remaining unbilled principal balance.
+        2. Calculates bank penalty/settlement fee (% or fixed custom fee).
+        3. Generates the final lump-sum settlement transaction.
+        4. Marks all future installment schedules as billed/settled.
+        5. Updates the plan status to SETTLED.
+
+        Args:
+            db (AsyncSession): Active asynchronous database session.
+            plan_id (UUID): Target installment plan identifier.
+            payload (EarlySettleRequest): Settlement parameters (fee %, optional custom fee, statement ID).
+
+        Returns:
+            EarlySettleResponse: Settlement execution summary and fees charged.
+
+        Raises:
+            HTTPException: 400 Bad Request on procedure execution failure.
+        """
         sql = """
         SELECT * FROM fn_early_settle_installment_plan(
             :plan_id,
@@ -160,7 +240,9 @@ class InstallmentService:
             "plan_id": str(plan_id),
             "statement_id": str(payload.statement_id) if payload.statement_id else None,
             "fee_percent": float(payload.fee_percent),
-            "custom_fee": float(payload.custom_fee) if payload.custom_fee is not None else None,
+            "custom_fee": (
+                float(payload.custom_fee) if payload.custom_fee is not None else None
+            ),
         }
 
         try:
@@ -183,6 +265,14 @@ class InstallmentService:
 
     @staticmethod
     async def get_forecast(db: AsyncSession) -> List[InstallmentForecastRead]:
+        """Fetch future monthly installment cashflow obligations from view `v_installment_monthly_forecast`.
+
+        Args:
+            db (AsyncSession): Active asynchronous database session.
+
+        Returns:
+            List[InstallmentForecastRead]: Monthly forecasted payment principal and fees.
+        """
         sql = "SELECT * FROM v_installment_monthly_forecast ORDER BY billing_month ASC;"
         result = await db.execute(text(sql))
         rows = result.mappings().all()

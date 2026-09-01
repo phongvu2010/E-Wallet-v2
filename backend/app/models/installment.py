@@ -1,14 +1,16 @@
+import enum
 import uuid
+
 from sqlalchemy import (
+    Boolean,
     Column,
-    String,
-    Numeric,
-    Integer,
     Date,
     DateTime,
-    Boolean,
-    ForeignKey,
     Enum,
+    ForeignKey,
+    Integer,
+    Numeric,
+    String,
     UniqueConstraint,
     text,
 )
@@ -16,7 +18,6 @@ from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 
 from app.core.database import Base
-import enum
 
 
 class InstallmentStatusEnum(str, enum.Enum):
@@ -63,7 +64,9 @@ class InstallmentPlan(Base):
         Enum(InstallmentStatusEnum, name="installment_status_enum", create_type=False),
         default=InstallmentStatusEnum.ACTIVE,
     )
-    created_at = Column(DateTime(timezone=True), server_default=text("CURRENT_TIMESTAMP"))
+    created_at = Column(
+        DateTime(timezone=True), server_default=text("CURRENT_TIMESTAMP")
+    )
 
     # Relationships
     account = relationship("Account", back_populates="installment_plans")
@@ -89,7 +92,9 @@ class InstallmentPlan(Base):
 class InstallmentSchedule(Base):
     __tablename__ = "installment_schedules"
     __table_args__ = (
-        UniqueConstraint("installment_plan_id", "installment_index", name="uq_plan_index"),
+        UniqueConstraint(
+            "installment_plan_id", "installment_index", name="uq_plan_index"
+        ),
     )
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -110,7 +115,9 @@ class InstallmentSchedule(Base):
     interest_amount = Column(Numeric(15, 2), default=0.00)
     total_installment_amount = Column(Numeric(15, 2), nullable=False)
     is_billed = Column(Boolean, default=False)
-    created_at = Column(DateTime(timezone=True), server_default=text("CURRENT_TIMESTAMP"))
+    created_at = Column(
+        DateTime(timezone=True), server_default=text("CURRENT_TIMESTAMP")
+    )
 
     # Relationships
     plan = relationship("InstallmentPlan", back_populates="schedules")

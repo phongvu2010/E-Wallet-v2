@@ -1,30 +1,29 @@
-import React, { useEffect, useState } from "react";
-import { accountService } from "../services/accountService";
-import { Account, AccountLiveBalance, AccountStatus } from "../types/account";
-import { Card } from "../components/common/Card";
-import { Button } from "../components/common/Button";
-import { Badge } from "../components/common/Badge";
-import { Modal } from "../components/common/Modal";
-import { Input } from "../components/common/Input";
-import { CurrencyInput } from "../components/common/CurrencyInput";
-import { Select } from "../components/common/Select";
-import { Spinner } from "../components/common/Spinner";
-import { CreditCardVisual } from "../components/cards/CreditCardVisual";
-import { formatCurrency, formatDate, getRiskLevelColor } from "../utils/formatters";
+import React, { useState } from "react";
 import {
+  AlertCircle,
+  CheckCircle2,
   CreditCard,
   Edit2,
   Lock,
   Unlock,
-  AlertCircle,
-  CheckCircle2,
 } from "lucide-react";
-import { useAccounts, useAccountLiveBalances } from "../hooks/useFinanceQueries";
-import { useUpdateAccount, useUpdateAccountStatus } from "../hooks/useFinanceMutations";
+import { CreditCardVisual } from "../components/cards/CreditCardVisual";
+import { Badge } from "../components/common/Badge";
+import { Button } from "../components/common/Button";
+import { Card } from "../components/common/Card";
+import { CurrencyInput } from "../components/common/CurrencyInput";
+import { Input } from "../components/common/Input";
+import { Modal } from "../components/common/Modal";
+import { Select } from "../components/common/Select";
+import { Spinner } from "../components/common/Spinner";
 import { useToast } from "../context/ToastContext";
+import { useUpdateAccount, useUpdateAccountStatus } from "../hooks/useFinanceMutations";
+import { useAccountLiveBalances, useAccounts } from "../hooks/useFinanceQueries";
+import { Account, AccountLiveBalance, AccountStatus } from "../types/account";
+import { formatCurrency, getRiskLevelColor } from "../utils/formatters";
 
 export const AccountsPage: React.FC = () => {
-  const { data: accounts = [], isLoading: accountsLoading } = useAccounts();
+  const { data: accounts = [] } = useAccounts();
   const { data: liveBalances = [], isLoading: liveBalancesLoading } = useAccountLiveBalances();
   const [selectedAccId, setSelectedAccId] = useState<string | null>(null);
 
@@ -49,11 +48,11 @@ export const AccountsPage: React.FC = () => {
   const [targetNewStatus, setTargetNewStatus] = useState<AccountStatus>("LOCKED");
 
   const activeBalances = liveBalances.filter(
-    (acc) => acc.status !== "CLOSED" && acc.status !== "REPLACED"
+    (acc: AccountLiveBalance) => acc.status !== "CLOSED" && acc.status !== "REPLACED"
   );
 
   const selectedAcc =
-    liveBalances.find((acc) => acc.account_id === selectedAccId) ||
+    liveBalances.find((acc: AccountLiveBalance) => acc.account_id === selectedAccId) ||
     (activeBalances.length > 0 ? activeBalances[0] : null);
 
   const handleOpenEdit = (acc: Account) => {
@@ -133,18 +132,18 @@ export const AccountsPage: React.FC = () => {
     }
   };
 
-  const filteredBalances = liveBalances.filter((acc) => {
+  const filteredBalances = liveBalances.filter((acc: AccountLiveBalance) => {
     if (statusFilter === "ACTIVE") return acc.status === "ACTIVE";
     if (statusFilter === "LOCKED") return acc.status === "LOCKED";
     if (statusFilter === "OTHER") return acc.status !== "ACTIVE" && acc.status !== "LOCKED";
     return true;
   });
 
-  const activeCount = liveBalances.filter((a) => a.status === "ACTIVE").length;
-  const lockedCount = liveBalances.filter((a) => a.status === "LOCKED").length;
-  const otherCount = liveBalances.filter((a) => a.status !== "ACTIVE" && a.status !== "LOCKED").length;
+  const activeCount = liveBalances.filter((a: AccountLiveBalance) => a.status === "ACTIVE").length;
+  const lockedCount = liveBalances.filter((a: AccountLiveBalance) => a.status === "LOCKED").length;
+  const otherCount = liveBalances.filter((a: AccountLiveBalance) => a.status !== "ACTIVE" && a.status !== "LOCKED").length;
 
-  if ((accountsLoading || liveBalancesLoading) && accounts.length === 0) {
+  if (liveBalancesLoading && accounts.length === 0) {
     return (
       <div className="h-[60vh] flex flex-col items-center justify-center gap-3">
         <Spinner size="lg" />
@@ -175,8 +174,8 @@ export const AccountsPage: React.FC = () => {
         </h3>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {liveBalances
-            .filter((acc) => acc.status !== "CLOSED" && acc.status !== "REPLACED")
-            .map((acc) => (
+            .filter((acc: AccountLiveBalance) => acc.status !== "CLOSED" && acc.status !== "REPLACED")
+            .map((acc: AccountLiveBalance) => (
               <CreditCardVisual
                 key={acc.account_id}
                 account={acc}
@@ -269,8 +268,8 @@ export const AccountsPage: React.FC = () => {
                   </td>
                 </tr>
               ) : (
-                filteredBalances.map((acc) => {
-                  const rawAcc = accounts.find((a) => a.id === acc.account_id);
+                filteredBalances.map((acc: AccountLiveBalance) => {
+                  const rawAcc = accounts.find((a: Account) => a.id === acc.account_id);
                   const badgeInfo = getStatusBadge(acc.status);
                   const isLocked = acc.status === "LOCKED";
 
@@ -421,7 +420,7 @@ export const AccountsPage: React.FC = () => {
             <Button
               type="submit"
               variant="primary"
-              isLoading={updateMutation.isLoading}
+              isLoading={updateMutation.isPending}
             >
               Lưu thay đổi
             </Button>
@@ -432,7 +431,7 @@ export const AccountsPage: React.FC = () => {
       {/* 5. Quick Confirm Status Modal */}
       <Modal
         isOpen={isConfirmOpen}
-        onClose={() => !statusMutation.isLoading && setIsConfirmOpen(false)}
+        onClose={() => !statusMutation.isPending && setIsConfirmOpen(false)}
         title={targetNewStatus === "LOCKED" ? "Xác Nhận Khóa Thẻ" : "Xác Nhận Mở Khóa Thẻ"}
         maxWidth="md"
       >
@@ -465,7 +464,7 @@ export const AccountsPage: React.FC = () => {
               type="button"
               variant="outline"
               onClick={() => setIsConfirmOpen(false)}
-              disabled={statusMutation.isLoading}
+              disabled={statusMutation.isPending}
             >
               Hủy
             </Button>
@@ -473,7 +472,7 @@ export const AccountsPage: React.FC = () => {
               type="button"
               variant={targetNewStatus === "LOCKED" ? "danger" : "primary"}
               onClick={handleConfirmToggleStatus}
-              isLoading={statusMutation.isLoading}
+              isLoading={statusMutation.isPending}
             >
               {targetNewStatus === "LOCKED" ? "Khóa thẻ ngay" : "Kích hoạt lại thẻ"}
             </Button>

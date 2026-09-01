@@ -1,11 +1,13 @@
+import enum
 import uuid
+
 from sqlalchemy import (
     Column,
-    Numeric,
     Date,
     DateTime,
-    ForeignKey,
     Enum,
+    ForeignKey,
+    Numeric,
     UniqueConstraint,
     text,
 )
@@ -13,7 +15,6 @@ from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 
 from app.core.database import Base
-import enum
 
 
 class RewardTypeEnum(str, enum.Enum):
@@ -25,7 +26,12 @@ class RewardTypeEnum(str, enum.Enum):
 class RewardLedger(Base):
     __tablename__ = "reward_ledgers"
     __table_args__ = (
-        UniqueConstraint("account_id", "statement_id", "reward_type", name="uq_account_reward_statement"),
+        UniqueConstraint(
+            "account_id",
+            "statement_id",
+            "reward_type",
+            name="uq_account_reward_statement",
+        ),
     )
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -53,7 +59,9 @@ class RewardLedger(Base):
 
     expiring_amount = Column(Numeric(15, 2), default=0.00)
     expiration_date = Column(Date, nullable=True)
-    created_at = Column(DateTime(timezone=True), server_default=text("CURRENT_TIMESTAMP"))
+    created_at = Column(
+        DateTime(timezone=True), server_default=text("CURRENT_TIMESTAMP")
+    )
 
     # Relationships
     account = relationship("Account", back_populates="reward_ledgers")

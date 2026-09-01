@@ -9,6 +9,9 @@ import { categoryService } from "../services/categoryService";
 import { TransactionFilterParams } from "../types/transaction";
 import { InstallmentStatus } from "../types/installment";
 
+/**
+ * Query hook to fetch all credit card accounts.
+ */
 export function useAccounts() {
   return useQuery({
     queryKey: ["accounts"],
@@ -16,6 +19,9 @@ export function useAccounts() {
   });
 }
 
+/**
+ * Query hook to fetch real-time live balances and remaining limits.
+ */
 export function useAccountLiveBalances(accountId?: string) {
   return useQuery({
     queryKey: ["accounts-live", accountId || "all"],
@@ -23,14 +29,20 @@ export function useAccountLiveBalances(accountId?: string) {
   });
 }
 
+/**
+ * Query hook to fetch filtered and paginated transactions.
+ */
 export function useTransactions(params: TransactionFilterParams) {
   return useQuery({
     queryKey: ["transactions", params],
     queryFn: () => transactionService.getFiltered(params),
-    placeholderData: (previousData) => previousData,
+    placeholderData: (previousData: any) => previousData,
   });
 }
 
+/**
+ * Query hook to fetch transaction statistical summary.
+ */
 export function useTransactionSummary(accountId?: string, statementId?: string) {
   return useQuery({
     queryKey: ["transaction-summary", accountId || "all", statementId || "all"],
@@ -38,6 +50,9 @@ export function useTransactionSummary(accountId?: string, statementId?: string) 
   });
 }
 
+/**
+ * Query hook to fetch credit card statements.
+ */
 export function useStatements(accountId?: string, year?: number) {
   return useQuery({
     queryKey: ["statements", accountId || "all", year || "all"],
@@ -45,6 +60,9 @@ export function useStatements(accountId?: string, year?: number) {
   });
 }
 
+/**
+ * Query hook to fetch 3-way statement reconciliation audit results.
+ */
 export function useStatementReconciliation(accountId?: string) {
   return useQuery({
     queryKey: ["statement-reconciliation", accountId || "all"],
@@ -52,6 +70,9 @@ export function useStatementReconciliation(accountId?: string) {
   });
 }
 
+/**
+ * Query hook to fetch statement payment progress and overdue tracking.
+ */
 export function useStatementPaymentStatus(accountId?: string) {
   return useQuery({
     queryKey: ["statement-payment-status", accountId || "all"],
@@ -59,6 +80,9 @@ export function useStatementPaymentStatus(accountId?: string) {
   });
 }
 
+/**
+ * Query hook to fetch installment plans.
+ */
 export function useInstallments(accountId?: string, status?: InstallmentStatus) {
   return useQuery({
     queryKey: ["installments", accountId || "all", status || "all"],
@@ -66,6 +90,9 @@ export function useInstallments(accountId?: string, status?: InstallmentStatus) 
   });
 }
 
+/**
+ * Query hook to fetch future installment cash flow obligations forecast.
+ */
 export function useInstallmentForecast() {
   return useQuery({
     queryKey: ["installment-forecast"],
@@ -73,6 +100,9 @@ export function useInstallmentForecast() {
   });
 }
 
+/**
+ * Query hook to fetch reward points and cashback ledgers.
+ */
 export function useRewards(accountId?: string) {
   return useQuery({
     queryKey: ["rewards", accountId || "all"],
@@ -80,6 +110,9 @@ export function useRewards(accountId?: string) {
   });
 }
 
+/**
+ * Query hook to fetch consolidated portfolio overview KPIs for dashboard.
+ */
 export function useDashboardOverview() {
   return useQuery({
     queryKey: ["dashboard-overview"],
@@ -87,6 +120,9 @@ export function useDashboardOverview() {
   });
 }
 
+/**
+ * Query hook to fetch monthly spending by category.
+ */
 export function useMonthlySpending(limit = 20) {
   return useQuery({
     queryKey: ["monthly-spending", limit],
@@ -94,6 +130,9 @@ export function useMonthlySpending(limit = 20) {
   });
 }
 
+/**
+ * Query hook to fetch upcoming payment deadlines (30 days window).
+ */
 export function useUpcomingObligations(daysAhead = 30) {
   return useQuery({
     queryKey: ["upcoming-obligations", daysAhead],
@@ -101,6 +140,9 @@ export function useUpcomingObligations(daysAhead = 30) {
   });
 }
 
+/**
+ * Query hook to fetch credit limit utilization and risk assessment.
+ */
 export function useCreditUtilization() {
   return useQuery({
     queryKey: ["credit-utilization"],
@@ -108,6 +150,9 @@ export function useCreditUtilization() {
   });
 }
 
+/**
+ * Query hook to fetch all categories as flat list.
+ */
 export function useCategories() {
   return useQuery({
     queryKey: ["categories"],
@@ -115,6 +160,9 @@ export function useCategories() {
   });
 }
 
+/**
+ * Query hook to fetch 2-tier parent-child category tree.
+ */
 export function useCategoryTree() {
   return useQuery({
     queryKey: ["category-tree"],

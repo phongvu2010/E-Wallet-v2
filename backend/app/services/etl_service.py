@@ -2,17 +2,31 @@ import asyncio
 import subprocess
 import sys
 from pathlib import Path
-from typing import Dict, Any
+from typing import Any, Dict
 
 
 class ETLService:
+    """Service layer managing ETL Data Ingestion, migration execution, and worker synchronization.
+
+    Provides mutex locking to prevent concurrent migration race conditions while capturing
+    subprocess stdout/stderr logs for reporting.
+    """
+
     _lock = asyncio.Lock()
     _is_running = False
 
     @staticmethod
     def run_migration_script() -> Dict[str, Any]:
-        """
-        Executes scripts/migrate_data.py synchronously and captures output.
+        """Execute `scripts/migrate_data.py` synchronously in a subprocess and capture its terminal output.
+
+        Searches upwards for the repository root containing `scripts/migrate_data.py`, executes it
+        with Python binary, and returns execution status along with stdout/stderr.
+
+        Returns:
+            Dict[str, Any]: Dictionary containing:
+                - success (bool): True if returncode is 0.
+                - message (str): Status or error description.
+                - output (str): Captured stdout and stderr logs.
         """
         # Search upwards for scripts/migrate_data.py
         cur = Path(__file__).resolve().parent
@@ -65,9 +79,12 @@ class ETLService:
 
     @staticmethod
     async def run_migration_script_async() -> Dict[str, Any]:
-        """
-        Executes scripts/migrate_data.py asynchronously via a worker thread
-        with Mutex Lock so only one migration process runs at any time.
+        """Execute `scripts/migrate_data.py` asynchronously off the main event loop.
+
+        Guards against duplicate parallel executions using an asynchronous Mutex Lock (`asyncio.Lock`).
+
+        Returns:
+            Dict[str, Any]: Execution result dictionary with success flag, message, and logs.
         """
         if ETLService._lock.locked() or ETLService._is_running:
             return {

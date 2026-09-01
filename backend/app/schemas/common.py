@@ -1,4 +1,5 @@
-from typing import Generic, TypeVar, List, Optional
+from typing import Generic, List, Optional, TypeVar
+
 from pydantic import BaseModel, Field
 
 T = TypeVar("T")
@@ -12,7 +13,9 @@ class APIResponse(BaseModel, Generic[T]):
 
 class PaginationParams(BaseModel):
     page: int = Field(default=1, ge=1, description="Page number starting from 1")
-    page_size: int = Field(default=50, ge=1, le=500, description="Number of items per page")
+    page_size: int = Field(
+        default=50, ge=1, le=500, description="Number of items per page"
+    )
 
     @property
     def offset(self) -> int:

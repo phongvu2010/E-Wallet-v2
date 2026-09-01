@@ -1,18 +1,19 @@
+import enum
 import uuid
+
 from sqlalchemy import (
-    Column,
-    String,
     Boolean,
+    Column,
     DateTime,
-    ForeignKey,
     Enum,
+    ForeignKey,
+    String,
     text,
 )
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 
 from app.core.database import Base
-import enum
 
 
 class CategoryTypeEnum(str, enum.Enum):
@@ -42,10 +43,14 @@ class Category(Base):
     icon = Column(String(50), nullable=True)
     color = Column(String(20), nullable=True)
     is_system = Column(Boolean, default=False)
-    created_at = Column(DateTime(timezone=True), server_default=text("CURRENT_TIMESTAMP"))
+    created_at = Column(
+        DateTime(timezone=True), server_default=text("CURRENT_TIMESTAMP")
+    )
 
     # Relationships
     parent = relationship("Category", remote_side=[id], back_populates="children")
-    children = relationship("Category", back_populates="parent", cascade="all, delete-orphan")
+    children = relationship(
+        "Category", back_populates="parent", cascade="all, delete-orphan"
+    )
     transactions = relationship("Transaction", back_populates="category")
     merchants = relationship("Merchant", back_populates="default_category")

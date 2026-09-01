@@ -1,42 +1,29 @@
 import React, { useEffect, useState } from "react";
-import { transactionService } from "../services/transactionService";
-import { accountService } from "../services/accountService";
-import { categoryService } from "../services/categoryService";
 import {
-  Transaction,
-  TransactionFilterParams,
-  TransactionSummary,
-  TransactionType,
-} from "../types/transaction";
-import { Account } from "../types/account";
-import { Category } from "../types/category";
-import { Card } from "../components/common/Card";
-import { Button } from "../components/common/Button";
-import { Badge } from "../components/common/Badge";
-import { Input } from "../components/common/Input";
-import { CurrencyInput } from "../components/common/CurrencyInput";
-import { Select } from "../components/common/Select";
-import { Modal } from "../components/common/Modal";
-import { Pagination } from "../components/common/Pagination";
-import { Spinner } from "../components/common/Spinner";
-import {
-  formatCurrency,
-  formatDate,
-  getTransactionTypeLabel,
-} from "../utils/formatters";
-import {
-  Receipt,
-  Search,
   Filter,
+  Percent,
   Plus,
+  Receipt,
+  RefreshCw,
+  Search,
   Trash2,
-  Edit2,
   TrendingDown,
   TrendingUp,
-  Percent,
-  RefreshCw,
-  AlertTriangle,
 } from "lucide-react";
+import { Badge } from "../components/common/Badge";
+import { Button } from "../components/common/Button";
+import { Card } from "../components/common/Card";
+import { CurrencyInput } from "../components/common/CurrencyInput";
+import { Input } from "../components/common/Input";
+import { Modal } from "../components/common/Modal";
+import { Pagination } from "../components/common/Pagination";
+import { Select } from "../components/common/Select";
+import { Spinner } from "../components/common/Spinner";
+import { useToast } from "../context/ToastContext";
+import {
+  useCreateTransaction,
+  useDeleteTransaction,
+} from "../hooks/useFinanceMutations";
 import {
   useAccounts,
   useCategories,
@@ -44,11 +31,18 @@ import {
   useTransactions,
   useTransactionSummary,
 } from "../hooks/useFinanceQueries";
+import { Account } from "../types/account";
+import { Category, CategoryTreeNode } from "../types/category";
 import {
-  useCreateTransaction,
-  useDeleteTransaction,
-} from "../hooks/useFinanceMutations";
-import { useToast } from "../context/ToastContext";
+  Transaction,
+  TransactionFilterParams,
+  TransactionType,
+} from "../types/transaction";
+import {
+  formatCurrency,
+  formatDate,
+  getTransactionTypeLabel,
+} from "../utils/formatters";
 
 const TRANSACTION_TYPES: { value: TransactionType; label: string; defaultKeywords: string[] }[] = [
   { value: "PURCHASE", label: "Chi tiêu mua sắm thông thường", defaultKeywords: ["Nhà hàng", "Ăn uống", "Cửa hàng", "Chi tiêu"] },
@@ -82,7 +76,7 @@ export const TransactionsPage: React.FC = () => {
   const { data: categoryTree = [] } = useCategoryTree();
 
   // Only ACTIVE accounts are selectable for creating new transactions
-  const activeAccounts = accounts.filter((a) => a.status === "ACTIVE");
+  const activeAccounts = accounts.filter((a: Account) => a.status === "ACTIVE");
 
   const filterParams: TransactionFilterParams = {
     page,
@@ -128,7 +122,7 @@ export const TransactionsPage: React.FC = () => {
     if (!typeConfig || categories.length === 0) return "";
 
     for (const kw of typeConfig.defaultKeywords) {
-      const found = categories.find((c) => c.name.toLowerCase().includes(kw.toLowerCase()));
+      const found = categories.find((c: Category) => c.name.toLowerCase().includes(kw.toLowerCase()));
       if (found) return found.id;
     }
     return categories[0]?.id || "";
@@ -145,7 +139,7 @@ export const TransactionsPage: React.FC = () => {
   // Ensure default active account selected when activeAccounts load
   useEffect(() => {
     if (activeAccounts.length > 0) {
-      if (!newAccountId || !activeAccounts.some((a) => a.id === newAccountId)) {
+      if (!newAccountId || !activeAccounts.some((a: Account) => a.id === newAccountId)) {
         setNewAccountId(activeAccounts[0].id);
       }
     }
@@ -162,11 +156,11 @@ export const TransactionsPage: React.FC = () => {
   }, [categories, newCategoryId, newType]);
 
   // Build grouped options from categoryTree in Database
-  const categoryGroups = categoryTree.map((parent) => ({
+  const categoryGroups = categoryTree.map((parent: CategoryTreeNode) => ({
     label: parent.name,
     options: [
       ...(parent.children && parent.children.length > 0
-        ? parent.children.map((child) => ({
+        ? parent.children.map((child: Category) => ({
             value: child.id,
             label: child.name,
           }))
@@ -356,7 +350,7 @@ export const TransactionsPage: React.FC = () => {
                 }}
                 options={[
                   { value: "", label: "Tất cả các thẻ" },
-                  ...accounts.map((a) => ({
+                  ...accounts.map((a: Account) => ({
                     value: a.id,
                     label: `${a.account_name} (${a.card_number_last4})`,
                   })),
@@ -452,7 +446,7 @@ export const TransactionsPage: React.FC = () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800/60 font-medium">
-                {transactions.map((tx) => {
+                {transactions.map((tx: Transaction) => {
                   const typeMeta = getTransactionTypeLabel(tx.transaction_type);
                   const isCredit = Number(tx.total_amount) < 0;
                   return (
@@ -548,7 +542,7 @@ export const TransactionsPage: React.FC = () => {
               error={createErrors.account_id}
               options={
                 activeAccounts.length > 0
-                  ? activeAccounts.map((a) => ({
+                  ? activeAccounts.map((a: Account) => ({
                       value: a.id,
                       label: `${a.account_name} (•••• ${a.card_number_last4})`,
                     }))
@@ -654,7 +648,7 @@ export const TransactionsPage: React.FC = () => {
             <Button
               type="submit"
               variant="primary"
-              isLoading={createMutation.isLoading}
+              isLoading={createMutation.isPending}
             >
               Tạo Giao Dịch
             </Button>

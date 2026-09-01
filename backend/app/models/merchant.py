@@ -1,5 +1,6 @@
 import uuid
-from sqlalchemy import Column, String, DateTime, ForeignKey, text
+
+from sqlalchemy import Column, DateTime, ForeignKey, String, text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 
@@ -18,11 +19,15 @@ class Merchant(Base):
     )
     website = Column(String(150), nullable=True)
     logo_url = Column(String(255), nullable=True)
-    created_at = Column(DateTime(timezone=True), server_default=text("CURRENT_TIMESTAMP"))
+    created_at = Column(
+        DateTime(timezone=True), server_default=text("CURRENT_TIMESTAMP")
+    )
 
     # Relationships
     default_category = relationship("Category", back_populates="merchants")
-    aliases = relationship("MerchantAlias", back_populates="merchant", cascade="all, delete-orphan")
+    aliases = relationship(
+        "MerchantAlias", back_populates="merchant", cascade="all, delete-orphan"
+    )
     transactions = relationship("Transaction", back_populates="merchant")
     installment_plans = relationship("InstallmentPlan", back_populates="merchant")
 
@@ -37,7 +42,9 @@ class MerchantAlias(Base):
         nullable=False,
     )
     pattern = Column(String(150), unique=True, nullable=False)
-    created_at = Column(DateTime(timezone=True), server_default=text("CURRENT_TIMESTAMP"))
+    created_at = Column(
+        DateTime(timezone=True), server_default=text("CURRENT_TIMESTAMP")
+    )
 
     # Relationships
     merchant = relationship("Merchant", back_populates="aliases")

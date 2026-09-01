@@ -1,22 +1,43 @@
-from typing import List, Optional
 from decimal import Decimal
-from sqlalchemy.ext.asyncio import AsyncSession
+from typing import List
+
 from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.schemas.analytics import (
-    MonthlyCategorySpendingRead,
     CreditUtilizationRead,
-    UpcomingObligationRead,
     DashboardOverviewRead,
+    MonthlyCategorySpendingRead,
+    UpcomingObligationRead,
 )
 
 
 class AnalyticsService:
+    """Financial Analytics & Risk Management Service layer.
+
+    Aggregates data from dedicated PostgreSQL analytical views:
+    - `v_monthly_category_spending`: Net monthly category spending trend.
+    - `v_credit_utilization`: Credit limit utilization percentage and risk tier.
+    - `v_upcoming_payment_obligations`: Consolidated statement and installment due dates.
+    - Dashboard high-level KPIs and risk health scores.
+    """
+
     @staticmethod
     async def get_monthly_spending(
         db: AsyncSession,
         limit: int = 50,
     ) -> List[MonthlyCategorySpendingRead]:
+        """Query historical monthly spending aggregated by transaction category.
+
+        Automatically accounts for refunds, cashback credits, and cancellations.
+
+        Args:
+            db (AsyncSession): Active asynchronous database session.
+            limit (int, optional): Maximum records to retrieve. Defaults to 50.
+
+        Returns:
+            List[MonthlyCategorySpendingRead]: Category spending by month in descending order.
+        """
         sql = """
         SELECT * FROM v_monthly_category_spending
         ORDER BY month DESC, total_spending DESC
@@ -28,6 +49,20 @@ class AnalyticsService:
 
     @staticmethod
     async def get_credit_utilization(db: AsyncSession) -> List[CreditUtilizationRead]:
+        """Fetch credit utilization matrix across all cards with risk level assessment.
+
+        Risk tiers based on credit bureau best practices:
+        - OPTIMAL: < 30% utilization
+        - MODERATE: 30% - 50% utilization
+        - HIGH: 50% - 70% utilization
+        - CRITICAL: > 70% utilization
+
+        Args:
+            db (AsyncSession): Active asynchronous database session.
+
+        Returns:
+            List[CreditUtilizationRead]: Utilization percentages and risk indicators per card.
+        """
         sql = "SELECT * FROM v_credit_utilization ORDER BY utilization_percentage DESC;"
         result = await db.execute(text(sql))
         rows = result.mappings().all()
@@ -38,6 +73,17 @@ class AnalyticsService:
         db: AsyncSession,
         days_ahead: int = 30,
     ) -> List[UpcomingObligationRead]:
+        """Retrieve payment deadlines due within the specified horizon.
+
+        Combines billed statement due dates and monthly installment schedule dates.
+
+        Args:
+            db (AsyncSession): Active asynchronous database session.
+            days_ahead (int, optional): Horizon window in days. Defaults to 30.
+
+        Returns:
+            List[UpcomingObligationRead]: List of upcoming obligations ordered by due date.
+        """
         sql = """
         SELECT * FROM v_upcoming_payment_obligations
         WHERE days_remaining <= :days_ahead
@@ -49,6 +95,20 @@ class AnalyticsService:
 
     @staticmethod
     async def get_dashboard_overview(db: AsyncSession) -> DashboardOverviewRead:
+        """Compute consolidated financial KPIs for dashboard hero cards.
+
+        Computes:
+        - Total credit limit, live outstanding balance, and available limit.
+        - Overall credit utilization percentage & portfolio risk grade.
+        - Total payment obligations due in next 30 days.
+        - Total net spending in the current calendar month.
+
+        Args:
+            db (AsyncSession): Active asynchronous database session.
+
+        Returns:
+            DashboardOverviewRead: High-level executive financial metrics.
+        """
         # 1. Total credit limit and live balance across all active cards
         sql_live = """
         SELECT
@@ -69,7 +129,9 @@ class AnalyticsService:
 
         overall_utilization = Decimal("0.00")
         if total_limit > 0:
-            overall_utilization = round((total_balance / total_limit) * Decimal("100.0"), 2)
+            overall_utilization = round(
+                (total_balance / total_limit) * Decimal("100.0"), 2
+            )
 
         if total_limit == 0:
             risk_lvl = "NO_LIMIT"
@@ -111,5 +173,7 @@ class AnalyticsService:
             active_cards_count=cards_count,
             upcoming_obligations_count=int(row_upcoming["total_count"]),
             total_upcoming_due_30d=Decimal(str(row_upcoming["total_due"])),
-            monthly_spending_current_month=Decimal(str(row_spending["current_month_spending"])),
+            monthly_spending_current_month=Decimal(
+                str(row_spending["current_month_spending"])
+            ),
         )

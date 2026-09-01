@@ -1,9 +1,11 @@
-from typing import Optional
-from uuid import UUID
 from datetime import date, datetime
 from decimal import Decimal
+from typing import Optional
+from uuid import UUID
+
 from pydantic import BaseModel, ConfigDict, Field
-from app.models.account import AccountTypeEnum, AccountStatusEnum
+
+from app.models.account import AccountStatusEnum, AccountTypeEnum
 from app.schemas.institution import InstitutionRead
 
 

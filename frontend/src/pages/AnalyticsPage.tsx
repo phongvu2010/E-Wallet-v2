@@ -1,14 +1,12 @@
-import React, { useEffect, useState } from "react";
-import { analyticsService } from "../services/analyticsService";
-import { MonthlyCategorySpending, CreditUtilization } from "../types/analytics";
-import { Card } from "../components/common/Card";
-import { Badge } from "../components/common/Badge";
-import { Spinner } from "../components/common/Spinner";
-import { SpendingDonutChart } from "../components/charts/SpendingDonutChart";
-import { MonthlySpendingBarChart } from "../components/charts/MonthlySpendingBarChart";
-import { formatCurrency, formatDate, getRiskLevelColor } from "../utils/formatters";
+import React from "react";
 import { BarChart3, PieChart, ShieldAlert, TrendingUp } from "lucide-react";
-import { useMonthlySpending, useCreditUtilization } from "../hooks/useFinanceQueries";
+import { SpendingDonutChart } from "../components/charts/SpendingDonutChart";
+import { Badge } from "../components/common/Badge";
+import { Card } from "../components/common/Card";
+import { Spinner } from "../components/common/Spinner";
+import { useCreditUtilization, useMonthlySpending } from "../hooks/useFinanceQueries";
+import { CreditUtilization, MonthlyCategorySpending } from "../types/analytics";
+import { formatCurrency, formatDate, getRiskLevelColor } from "../utils/formatters";
 
 export const AnalyticsPage: React.FC = () => {
   const {
@@ -31,7 +29,7 @@ export const AnalyticsPage: React.FC = () => {
 
   // Aggregate by Parent Category
   const parentCategoryMap: Record<string, number> = {};
-  monthlySpending.forEach((item) => {
+  monthlySpending.forEach((item: MonthlyCategorySpending) => {
     const parentName = item.parent_category_name || item.category_name;
     parentCategoryMap[parentName] =
       (parentCategoryMap[parentName] || 0) + Number(item.total_spending);
@@ -46,7 +44,7 @@ export const AnalyticsPage: React.FC = () => {
   );
 
   const totalSpendingSum = Object.values(parentCategoryMap).reduce(
-    (a, b) => a + b,
+    (a: number, b: number) => a + b,
     0
   );
 
@@ -86,7 +84,7 @@ export const AnalyticsPage: React.FC = () => {
             ? "lg:grid-cols-3"
             : "lg:grid-cols-4"
         }`}>
-          {utilization.map((card) => {
+          {utilization.map((card: CreditUtilization) => {
             const risk = getRiskLevelColor(card.risk_level);
             return (
               <div
@@ -154,7 +152,7 @@ export const AnalyticsPage: React.FC = () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800/60 font-medium">
-                {monthlySpending.map((item, idx) => (
+                {monthlySpending.map((item: MonthlyCategorySpending, idx: number) => (
                   <tr key={idx} className="hover:bg-slate-800/40">
                     <td className="py-2 px-3 font-mono text-slate-300">
                       {formatDate(item.month, "MM/yyyy")}

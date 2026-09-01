@@ -1,37 +1,35 @@
-import React, { useEffect, useState } from "react";
-import { analyticsService } from "../services/analyticsService";
-import { accountService } from "../services/accountService";
-import { DashboardOverview, UpcomingObligation, MonthlyCategorySpending } from "../types/analytics";
-import { AccountLiveBalance } from "../types/account";
-import { MetricCard } from "../components/cards/MetricCard";
-import { CreditCardVisual } from "../components/cards/CreditCardVisual";
-import { ObligationCard } from "../components/cards/ObligationCard";
-import { SpendingDonutChart } from "../components/charts/SpendingDonutChart";
-import { MonthlySpendingBarChart } from "../components/charts/MonthlySpendingBarChart";
-import { Card } from "../components/common/Card";
-import { Spinner } from "../components/common/Spinner";
-import { formatCurrency, getRiskLevelColor } from "../utils/formatters";
-import {
-  CreditCard,
-  Wallet,
-  TrendingDown,
-  AlertTriangle,
-  Calendar,
-  PieChart as PieIcon,
-  BarChart3,
-  Sparkles,
-} from "lucide-react";
+import React from "react";
 import { Link } from "react-router-dom";
 import {
-  useDashboardOverview,
+  AlertTriangle,
+  BarChart3,
+  Calendar,
+  CreditCard,
+  PieChart as PieIcon,
+  Sparkles,
+  TrendingDown,
+  Wallet,
+} from "lucide-react";
+import { CreditCardVisual } from "../components/cards/CreditCardVisual";
+import { MetricCard } from "../components/cards/MetricCard";
+import { ObligationCard } from "../components/cards/ObligationCard";
+import { MonthlySpendingBarChart } from "../components/charts/MonthlySpendingBarChart";
+import { SpendingDonutChart } from "../components/charts/SpendingDonutChart";
+import { Card } from "../components/common/Card";
+import { Spinner } from "../components/common/Spinner";
+import {
   useAccountLiveBalances,
+  useDashboardOverview,
   useMonthlySpending,
   useUpcomingObligations,
 } from "../hooks/useFinanceQueries";
+import { AccountLiveBalance } from "../types/account";
+import { MonthlyCategorySpending, UpcomingObligation } from "../types/analytics";
+import { formatCurrency, getRiskLevelColor } from "../utils/formatters";
 
 export const DashboardPage: React.FC = () => {
   const { data: overview, isLoading: overviewLoading } = useDashboardOverview();
-  const { data: accounts = [], isLoading: accountsLoading } = useAccountLiveBalances();
+  const { data: accounts = [] } = useAccountLiveBalances();
   const { data: obligations = [] } = useUpcomingObligations(30);
   const { data: monthlySpending = [] } = useMonthlySpending(20);
 
@@ -49,14 +47,14 @@ export const DashboardPage: React.FC = () => {
   // Group latest month category spending for donut chart
   const currentMonthCategories = monthlySpending
     .slice(0, 7)
-    .map((item) => ({
+    .map((item: MonthlyCategorySpending) => ({
       name: item.category_name,
       value: Number(item.total_spending),
       color: "",
     }));
 
   const currentMonthTotal = currentMonthCategories.reduce(
-    (acc, curr) => acc + curr.value,
+    (acc: number, curr: { value: number }) => acc + curr.value,
     0
   );
 
@@ -137,7 +135,7 @@ export const DashboardPage: React.FC = () => {
           <div>
             <h3 className="text-lg font-bold text-slate-100 flex items-center gap-2">
               <CreditCard className="w-5 h-5 text-emerald-400" />
-              <span>Danh Sách Thẻ Tín Dụng ({accounts.filter((acc) => acc.status !== "CLOSED" && acc.status !== "REPLACED").length})</span>
+              <span>Danh Sách Thẻ Tín Dụng ({accounts.filter((acc: AccountLiveBalance) => acc.status !== "CLOSED" && acc.status !== "REPLACED").length})</span>
             </h3>
             <p className="text-xs text-slate-400 mt-0.5">
               Nhấn vào từng thẻ để xem chi tiết hạn mức và giao dịch
@@ -153,8 +151,8 @@ export const DashboardPage: React.FC = () => {
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {accounts
-            .filter((acc) => acc.status !== "CLOSED" && acc.status !== "REPLACED")
-            .map((acc) => (
+            .filter((acc: AccountLiveBalance) => acc.status !== "CLOSED" && acc.status !== "REPLACED")
+            .map((acc: AccountLiveBalance) => (
               <CreditCardVisual key={acc.account_id} account={acc} />
             ))}
         </div>
@@ -212,7 +210,7 @@ export const DashboardPage: React.FC = () => {
             </div>
           ) : (
             <div className="space-y-3 max-h-72 overflow-y-auto pr-1 flex-1">
-              {obligations.slice(0, 4).map((ob, idx) => (
+              {obligations.slice(0, 4).map((ob: UpcomingObligation, idx: number) => (
                 <ObligationCard key={idx} obligation={ob} />
               ))}
             </div>
@@ -241,7 +239,7 @@ export const DashboardPage: React.FC = () => {
         </div>
 
         <MonthlySpendingBarChart
-          data={monthlySpending.reduce((acc: any[], curr) => {
+          data={monthlySpending.reduce((acc: any[], curr: MonthlyCategorySpending) => {
             const existing = acc.find((a) => a.month === curr.month);
             if (existing) {
               existing.total_spending += Number(curr.total_spending);

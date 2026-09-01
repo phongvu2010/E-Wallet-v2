@@ -1,5 +1,30 @@
-import openpyxl, os, datetime, re, warnings, hashlib, calendar, urllib.parse
+"""ETL Data Ingestion and Database Migration Script.
+
+Extracts credit card ledger data, historical statements, 0% installments,
+category taxonomy, merchant aliases, and reward points from Excel (`data/My Credit Wallet 2.0.xlsx`)
+and populates the PostgreSQL database.
+
+Execution Pipeline:
+    1. Financial Institutions mapping (Shinhan, HSBC, Sacombank).
+    2. Accounts ingestion, dynamic credit limit resolution & card replacement linking.
+    3. 2-tier Category hierarchy synchronization.
+    4. Merchant normalization & alias pattern extraction.
+    5. Installment Plans & Amortization Schedules calculation (odd cents balancing).
+    6. Statements & Transactions ingestion with SHA-256 idempotency fingerprinting.
+    7. Shinhan Reward Points / Cashback ledger recording.
+"""
+
+import calendar
+import datetime
+import hashlib
+import os
+import re
+import urllib.parse
+import warnings
 from pathlib import Path
+from typing import Any, Optional
+
+import openpyxl
 import pandas as pd
 import psycopg2
 from psycopg2.extras import execute_values
@@ -7,7 +32,24 @@ from psycopg2.extras import execute_values
 warnings.filterwarnings("ignore", category=UserWarning, module="openpyxl")
 
 
-def add_months_to_date(base_date, months_to_add, target_day=None):
+def add_months_to_date(
+    base_date: Optional[datetime.date],
+    months_to_add: int,
+    target_day: Optional[int] = None,
+) -> Optional[datetime.date]:
+    """Calculate the target date after adding `months_to_add` months to `base_date`.
+
+    Safely handles month-end bounds (e.g. Feb 28/29 or April 30) and aligns with the card's
+    billing cycle closing day if provided.
+
+    Args:
+        base_date (Optional[datetime.date]): The starting transaction date.
+        months_to_add (int): Number of months to advance.
+        target_day (Optional[int]): Desired day of month. Defaults to base_date.day.
+
+    Returns:
+        Optional[datetime.date]: The computed target date bounded by valid calendar days.
+    """
     if not base_date:
         return None
     year = base_date.year + (base_date.month + months_to_add - 1) // 12
@@ -16,6 +58,7 @@ def add_months_to_date(base_date, months_to_add, target_day=None):
     day = target_day if target_day is not None else base_date.day
     day = min(max(1, day), max_days)
     return datetime.date(year, month, day)
+
 
 # Automatically load .env if available
 env_file = Path(__file__).resolve().parent.parent / ".env"
@@ -43,7 +86,17 @@ excel_path = "data/My Credit Wallet 2.0.xlsx"
 wb = openpyxl.load_workbook(excel_path, data_only=True)
 
 
-def load_sheet(name):
+def load_sheet(name: str) -> pd.DataFrame:
+    """Read a specific worksheet from the Excel workbook into a cleaned pandas DataFrame.
+
+    Strips trailing empty columns and rows.
+
+    Args:
+        name (str): Worksheet tab name.
+
+    Returns:
+        pd.DataFrame: DataFrame containing worksheet records.
+    """
     if name not in wb.sheetnames:
         return pd.DataFrame()
 
@@ -71,7 +124,18 @@ df_transactions = load_sheet("Transactions")
 df_rewards = load_sheet("Rewards")
 
 
-def clean_num(val, default=0.0):
+def clean_num(val: Any, default: float = 0.0) -> float:
+    """Sanitize and parse currency strings / numeric values into clean float amounts.
+
+    Handles commas, currency units (VND, VNĐ), and trailing credit indicators (CR, -).
+
+    Args:
+        val (Any): Raw cell value or numeric value.
+        default (float, optional): Fallback if parsing fails. Defaults to 0.0.
+
+    Returns:
+        float: Clean numeric amount.
+    """
     if val is None or pd.isna(val):
         return default
 
@@ -91,11 +155,21 @@ def clean_num(val, default=0.0):
 
     try:
         return float(s)
-    except:
+    except (ValueError, TypeError):
         return default
 
 
-def parse_date(s):
+def parse_date(s: Any) -> Optional[datetime.date]:
+    """Parse date strings or datetime instances across multiple common formats.
+
+    Supports DD-MM-YYYY, DD/MM/YYYY, YYYY-MM-DD, and DD/MM/YY.
+
+    Args:
+        s (Any): Raw date string, date, or datetime object.
+
+    Returns:
+        Optional[datetime.date]: Parsed standard date object or None if invalid.
+    """
     if not s or pd.isna(s):
         return None
 
@@ -106,15 +180,40 @@ def parse_date(s):
     for fmt in ["%d-%m-%Y", "%d/%m/%Y", "%Y-%m-%d", "%d/%m/%y"]:
         try:
             return datetime.datetime.strptime(s, fmt).date()
-        except:
+        except (ValueError, TypeError):
             pass
 
     return None
 
 
 def calculate_tx_fingerprint(
-    acc_id, t_date, p_date, raw_desc, total_amt, orig_amt, orig_curr, occurrence_index=1
-):
+    acc_id: Any,
+    t_date: Any,
+    p_date: Any,
+    raw_desc: str,
+    total_amt: float,
+    orig_amt: float,
+    orig_curr: str,
+    occurrence_index: int = 1,
+) -> str:
+    """Generate deterministic SHA-256 hash fingerprint for transaction deduplication.
+
+    Fingerprint Payload:
+        `acc_id|t_date|p_date|raw_desc|total_amt|orig_amt|orig_curr|occurrence_index`
+
+    Args:
+        acc_id (Any): Account UUID.
+        t_date (Any): Transaction date.
+        p_date (Any): Posting date.
+        raw_desc (str): Raw descriptor from statement / POS.
+        total_amt (float): Final billing amount.
+        orig_amt (float): Original transaction currency amount.
+        orig_curr (str): Original transaction currency (e.g. VND, USD).
+        occurrence_index (int, optional): Occurrence counter on identical same-day transactions. Defaults to 1.
+
+    Returns:
+        str: 64-character hex SHA-256 fingerprint hash.
+    """
     payload = f"{acc_id}|{t_date}|{p_date or ''}|{raw_desc}|{total_amt:.2f}|{orig_amt:.2f}|{orig_curr}|{occurrence_index}"
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
@@ -159,7 +258,9 @@ try:
 
         # Dynamic Card Replacement Linkage
         replaces_id = None
-        if "Replaces Account Number" in row and not pd.isna(row["Replaces Account Number"]):
+        if "Replaces Account Number" in row and not pd.isna(
+            row["Replaces Account Number"]
+        ):
             rep_num = str(row["Replaces Account Number"]).strip()
             replaces_id = account_id_map.get(rep_num)
         elif "0642" in acc_num:
@@ -171,12 +272,15 @@ try:
                 (replaces_id,),
             )
 
-        cur.execute("SELECT id FROM accounts WHERE card_number_masked = %s;", (acc_num,))
+        cur.execute(
+            "SELECT id FROM accounts WHERE card_number_masked = %s;", (acc_num,)
+        )
         res = cur.fetchone()
         if res:
             acc_id = res[0]
             cur.execute(
-                "UPDATE accounts SET credit_limit = %s WHERE id = %s;", (limit_val, acc_id)
+                "UPDATE accounts SET credit_limit = %s WHERE id = %s;",
+                (limit_val, acc_id),
             )
         else:
             cur.execute(
@@ -206,11 +310,17 @@ try:
         c_p = str(cat_row.get("Category (Cấp 1)", "")).strip()
         c_sub = str(cat_row.get("Category Detail (Cấp 2)", "")).strip()
         if c_p and c_sub and c_sub != "None":
-            cur.execute("SELECT id FROM categories WHERE name = %s AND parent_id IS NULL;", (c_p,))
+            cur.execute(
+                "SELECT id FROM categories WHERE name = %s AND parent_id IS NULL;",
+                (c_p,),
+            )
             p_res = cur.fetchone()
             if p_res:
                 p_id = p_res[0]
-                cur.execute("SELECT id FROM categories WHERE parent_id = %s AND name = %s;", (p_id, c_sub))
+                cur.execute(
+                    "SELECT id FROM categories WHERE parent_id = %s AND name = %s;",
+                    (p_id, c_sub),
+                )
                 if not cur.fetchone():
                     cur.execute(
                         """
@@ -349,18 +459,15 @@ try:
         )
 
     # Build statement_id_map from database
-    cur.execute(
-        """
+    cur.execute("""
         SELECT s.id, a.card_number_masked, s.statement_date 
         FROM statements s 
         JOIN accounts a ON s.account_id = a.id;
-        """
-    )
+        """)
     statement_id_map = {(row[1], row[2]): row[0] for row in cur.fetchall()}
 
     # Auto-update start_date and previous_balance based on chronological statement history
-    cur.execute(
-        """
+    cur.execute("""
         UPDATE statements s
         SET 
             start_date = COALESCE((
@@ -379,8 +486,7 @@ try:
                 ORDER BY prev.statement_date DESC 
                 LIMIT 1
             ), 0.00);
-        """
-    )
+        """)
 
     print(
         f"Migrated {len(statement_id_map)} Statements and updated start_date & previous_balance history."
@@ -477,7 +583,11 @@ try:
         ex_rate = (
             clean_num(row["Exchange Rate"], 1.0)
             if "Exchange Rate" in row and not pd.isna(row["Exchange Rate"])
-            else (round(abs(amt) / abs(orig_amt), 4) if orig_amt != 0 and orig_curr != "VND" else 1.0)
+            else (
+                round(abs(amt) / abs(orig_amt), 4)
+                if orig_amt != 0 and orig_curr != "VND"
+                else 1.0
+            )
         )
         for_fee = (
             clean_num(row["Foreign Fee"], fee if orig_curr != "VND" else 0.0)
@@ -558,7 +668,9 @@ try:
             page_size=1000,
         )
 
-    print(f"Migrated {len(tx_records)} Transactions (Bulk Insert with fingerprint deduplication & settlement mapping).")
+    print(
+        f"Migrated {len(tx_records)} Transactions (Bulk Insert with fingerprint deduplication & settlement mapping)."
+    )
 
     # 7. Migrate Installment Plans & Schedules (Dynamic Term Resolution & Rounding Offsets)
     for _, row in df_instalments.iterrows():
@@ -592,17 +704,23 @@ try:
 
         # Tier 2: Regex extraction from product name / note (e.g. "3 tháng", "6T", "9M")
         if not term:
-            match = re.search(r"(\d+)\s*(?:tháng|thg|kỳ|m|months?)", p_name, re.IGNORECASE)
+            match = re.search(
+                r"(\d+)\s*(?:tháng|thg|kỳ|m|months?)", p_name, re.IGNORECASE
+            )
             if match:
                 term = int(match.group(1))
 
         # Tier 3: Calculate dynamically from matching INSTALLMENT_MONTHLY transactions
         if not term:
             matching_txs = df_transactions[
-                (df_transactions["Account Number"].astype(str).str.strip() == acc_num) &
-                (
-                    df_transactions["Transaction Detail"].astype(str).str.contains(p_name, case=False, na=False) |
-                    df_transactions["Note"].astype(str).str.contains(p_name, case=False, na=False)
+                (df_transactions["Account Number"].astype(str).str.strip() == acc_num)
+                & (
+                    df_transactions["Transaction Detail"]
+                    .astype(str)
+                    .str.contains(p_name, case=False, na=False)
+                    | df_transactions["Note"]
+                    .astype(str)
+                    .str.contains(p_name, case=False, na=False)
                 )
             ]
             if not matching_txs.empty:
@@ -631,7 +749,10 @@ try:
         plan_res = cur.fetchone()
         if plan_res:
             plan_id = plan_res[0]
-            cur.execute("DELETE FROM installment_schedules WHERE installment_plan_id = %s;", (plan_id,))
+            cur.execute(
+                "DELETE FROM installment_schedules WHERE installment_plan_id = %s;",
+                (plan_id,),
+            )
             cur.execute(
                 """
                 UPDATE installment_plans SET
@@ -640,7 +761,16 @@ try:
                     status = %s, remaining_balance = %s
                 WHERE id = %s;
             """,
-                (tot_amt, conv_fee, term, base_monthly, base_monthly, status, 0.0 if status in ["COMPLETED", "EARLY_SETTLED"] else tot_amt, plan_id),
+                (
+                    tot_amt,
+                    conv_fee,
+                    term,
+                    base_monthly,
+                    base_monthly,
+                    status,
+                    0.0 if status in ["COMPLETED", "EARLY_SETTLED"] else tot_amt,
+                    plan_id,
+                ),
             )
         else:
             cur.execute(
@@ -669,7 +799,9 @@ try:
             plan_id = cur.fetchone()[0]
 
         # Fetch billing_day_of_month from accounts if available
-        cur.execute("SELECT billing_day_of_month FROM accounts WHERE id = %s;", (acc_id,))
+        cur.execute(
+            "SELECT billing_day_of_month FROM accounts WHERE id = %s;", (acc_id,)
+        )
         b_res = cur.fetchone()
         billing_day = b_res[0] if b_res and b_res[0] else None
 

@@ -3,7 +3,7 @@ import { formatCurrency, formatDate } from "../../utils/formatters";
 import { UpcomingObligation } from "../../types/analytics";
 import { Card } from "../common/Card";
 import { Badge } from "../common/Badge";
-import { Calendar, AlertCircle, Clock } from "lucide-react";
+import { Calendar, Clock } from "lucide-react";
 import { clsx } from "clsx";
 
 interface ObligationCardProps {

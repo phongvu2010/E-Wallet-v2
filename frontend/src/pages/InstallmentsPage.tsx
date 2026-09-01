@@ -1,32 +1,22 @@
-import React, { useEffect, useState } from "react";
-import { installmentService } from "../services/installmentService";
-import { InstallmentPlan, InstallmentForecast } from "../types/installment";
-import { Card } from "../components/common/Card";
-import { Button } from "../components/common/Button";
-import { Badge } from "../components/common/Badge";
-import { Modal } from "../components/common/Modal";
-import { Input } from "../components/common/Input";
-import { CurrencyInput } from "../components/common/CurrencyInput";
-import { Spinner } from "../components/common/Spinner";
+import React, { useState } from "react";
+import { Check, Clock, TrendingDown } from "lucide-react";
 import { InstallmentForecastChart } from "../components/charts/InstallmentForecastChart";
-import { formatCurrency, formatDate } from "../utils/formatters";
-import {
-  Clock,
-  CheckCircle2,
-  Calendar,
-  AlertCircle,
-  TrendingDown,
-  Percent,
-  Check,
-} from "lucide-react";
-import { useInstallments, useInstallmentForecast } from "../hooks/useFinanceQueries";
-import { useEarlySettleInstallment } from "../hooks/useFinanceMutations";
+import { Badge } from "../components/common/Badge";
+import { Button } from "../components/common/Button";
+import { Card } from "../components/common/Card";
+import { CurrencyInput } from "../components/common/CurrencyInput";
+import { Input } from "../components/common/Input";
+import { Modal } from "../components/common/Modal";
+import { Spinner } from "../components/common/Spinner";
 import { useToast } from "../context/ToastContext";
+import { useEarlySettleInstallment } from "../hooks/useFinanceMutations";
+import { useInstallmentForecast, useInstallments } from "../hooks/useFinanceQueries";
+import { InstallmentPlan } from "../types/installment";
+import { formatCurrency, formatDate } from "../utils/formatters";
 
 export const InstallmentsPage: React.FC = () => {
   const { data: plans = [], isLoading: plansLoading } = useInstallments();
   const { data: forecast = [] } = useInstallmentForecast();
-  const [selectedPlanId, setSelectedPlanId] = useState<string | null>(null);
 
   const { toast } = useToast();
   const earlySettleMutation = useEarlySettleInstallment();
@@ -38,9 +28,6 @@ export const InstallmentsPage: React.FC = () => {
   const [settleFeePercent, setSettleFeePercent] = useState<string>("2.0");
   const [settleCustomFee, setSettleCustomFee] = useState<string>("");
   const [formError, setFormError] = useState<string | null>(null);
-
-  const selectedPlan =
-    plans.find((p) => p.id === selectedPlanId) || (plans.length > 0 ? plans[0] : null);
 
   const handleOpenEarlySettle = (plan: InstallmentPlan) => {
     setSettlePlanId(plan.id);
@@ -94,9 +81,9 @@ export const InstallmentsPage: React.FC = () => {
     );
   }
 
-  const activePlans = plans.filter((p) => p.status === "ACTIVE");
+  const activePlans = plans.filter((p: InstallmentPlan) => p.status === "ACTIVE");
   const totalRemainingBalance = activePlans.reduce(
-    (sum, p) => sum + Number(p.remaining_balance),
+    (sum: number, p: InstallmentPlan) => sum + Number(p.remaining_balance),
     0
   );
 
@@ -143,8 +130,8 @@ export const InstallmentsPage: React.FC = () => {
 
       {/* 3. Installment Plans Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {plans.map((plan) => {
-          const billedCount = plan.schedules?.filter((s) => s.is_billed).length || 0;
+        {plans.map((plan: InstallmentPlan) => {
+          const billedCount = plan.schedules?.filter((s: any) => s.is_billed).length || 0;
           const progressPercent = Math.min(
             100,
             (billedCount / (plan.term_months || 1)) * 100
@@ -295,7 +282,7 @@ export const InstallmentsPage: React.FC = () => {
             <Button
               type="submit"
               variant="danger"
-              isLoading={earlySettleMutation.isLoading}
+              isLoading={earlySettleMutation.isPending}
             >
               Xác nhận Tất Toán
             </Button>

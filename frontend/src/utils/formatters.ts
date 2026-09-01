@@ -1,3 +1,10 @@
+/**
+ * Formats a numeric or string amount into a localized currency string (VND or USD).
+ *
+ * @param amount - The numerical amount or string representation.
+ * @param currency - The 3-letter currency ISO code (e.g. 'VND', 'USD'). Default is 'VND'.
+ * @returns Formatted currency string with appropriate symbol and thousands separators.
+ */
 export function formatCurrency(amount: number | string | undefined | null, currency: string = "VND"): string {
   if (amount === undefined || amount === null) {
     return "0 ₫";
@@ -22,6 +29,13 @@ export function formatCurrency(amount: number | string | undefined | null, curre
   }).format(num);
 }
 
+/**
+ * Formats an ISO date string into a user-friendly Vietnamese date format.
+ *
+ * @param dateString - The raw ISO date string (YYYY-MM-DD or ISO timestamp).
+ * @param formatStr - Output format pattern ('dd/MM/yyyy' or 'MM/yyyy').
+ * @returns Formatted date string or fallback '--/--/----'.
+ */
 export function formatDate(dateString: string | undefined | null, formatStr: string = "dd/MM/yyyy"): string {
   if (!dateString) return "--/--/----";
   try {
@@ -44,6 +58,12 @@ export function formatDate(dateString: string | undefined | null, formatStr: str
   }
 }
 
+/**
+ * Maps a credit utilization risk assessment tier to Tailwind CSS style classes.
+ *
+ * @param riskLevel - Risk tier description ('OPTIMAL', 'MODERATE', 'HIGH', 'CRITICAL').
+ * @returns Object containing badge, text, and background Tailwind classes.
+ */
 export function getRiskLevelColor(riskLevel: string = ""): {
   badge: string;
   text: string;
@@ -78,6 +98,12 @@ export function getRiskLevelColor(riskLevel: string = ""): {
   };
 }
 
+/**
+ * Returns brand gradient background styles matching specific banking institutions.
+ *
+ * @param bankName - Name of the bank / card issuer.
+ * @returns Tailwind gradient and border classes.
+ */
 export function getBankGradient(bankName: string = ""): string {
   const upper = bankName.toUpperCase();
   if (upper.includes("SHINHAN")) {
@@ -92,6 +118,12 @@ export function getBankGradient(bankName: string = ""): string {
   return "from-slate-900 via-slate-850 to-slate-950 border-slate-700/40";
 }
 
+/**
+ * Maps transaction type enum codes to Vietnamese display labels and styling badge colors.
+ *
+ * @param type - Transaction type enum string.
+ * @returns Object with localized label and Tailwind color classes.
+ */
 export function getTransactionTypeLabel(type: string): { label: string; color: string } {
   switch (type) {
     case "PURCHASE":

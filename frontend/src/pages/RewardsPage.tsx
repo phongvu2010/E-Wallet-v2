@@ -1,15 +1,13 @@
-import React, { useEffect, useState } from "react";
-import { rewardService } from "../services/rewardService";
-import { accountService } from "../services/accountService";
-import { RewardLedger } from "../types/reward";
-import { Account } from "../types/account";
-import { Card } from "../components/common/Card";
+import React, { useState } from "react";
+import { Award, Coins, Gift, Sparkles } from "lucide-react";
 import { Badge } from "../components/common/Badge";
+import { Card } from "../components/common/Card";
 import { Select } from "../components/common/Select";
 import { Spinner } from "../components/common/Spinner";
-import { formatCurrency, formatDate } from "../utils/formatters";
-import { Gift, Sparkles, AlertCircle, Coins, Award } from "lucide-react";
 import { useAccounts, useRewards } from "../hooks/useFinanceQueries";
+import { Account } from "../types/account";
+import { RewardLedger } from "../types/reward";
+import { formatCurrency, formatDate } from "../utils/formatters";
 
 export const RewardsPage: React.FC = () => {
   const [selectedAccountId, setSelectedAccountId] = useState<string>("");
@@ -31,12 +29,12 @@ export const RewardsPage: React.FC = () => {
 
   // Calculate totals
   const totalPoints = rewards
-    .filter((r) => r.reward_type === "POINT")
-    .reduce((sum, r) => sum + Number(r.earned_this_month), 0);
+    .filter((r: RewardLedger) => r.reward_type === "POINT")
+    .reduce((sum: number, r: RewardLedger) => sum + Number(r.earned_this_month), 0);
 
   const totalCashback = rewards
-    .filter((r) => r.reward_type === "CASHBACK")
-    .reduce((sum, r) => sum + Number(r.earned_this_month), 0);
+    .filter((r: RewardLedger) => r.reward_type === "CASHBACK")
+    .reduce((sum: number, r: RewardLedger) => sum + Number(r.earned_this_month), 0);
 
   return (
     <div className="space-y-6">
@@ -58,7 +56,7 @@ export const RewardsPage: React.FC = () => {
             onChange={(e) => setSelectedAccountId(e.target.value)}
             options={[
               { value: "", label: "Tất cả các thẻ" },
-              ...accounts.map((a) => ({
+              ...accounts.map((a: Account) => ({
                 value: a.id,
                 label: `${a.account_name} (${a.card_number_last4})`,
               })),
@@ -131,7 +129,7 @@ export const RewardsPage: React.FC = () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800/60 font-medium">
-                {rewards.map((r) => (
+                {rewards.map((r: RewardLedger) => (
                   <tr key={r.id} className="hover:bg-slate-800/40 transition-colors">
                     <td className="py-3.5 px-4">
                       <Badge

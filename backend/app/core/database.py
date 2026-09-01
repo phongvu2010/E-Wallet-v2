@@ -1,4 +1,12 @@
+"""Database Engine and Session Management Configuration.
+
+Configures both asynchronous (asyncpg) and synchronous (psycopg2) SQLAlchemy engines,
+connection pooling parameters, transaction pooler compatibility (Supabase / PgBouncer),
+and FastAPI dependency injection for asynchronous sessions.
+"""
+
 from typing import AsyncGenerator
+
 from sqlalchemy import create_engine
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import declarative_base, sessionmaker
@@ -61,8 +69,13 @@ Base = declarative_base()
 
 
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
-    """
-    FastAPI dependency for yielding async SQLAlchemy sessions.
+    """FastAPI dependency yielding an asynchronous SQLAlchemy database session.
+
+    Ensures transactions are automatically rolled back on unhandled exceptions and
+    connections are safely returned to the connection pool.
+
+    Yields:
+        AsyncGenerator[AsyncSession, None]: Asynchronous database session context.
     """
     async with AsyncSessionLocal() as session:
         try:
