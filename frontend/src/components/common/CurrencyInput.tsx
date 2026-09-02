@@ -11,6 +11,7 @@ interface CurrencyInputProps
   value?: number | string;
   onValueChange?: (val: number) => void;
   onChangeRaw?: (rawString: string) => void;
+  onChange?: (rawString: string) => void;
 }
 
 export const CurrencyInput = React.forwardRef<HTMLInputElement, CurrencyInputProps>(
@@ -23,6 +24,7 @@ export const CurrencyInput = React.forwardRef<HTMLInputElement, CurrencyInputPro
       value = "",
       onValueChange,
       onChangeRaw,
+      onChange,
       className,
       placeholder = "0",
       ...props
@@ -55,6 +57,7 @@ export const CurrencyInput = React.forwardRef<HTMLInputElement, CurrencyInputPro
         setDisplayValue(cleaned);
         onValueChange?.(0);
         onChangeRaw?.(cleaned);
+        onChange?.(cleaned);
         return;
       }
 
@@ -63,6 +66,7 @@ export const CurrencyInput = React.forwardRef<HTMLInputElement, CurrencyInputPro
         setDisplayValue(formatNumberWithCommas(cleaned));
         onValueChange?.(num);
         onChangeRaw?.(cleaned);
+        onChange?.(cleaned);
       }
     };
 

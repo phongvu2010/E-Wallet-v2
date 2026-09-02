@@ -166,7 +166,11 @@ class TransactionService:
             return current_category_id
 
         target_names = []
-        if tx_type == TransactionTypeEnum.REPAYMENT:
+        if tx_type == TransactionTypeEnum.INCOME:
+            target_names = ["Lương & Thu nhập", "Thu nhập", "Lương", "Thưởng", "Thu nhập khác"]
+        elif tx_type == TransactionTypeEnum.TRANSFER:
+            target_names = ["Chuyển khoản", "Chuyển tiền", "Thanh toán"]
+        elif tx_type == TransactionTypeEnum.REPAYMENT:
             target_names = ["Thanh toán dư nợ", "Thanh toán"]
         elif tx_type == TransactionTypeEnum.INSTALLMENT_MONTHLY:
             target_names = ["Trả góp"]
@@ -482,6 +486,7 @@ class TransactionService:
         sql = """
         SELECT
             COUNT(id) AS total_transactions,
+            COALESCE(SUM(CASE WHEN transaction_type = 'INCOME' THEN total_amount ELSE 0 END), 0) AS total_income,
             COALESCE(SUM(CASE WHEN transaction_type IN ('PURCHASE', 'INSTALLMENT_MONTHLY', 'CASH_ADVANCE') THEN total_amount ELSE 0 END), 0) AS total_spending,
             COALESCE(SUM(CASE WHEN transaction_type IN ('REPAYMENT', 'CASHBACK_CREDIT') THEN ABS(total_amount) ELSE 0 END), 0) AS total_repayments,
             COALESCE(SUM(CASE WHEN transaction_type IN ('FEE', 'INTEREST') THEN total_amount ELSE 0 END), 0) AS total_fees_interest,

@@ -6,7 +6,7 @@ import { notificationService } from "../services/notificationService";
 import { recommendationService } from "../services/recommendationService";
 import { TransactionCreatePayload, TransactionUpdatePayload } from "../types/transaction";
 import { EarlySettlePayload } from "../types/installment";
-import { AccountUpdatePayload, AccountStatus } from "../types/account";
+import { AccountCreatePayload, AccountUpdatePayload, AccountStatus } from "../types/account";
 import { NotificationSettingsUpdate } from "../types/notification";
 import { CardRecommendationRequest } from "../types/cardRecommendation";
 
@@ -20,6 +20,8 @@ export function useCreateTransaction() {
       queryClient.invalidateQueries({ queryKey: ["accounts-live"] });
       queryClient.invalidateQueries({ queryKey: ["dashboard-overview"] });
       queryClient.invalidateQueries({ queryKey: ["monthly-spending"] });
+      queryClient.invalidateQueries({ queryKey: ["net-worth"] });
+      queryClient.invalidateQueries({ queryKey: ["cash-flow"] });
     },
   });
 }
@@ -34,6 +36,8 @@ export function useUpdateTransaction() {
       queryClient.invalidateQueries({ queryKey: ["transaction-summary"] });
       queryClient.invalidateQueries({ queryKey: ["accounts-live"] });
       queryClient.invalidateQueries({ queryKey: ["dashboard-overview"] });
+      queryClient.invalidateQueries({ queryKey: ["net-worth"] });
+      queryClient.invalidateQueries({ queryKey: ["cash-flow"] });
     },
   });
 }
@@ -47,6 +51,8 @@ export function useDeleteTransaction() {
       queryClient.invalidateQueries({ queryKey: ["transaction-summary"] });
       queryClient.invalidateQueries({ queryKey: ["accounts-live"] });
       queryClient.invalidateQueries({ queryKey: ["dashboard-overview"] });
+      queryClient.invalidateQueries({ queryKey: ["net-worth"] });
+      queryClient.invalidateQueries({ queryKey: ["cash-flow"] });
     },
   });
 }
@@ -62,6 +68,21 @@ export function useEarlySettleInstallment() {
       queryClient.invalidateQueries({ queryKey: ["accounts-live"] });
       queryClient.invalidateQueries({ queryKey: ["dashboard-overview"] });
       queryClient.invalidateQueries({ queryKey: ["transactions"] });
+      queryClient.invalidateQueries({ queryKey: ["net-worth"] });
+    },
+  });
+}
+
+export function useCreateAccount() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: AccountCreatePayload) => accountService.create(payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["accounts"] });
+      queryClient.invalidateQueries({ queryKey: ["accounts-live"] });
+      queryClient.invalidateQueries({ queryKey: ["dashboard-overview"] });
+      queryClient.invalidateQueries({ queryKey: ["credit-utilization"] });
+      queryClient.invalidateQueries({ queryKey: ["net-worth"] });
     },
   });
 }
@@ -76,6 +97,7 @@ export function useUpdateAccount() {
       queryClient.invalidateQueries({ queryKey: ["accounts-live"] });
       queryClient.invalidateQueries({ queryKey: ["dashboard-overview"] });
       queryClient.invalidateQueries({ queryKey: ["credit-utilization"] });
+      queryClient.invalidateQueries({ queryKey: ["net-worth"] });
     },
   });
 }

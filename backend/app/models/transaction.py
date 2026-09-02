@@ -21,6 +21,7 @@ from app.core.database import Base
 
 class TransactionTypeEnum(str, enum.Enum):
     PURCHASE = "PURCHASE"
+    INCOME = "INCOME"
     REPAYMENT = "REPAYMENT"
     INSTALLMENT_PRINCIPAL = "INSTALLMENT_PRINCIPAL"
     INSTALLMENT_MONTHLY = "INSTALLMENT_MONTHLY"

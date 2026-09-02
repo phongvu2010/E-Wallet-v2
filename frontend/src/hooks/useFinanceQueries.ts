@@ -9,6 +9,7 @@ import { categoryService } from "../services/categoryService";
 import { notificationService } from "../services/notificationService";
 import { recommendationService } from "../services/recommendationService";
 import { merchantService } from "../services/merchantService";
+import { institutionService } from "../services/institutionService";
 import { TransactionFilterParams } from "../types/transaction";
 import { InstallmentStatus } from "../types/installment";
 
@@ -155,6 +156,28 @@ export function useDashboardOverview() {
 }
 
 /**
+ * Query hook to fetch full Net Worth overview & asset breakdown.
+ */
+export function useNetWorth() {
+  return useQuery({
+    queryKey: ["net-worth"],
+    queryFn: () => analyticsService.getNetWorth(),
+    staleTime: 30 * 1000,
+  });
+}
+
+/**
+ * Query hook to fetch monthly cash flow (Income vs Expense vs Savings).
+ */
+export function useCashFlow(limit = 12) {
+  return useQuery({
+    queryKey: ["cash-flow", limit],
+    queryFn: () => analyticsService.getCashFlow(limit),
+    staleTime: 60 * 1000,
+  });
+}
+
+/**
  * Query hook to fetch monthly spending by category (cached 2 mins).
  */
 export function useMonthlySpending(limit = 20) {
@@ -266,5 +289,16 @@ export function useMerchantSuggestions() {
     queryKey: ["merchant-suggestions"],
     queryFn: () => merchantService.getSuggestions(100),
     staleTime: 10 * 60 * 1000,
+  });
+}
+
+/**
+ * Query hook to fetch all banking & e-wallet institutions.
+ */
+export function useInstitutions() {
+  return useQuery({
+    queryKey: ["institutions"],
+    queryFn: () => institutionService.getAll(),
+    staleTime: 60 * 60 * 1000,
   });
 }

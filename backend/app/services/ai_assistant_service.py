@@ -35,16 +35,22 @@ class AIAssistantService:
             and (now - AIAssistantService._context_cache_time) < AIAssistantService._CACHE_TTL_SECONDS
         ):
             return AIAssistantService._context_cache
-        # 1. Accounts Live Balances
+        # 1. Accounts Live Balances (Both Asset accounts and Credit cards)
         sql_cards = """
-        SELECT account_name, bank_name, card_number_masked, credit_limit,
+        SELECT account_name, account_type, is_asset, bank_name, card_number_masked, credit_limit,
                live_current_balance, live_available_limit, live_utilization_percentage, live_risk_level
         FROM v_account_live_balance
         WHERE status = 'ACTIVE'
-        ORDER BY live_current_balance DESC;
+        ORDER BY is_asset DESC, live_current_balance DESC;
         """
         res_cards = await db.execute(text(sql_cards))
         cards = [dict(r) for r in res_cards.mappings().all()]
+
+        # 1.1 Net Worth Overview
+        sql_nw = "SELECT * FROM v_net_worth_overview;"
+        res_nw = await db.execute(text(sql_nw))
+        nw_row = res_nw.mappings().one_or_none()
+        nw_dict = dict(nw_row) if nw_row else {}
 
         # 2. Upcoming Obligations
         sql_ob = """
@@ -85,7 +91,8 @@ class AIAssistantService:
             return obj
 
         ctx = {
-            "active_cards": [{k: sanitize(v) for k, v in c.items()} for c in cards],
+            "net_worth_overview": {k: sanitize(v) for k, v in nw_dict.items()},
+            "accounts_and_cards": [{k: sanitize(v) for k, v in c.items()} for c in cards],
             "upcoming_obligations_30d": [
                 {k: sanitize(v) for k, v in o.items()} for o in obligations
             ],
@@ -105,35 +112,67 @@ class AIAssistantService:
     def _generate_rule_based_reply(query: str, ctx: Dict[str, Any]) -> AIChatResponse:
         """Intelligent local fallback response generator when Gemini API Key is not set."""
         q_lower = query.lower()
-        cards = ctx.get("active_cards", [])
+        nw = ctx.get("net_worth_overview", {})
+        accounts = ctx.get("accounts_and_cards", [])
         obs = ctx.get("upcoming_obligations_30d", [])
         spendings = ctx.get("current_month_top_spending", [])
 
-        total_limit = sum(c.get("credit_limit", 0) for c in cards)
-        total_balance = sum(c.get("live_current_balance", 0) for c in cards)
-        total_avail = sum(c.get("live_available_limit", 0) for c in cards)
-        overall_util = (total_balance / total_limit) * 100 if total_limit > 0 else 0
+        asset_accounts = [a for a in accounts if a.get("is_asset")]
+        credit_cards = [a for a in accounts if not a.get("is_asset")]
+
+        total_assets = nw.get("total_liquid_assets", sum(a.get("live_current_balance", 0) for a in asset_accounts))
+        total_debt = nw.get("total_credit_debt", sum(c.get("live_current_balance", 0) for c in credit_cards))
+        net_worth = nw.get("net_worth", total_assets - total_debt)
+        total_limit = nw.get("total_credit_limit", sum(c.get("credit_limit", 0) for c in credit_cards))
+        overall_util = (total_debt / total_limit) * 100 if total_limit > 0 else 0
 
         if any(
             k in q_lower
-            for k in ["dư nợ", "số dư", "hạn mức", "tổng tiền", "bao nhiêu tiền"]
+            for k in ["tài sản", "net worth", "tổng tài sản", "tài sản ròng", "tiền mặt", "ngân hàng"]
         ):
             reply = (
-                f"📊 **Báo cáo Tình hình Dư nợ Tức thời:**\n\n"
-                f"- **Tổng Hạn Mức Tín Dụng:** {total_limit:,.0f} VNĐ ({len(cards)} thẻ đang hoạt động)\n"
-                f"- **Dư Nợ Thực Tế Tức Thời (Live Balance):** {total_balance:,.0f} VNĐ\n"
-                f"- **Hạn Mức Khả Dụng Còn Lại:** {total_avail:,.0f} VNĐ\n"
+                f"💎 **Báo cáo Tài Sản Ròng & Sức Khỏe Tài Chính (Net Worth):**\n\n"
+                f"- **Tổng Tài Sản Có (Liquid Assets):** **{total_assets:,.0f} VNĐ**\n"
+                f"  • Tiền gửi Ngân hàng: {nw.get('total_bank_assets', 0):,.0f}đ\n"
+                f"  • Ví tiền mặt: {nw.get('total_cash_assets', 0):,.0f}đ\n"
+                f"  • Ví điện tử: {nw.get('total_ewallet_assets', 0):,.0f}đ\n"
+                f"- **Tổng Dư Nợ Thẻ Tín Dụng:** **{total_debt:,.0f} VNĐ**\n"
+                f"- 🏆 **TÀI SẢN RÒNG (NET WORTH):** **{net_worth:,.0f} VNĐ**\n\n"
+                f"**Danh sách Tài khoản & Ví tiền:**\n"
+            )
+            for a in asset_accounts:
+                reply += f"• **{a['account_name']}** ({a['bank_name']}): **{a['live_current_balance']:,.0f} VNĐ**\n"
+
+            return AIChatResponse(
+                reply=reply,
+                suggested_followups=[
+                    "Dư nợ và hạn mức thẻ tín dụng hiện tại?",
+                    "Khoản nợ nào sắp đến hạn thanh toán?",
+                    "Cơ cấu chi tiêu tháng này của tôi?",
+                ],
+                insights={"net_worth": net_worth, "total_assets": total_assets},
+            )
+
+        elif any(
+            k in q_lower
+            for k in ["dư nợ", "số dư", "hạn mức", "tổng tiền", "bao nhiêu tiền", "thẻ"]
+        ):
+            reply = (
+                f"📊 **Báo cáo Tình hình Dư nợ Thẻ & Hạn Mức Tức thời:**\n\n"
+                f"- **Tổng Hạn Mức Tín Dụng:** {total_limit:,.0f} VNĐ ({len(credit_cards)} thẻ đang hoạt động)\n"
+                f"- **Dư Nợ Thực Tế Tức Thời (Live Debt):** {total_debt:,.0f} VNĐ\n"
+                f"- **Hạn Mức Khả Dụng Còn Lại:** {(total_limit - total_debt):,.0f} VNĐ\n"
                 f"- **Tỷ Lệ Sử Dụng Hạn Mức:** **{overall_util:.1f}%** ({'An toàn (<30%)' if overall_util < 30 else 'Cần chú ý (>50%)'})\n\n"
                 f"**Chi tiết từng thẻ:**\n"
             )
-            for c in cards:
+            for c in credit_cards:
                 reply += f"• **{c['account_name']}** ({c['bank_name']}): Dư nợ {c['live_current_balance']:,.0f}đ / Hạn mức {c['credit_limit']:,.0f}đ ({c['live_utilization_percentage']:.1f}% - {c['live_risk_level']})\n"
 
             return AIChatResponse(
                 reply=reply,
                 suggested_followups=[
+                    "Tổng tài sản ròng Net Worth hiện tại?",
                     "Khoản nợ nào sắp đến hạn thanh toán?",
-                    "Tháng này tôi tiêu nhiều nhất vào đâu?",
                     "Nên dùng thẻ nào để quẹt ăn uống?",
                 ],
                 insights={"overall_utilization": overall_util},

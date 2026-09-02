@@ -74,19 +74,25 @@ class AccountService:
 
     @staticmethod
     async def create(db: AsyncSession, payload: AccountCreate) -> Account:
-        """Register a new credit card account in the system.
+        """Register a new account or wallet in the system."""
+        data = payload.model_dump()
+        if not data.get("card_number_masked"):
+            if data.get("account_type") == "CASH":
+                data["card_number_masked"] = "Ví tiền mặt"
+                data["card_number_last4"] = "CASH"
+            elif data.get("account_type") == "E_WALLET":
+                data["card_number_masked"] = "Ví điện tử"
+                data["card_number_last4"] = "EWAL"
+            elif data.get("account_type") == "SAVINGS":
+                data["card_number_masked"] = "Sổ tiết kiệm"
+                data["card_number_last4"] = "SAVE"
+            else:
+                data["card_number_masked"] = "Tài khoản ngân hàng"
+                data["card_number_last4"] = "BANK"
+        elif not data.get("card_number_last4"):
+            data["card_number_last4"] = data["card_number_masked"].replace(" ", "")[-4:]
 
-        Args:
-            db (AsyncSession): Active asynchronous database session.
-            payload (AccountCreate): Validated account creation parameters.
-
-        Returns:
-            Account: The newly persisted Account instance.
-
-        Raises:
-            HTTPException: 400 Bad Request on integrity violation or commit failure.
-        """
-        account = Account(**payload.model_dump())
+        account = Account(**data)
         db.add(account)
         try:
             await db.commit()

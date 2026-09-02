@@ -1,6 +1,6 @@
 import { Institution } from "./institution";
 
-export type AccountType = "CREDIT_CARD" | "DEBIT_CARD" | "BANK_ACCOUNT" | "E_WALLET";
+export type AccountType = "CREDIT_CARD" | "DEBIT_CARD" | "BANK_ACCOUNT" | "E_WALLET" | "CASH" | "SAVINGS";
 export type AccountStatus = "ACTIVE" | "LOCKED" | "CLOSED" | "EXPIRED" | "REPLACED";
 
 export interface Account {
@@ -10,6 +10,7 @@ export interface Account {
   account_type: AccountType;
   card_number_masked: string;
   card_number_last4: string;
+  initial_balance?: number;
   credit_limit: number;
   billing_day_of_month?: number;
   grace_period_days: number;
@@ -40,8 +41,12 @@ export interface AccountOverview {
 export interface AccountLiveBalance {
   account_id: string;
   account_name: string;
+  account_type?: AccountType;
+  is_asset?: boolean;
   bank_name?: string;
-  card_number_masked: string;
+  card_number_masked?: string;
+  color_hex?: string;
+  initial_balance?: number;
   credit_limit: number;
   latest_statement_date?: string;
   latest_statement_balance: number;
@@ -61,9 +66,10 @@ export interface AccountCreatePayload {
   institution_id?: string;
   account_name: string;
   account_type?: AccountType;
-  card_number_masked: string;
-  card_number_last4: string;
-  credit_limit: number;
+  card_number_masked?: string;
+  card_number_last4?: string;
+  initial_balance?: number;
+  credit_limit?: number;
   billing_day_of_month?: number;
   grace_period_days?: number;
   status?: AccountStatus;
@@ -74,6 +80,7 @@ export interface AccountCreatePayload {
 
 export interface AccountUpdatePayload {
   account_name?: string;
+  initial_balance?: number;
   credit_limit?: number;
   billing_day_of_month?: number;
   grace_period_days?: number;

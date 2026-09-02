@@ -2,13 +2,20 @@ import React, { useState } from "react";
 import {
   AlertCircle,
   Award,
+  Banknote,
+  Building2,
   CheckCircle2,
   CreditCard,
   Edit2,
   Lock,
+  PiggyBank,
+  Plus,
+  Smartphone,
   Sparkles,
   Unlock,
+  Wallet,
 } from "lucide-react";
+import { CreateAccountModal } from "../components/accounts/CreateAccountModal";
 import { CreditCardVisual } from "../components/cards/CreditCardVisual";
 import { Badge } from "../components/common/Badge";
 import { Button } from "../components/common/Button";
@@ -21,10 +28,9 @@ import { Spinner } from "../components/common/Spinner";
 import { useToast } from "../context/ToastContext";
 import { useUpdateAccount, useUpdateAccountStatus } from "../hooks/useFinanceMutations";
 import { useAccountLiveBalances, useAccounts, useCardBenefits } from "../hooks/useFinanceQueries";
-import { Account, AccountLiveBalance, AccountStatus } from "../types/account";
+import { Account, AccountLiveBalance, AccountStatus, AccountType } from "../types/account";
 import { CardBenefit } from "../types/cardRecommendation";
 import { formatCurrency, getRiskLevelColor } from "../utils/formatters";
-
 
 export const AccountsPage: React.FC = () => {
   const { data: accounts = [] } = useAccounts();
@@ -36,15 +42,22 @@ export const AccountsPage: React.FC = () => {
   const updateMutation = useUpdateAccount();
   const statusMutation = useUpdateAccountStatus();
 
-  // Status Filter State
+  // Create Modal State
+  const [isCreateOpen, setIsCreateOpen] = useState(false);
+
+  // Filter States
+  const [typeFilter, setTypeFilter] = useState<"ALL" | "BANK" | "CASH_WALLET" | "CREDIT_CARD">("ALL");
   const [statusFilter, setStatusFilter] = useState<"ALL" | "ACTIVE" | "LOCKED" | "OTHER">("ALL");
 
   // Edit Modal State & Validation
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [editAccountId, setEditAccountId] = useState<string | null>(null);
+  const [editAccountName, setEditAccountName] = useState<string>("");
   const [editLimit, setEditLimit] = useState<string>("");
+  const [editInitialBalance, setEditInitialBalance] = useState<string>("");
   const [editNote, setEditNote] = useState<string>("");
   const [editStatus, setEditStatus] = useState<AccountStatus>("ACTIVE");
+  const [editAccountType, setEditAccountType] = useState<AccountType>("CREDIT_CARD");
   const [editError, setEditError] = useState<string | null>(null);
 
   // Quick Toggle / Confirm Modal State
@@ -62,9 +75,12 @@ export const AccountsPage: React.FC = () => {
 
   const handleOpenEdit = (acc: Account) => {
     setEditAccountId(acc.id);
-    setEditLimit(String(acc.credit_limit));
+    setEditAccountName(acc.account_name);
+    setEditLimit(String(acc.credit_limit || 0));
+    setEditInitialBalance(String(acc.initial_balance || 0));
     setEditNote(acc.note || "");
     setEditStatus(acc.status);
+    setEditAccountType(acc.account_type);
     setEditError(null);
     setIsEditOpen(true);
   };
@@ -73,25 +89,24 @@ export const AccountsPage: React.FC = () => {
     e.preventDefault();
     if (!editAccountId) return;
 
-    const parsedLimit = parseFloat(editLimit);
-    if (isNaN(parsedLimit) || parsedLimit < 0) {
-      setEditError("Hạn mức tín dụng phải là số không âm");
-      return;
-    }
+    const parsedLimit = parseFloat(editLimit) || 0;
+    const parsedInitial = parseFloat(editInitialBalance) || 0;
 
     try {
       await updateMutation.mutateAsync({
         id: editAccountId,
         payload: {
-          credit_limit: parsedLimit,
+          account_name: editAccountName.trim(),
+          credit_limit: editAccountType === "CREDIT_CARD" ? parsedLimit : 0,
+          initial_balance: editAccountType !== "CREDIT_CARD" ? parsedInitial : 0,
           note: editNote.trim(),
           status: editStatus,
         },
       });
-      toast.success("Cập nhật thông tin thẻ thành công!");
+      toast.success("Cập nhật thông tin tài khoản thành công!");
       setIsEditOpen(false);
     } catch (err: any) {
-      toast.error(`Lỗi cập nhật thẻ: ${err.message}`);
+      toast.error(`Lỗi cập nhật tài khoản: ${err.message}`);
     }
   };
 
@@ -101,7 +116,7 @@ export const AccountsPage: React.FC = () => {
     setIsConfirmOpen(true);
   };
 
-  const handleConfirmToggleStatus = async () => {
+  const handleConfirmStatusChange = async () => {
     if (!targetAccount) return;
     try {
       await statusMutation.mutateAsync({
@@ -109,14 +124,14 @@ export const AccountsPage: React.FC = () => {
         status: targetNewStatus,
       });
       toast.success(
-        targetNewStatus === "ACTIVE"
-          ? `Đã mở khóa thẻ "${targetAccount.account_name}" thành công!`
-          : `Đã khóa thẻ "${targetAccount.account_name}"!`
+        targetNewStatus === "LOCKED"
+          ? `Đã khóa tài khoản "${targetAccount.account_name}"`
+          : `Đã mở khóa tài khoản "${targetAccount.account_name}"`
       );
       setIsConfirmOpen(false);
       setTargetAccount(null);
     } catch (err: any) {
-      toast.error(`Lỗi đổi trạng thái thẻ: ${err.message}`);
+      toast.error(`Lỗi đổi trạng thái: ${err.message}`);
     }
   };
 
@@ -138,6 +153,16 @@ export const AccountsPage: React.FC = () => {
   };
 
   const filteredBalances = liveBalances.filter((acc: AccountLiveBalance) => {
+    // 1. Filter by Type
+    if (typeFilter === "BANK") {
+      if (acc.account_type !== "BANK_ACCOUNT" && acc.account_type !== "SAVINGS") return false;
+    } else if (typeFilter === "CASH_WALLET") {
+      if (acc.account_type !== "CASH" && acc.account_type !== "E_WALLET") return false;
+    } else if (typeFilter === "CREDIT_CARD") {
+      if (acc.account_type !== "CREDIT_CARD" && acc.is_asset) return false;
+    }
+
+    // 2. Filter by Status
     if (statusFilter === "ACTIVE") return acc.status === "ACTIVE";
     if (statusFilter === "LOCKED") return acc.status === "LOCKED";
     if (statusFilter === "OTHER") return acc.status !== "ACTIVE" && acc.status !== "LOCKED";
@@ -146,13 +171,16 @@ export const AccountsPage: React.FC = () => {
 
   const activeCount = liveBalances.filter((a: AccountLiveBalance) => a.status === "ACTIVE").length;
   const lockedCount = liveBalances.filter((a: AccountLiveBalance) => a.status === "LOCKED").length;
-  const otherCount = liveBalances.filter((a: AccountLiveBalance) => a.status !== "ACTIVE" && a.status !== "LOCKED").length;
+
+  const bankCount = liveBalances.filter((a: AccountLiveBalance) => a.account_type === "BANK_ACCOUNT" || a.account_type === "SAVINGS").length;
+  const cashCount = liveBalances.filter((a: AccountLiveBalance) => a.account_type === "CASH" || a.account_type === "E_WALLET").length;
+  const cardCount = liveBalances.filter((a: AccountLiveBalance) => a.account_type === "CREDIT_CARD" || (!a.is_asset && !a.account_type)).length;
 
   if (liveBalancesLoading && accounts.length === 0) {
     return (
       <div className="h-[60vh] flex flex-col items-center justify-center gap-3">
         <Spinner size="lg" />
-        <p className="text-sm text-slate-400 font-medium">Đang tải danh sách thẻ...</p>
+        <p className="text-sm text-slate-400 font-medium">Đang tải danh sách tài khoản & thẻ...</p>
       </div>
     );
   }
@@ -163,43 +191,109 @@ export const AccountsPage: React.FC = () => {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h2 className="text-xl font-bold text-slate-100 flex items-center gap-2">
-            <CreditCard className="w-5 h-5 text-emerald-400" />
-            <span>Danh Mục Thẻ & Hạn Mức Tín Dụng</span>
+            <Wallet className="w-5 h-5 text-emerald-400" />
+            <span>Quản Lý Tài Khoản Ngân Hàng, Ví Tiền & Thẻ Tín Dụng</span>
           </h2>
           <p className="text-xs text-slate-400 mt-1">
-            Theo dõi chi tiết dư nợ sao kê, các giao dịch phát sinh chưa chốt và hạn mức khả dụng
+            Theo dõi số dư tức thời, tiền mặt, tài khoản thanh toán và hạn mức thẻ tín dụng
           </p>
         </div>
+
+        <button
+          type="button"
+          onClick={() => setIsCreateOpen(true)}
+          className="px-4 py-2.5 rounded-xl bg-emerald-500 text-slate-950 font-bold text-xs hover:bg-emerald-400 transition-colors shadow-lg shadow-emerald-950/40 flex items-center gap-1.5 self-start sm:self-auto"
+        >
+          <Plus className="w-4 h-4" />
+          <span>+ Thêm Tài Khoản / Ví Mới</span>
+        </button>
       </div>
 
-      {/* 2. Visual Card Showcase */}
-      <div>
-        <h3 className="text-sm font-semibold text-slate-400 uppercase tracking-wider mb-4">
-          Thẻ Đang Hoạt Động
-        </h3>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {liveBalances
-            .filter((acc: AccountLiveBalance) => acc.status !== "CLOSED" && acc.status !== "REPLACED")
-            .map((acc: AccountLiveBalance) => (
-              <CreditCardVisual
-                key={acc.account_id}
-                account={acc}
-                isSelected={selectedAcc?.account_id === acc.account_id}
-                onClick={() => setSelectedAccId(acc.account_id)}
-              />
-            ))}
+      {/* 2. Type Filter Tabs */}
+      <div className="flex flex-wrap items-center gap-2 p-1.5 bg-slate-900/90 border border-slate-800 rounded-2xl">
+        <button
+          onClick={() => setTypeFilter("ALL")}
+          className={`px-4 py-2 rounded-xl text-xs font-semibold transition-all ${
+            typeFilter === "ALL"
+              ? "bg-slate-800 text-white shadow-md"
+              : "text-slate-400 hover:text-slate-200"
+          }`}
+        >
+          Tất cả tài khoản ({liveBalances.length})
+        </button>
+
+        <button
+          onClick={() => setTypeFilter("BANK")}
+          className={`px-4 py-2 rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5 ${
+            typeFilter === "BANK"
+              ? "bg-sky-500/20 text-sky-300 border border-sky-500/40 shadow-md"
+              : "text-slate-400 hover:text-slate-200"
+          }`}
+        >
+          <Building2 className="w-4 h-4 text-sky-400" />
+          <span>Ngân hàng ({bankCount})</span>
+        </button>
+
+        <button
+          onClick={() => setTypeFilter("CASH_WALLET")}
+          className={`px-4 py-2 rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5 ${
+            typeFilter === "CASH_WALLET"
+              ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 shadow-md"
+              : "text-slate-400 hover:text-slate-200"
+          }`}
+        >
+          <Banknote className="w-4 h-4 text-emerald-400" />
+          <span>Tiền mặt & Ví điện tử ({cashCount})</span>
+        </button>
+
+        <button
+          onClick={() => setTypeFilter("CREDIT_CARD")}
+          className={`px-4 py-2 rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5 ${
+            typeFilter === "CREDIT_CARD"
+              ? "bg-amber-500/20 text-amber-300 border border-amber-500/40 shadow-md"
+              : "text-slate-400 hover:text-slate-200"
+          }`}
+        >
+          <CreditCard className="w-4 h-4 text-amber-400" />
+          <span>Thẻ tín dụng ({cardCount})</span>
+        </button>
+      </div>
+
+      {/* 3. Visual Card Showcase for Credit Cards (if in ALL or CREDIT_CARD filter) */}
+      {(typeFilter === "ALL" || typeFilter === "CREDIT_CARD") && (
+        <div>
+          <h3 className="text-sm font-semibold text-slate-400 uppercase tracking-wider mb-4 flex items-center gap-2">
+            <CreditCard className="w-4 h-4 text-amber-400" />
+            <span>Thẻ Tín Dụng & Dư Nợ</span>
+          </h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {liveBalances
+              .filter(
+                (acc: AccountLiveBalance) =>
+                  !acc.is_asset && (acc.account_type === "CREDIT_CARD" || !acc.account_type) &&
+                  acc.status !== "CLOSED" && acc.status !== "REPLACED"
+              )
+              .map((acc: AccountLiveBalance) => (
+                <CreditCardVisual
+                  key={acc.account_id}
+                  account={acc}
+                  isSelected={selectedAcc?.account_id === acc.account_id}
+                  onClick={() => setSelectedAccId(acc.account_id)}
+                />
+              ))}
+          </div>
         </div>
-      </div>
+      )}
 
-      {/* 3. Detailed Account Audit & Breakdown Table */}
+      {/* 4. Detailed Account Audit & Breakdown Table */}
       <Card>
         <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-slate-800 pb-4 mb-4 gap-4">
           <div>
             <h3 className="text-base font-bold text-slate-100">
-              Chi Tiết Dư Nợ & Hạn Mức Khả Dụng Thực Tế (Live Breakdown)
+              Chi Tiết Số Dư & Dư Nợ Tức Thời (Real-time Live Balance)
             </h3>
             <p className="text-xs text-slate-400 mt-0.5">
-              Công thức: Dư nợ sao kê gần nhất + Chi tiêu chưa sao kê - Thanh toán chưa sao kê = Dư nợ thực tế
+              Hệ thống tự động đồng bộ dòng tiền thu/chi, thanh toán nợ và biến động số dư theo thời gian thực
             </p>
           </div>
 
@@ -213,7 +307,7 @@ export const AccountsPage: React.FC = () => {
                   : "text-slate-400 hover:text-slate-200"
               }`}
             >
-              Tất cả ({liveBalances.length})
+              Tất cả
             </button>
             <button
               onClick={() => setStatusFilter("ACTIVE")}
@@ -235,18 +329,6 @@ export const AccountsPage: React.FC = () => {
             >
               Đã khóa ({lockedCount})
             </button>
-            {otherCount > 0 && (
-              <button
-                onClick={() => setStatusFilter("OTHER")}
-                className={`px-3 py-1.5 rounded-lg font-medium transition-all ${
-                  statusFilter === "OTHER"
-                    ? "bg-slate-800 text-slate-200"
-                    : "text-slate-400 hover:text-slate-200"
-                }`}
-              >
-                Khác ({otherCount})
-              </button>
-            )}
           </div>
         </div>
 
@@ -254,13 +336,11 @@ export const AccountsPage: React.FC = () => {
           <table className="w-full text-left text-xs">
             <thead className="bg-slate-950/60 text-slate-400 uppercase font-semibold border-b border-slate-800">
               <tr>
-                <th className="py-3 px-4">Tên Thẻ / Ngân Hàng</th>
-                <th className="py-3 px-4">Số Thẻ</th>
-                <th className="py-3 px-4 text-right">Hạn Mức</th>
-                <th className="py-3 px-4 text-right">Dư Nợ Sao Kê</th>
-                <th className="py-3 px-4 text-right">Chưa Lên Sao Kê (Net)</th>
-                <th className="py-3 px-4 text-right font-bold text-slate-200">Dư Nợ Tức Thời</th>
-                <th className="py-3 px-4 text-right text-emerald-400 font-bold">Khả Dụng</th>
+                <th className="py-3 px-4">Tài Khoản / Ví</th>
+                <th className="py-3 px-4">Loại Tài Khoản</th>
+                <th className="py-3 px-4">Số Tài Khoản / Thẻ</th>
+                <th className="py-3 px-4 text-right">Hạn Mức / Số Dư Ban Đầu</th>
+                <th className="py-3 px-4 text-right font-bold text-slate-200">Số Dư / Dư Nợ Thực Tế</th>
                 <th className="py-3 px-4 text-center">Trạng Thái</th>
                 <th className="py-3 px-4 text-center">Thao Tác</th>
               </tr>
@@ -268,8 +348,8 @@ export const AccountsPage: React.FC = () => {
             <tbody className="divide-y divide-slate-800/60 font-medium">
               {filteredBalances.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="py-8 text-center text-slate-400">
-                    Không có thẻ nào phù hợp với bộ lọc đã chọn.
+                  <td colSpan={7} className="py-8 text-center text-slate-400">
+                    Không có tài khoản nào phù hợp với bộ lọc đã chọn.
                   </td>
                 </tr>
               ) : (
@@ -277,6 +357,7 @@ export const AccountsPage: React.FC = () => {
                   const rawAcc = accounts.find((a: Account) => a.id === acc.account_id);
                   const badgeInfo = getStatusBadge(acc.status);
                   const isLocked = acc.status === "LOCKED";
+                  const isAsset = acc.is_asset;
 
                   return (
                     <tr
@@ -289,69 +370,93 @@ export const AccountsPage: React.FC = () => {
                         <div className="font-semibold text-slate-200 flex items-center gap-1.5">
                           {acc.account_name}
                           {isLocked && (
-                            <span title="Thẻ bị khóa/vô hiệu hóa">
+                            <span title="Tài khoản bị khóa">
                               <Lock className="w-3.5 h-3.5 text-rose-400" />
                             </span>
                           )}
                         </div>
                         <div className="text-[11px] text-slate-400">{acc.bank_name}</div>
                       </td>
+
+                      <td className="py-3.5 px-4">
+                        <span className={`text-[11px] px-2 py-0.5 rounded-full font-semibold border ${
+                          acc.account_type === "BANK_ACCOUNT"
+                            ? "bg-sky-500/10 text-sky-400 border-sky-500/20"
+                            : acc.account_type === "CASH"
+                            ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
+                            : acc.account_type === "E_WALLET"
+                            ? "bg-pink-500/10 text-pink-400 border-pink-500/20"
+                            : acc.account_type === "SAVINGS"
+                            ? "bg-purple-500/10 text-purple-400 border-purple-500/20"
+                            : "bg-amber-500/10 text-amber-400 border-amber-500/20"
+                        }`}>
+                          {acc.account_type === "BANK_ACCOUNT"
+                            ? "Ngân hàng"
+                            : acc.account_type === "CASH"
+                            ? "Tiền mặt"
+                            : acc.account_type === "E_WALLET"
+                            ? "Ví điện tử"
+                            : acc.account_type === "SAVINGS"
+                            ? "Tiết kiệm"
+                            : "Thẻ tín dụng"}
+                        </span>
+                      </td>
+
                       <td className="py-3.5 px-4 font-mono text-slate-300">
-                        {acc.card_number_masked}
+                        {acc.card_number_masked || "—"}
                       </td>
+
                       <td className="py-3.5 px-4 text-right font-mono text-slate-300">
-                        {formatCurrency(acc.credit_limit)}
+                        {isAsset
+                          ? formatCurrency(rawAcc?.initial_balance || 0)
+                          : formatCurrency(acc.credit_limit)}
                       </td>
-                      <td className="py-3.5 px-4 text-right font-mono text-slate-300">
-                        {formatCurrency(acc.latest_statement_balance)}
+
+                      <td className="py-3.5 px-4 text-right font-mono font-bold">
+                        <span className={isAsset ? "text-emerald-400" : "text-rose-400"}>
+                          {formatCurrency(acc.live_current_balance)}
+                        </span>
                       </td>
-                      <td className="py-3.5 px-4 text-right font-mono">
-                        <div className={Number(acc.unbilled_net_amount) > 0 ? "text-rose-400" : "text-emerald-400"}>
-                          {Number(acc.unbilled_net_amount) > 0 ? "+" : ""}
-                          {formatCurrency(acc.unbilled_net_amount)}
-                        </div>
-                        <div className="text-[10px] text-slate-400">
-                          {acc.unbilled_transaction_count} giao dịch
-                        </div>
-                      </td>
-                      <td className="py-3.5 px-4 text-right font-mono font-bold text-slate-100">
-                        {formatCurrency(acc.live_current_balance)}
-                      </td>
-                      <td className="py-3.5 px-4 text-right font-mono font-bold text-emerald-400">
-                        {formatCurrency(acc.live_available_limit)}
-                      </td>
+
                       <td className="py-3.5 px-4 text-center">
-                        <Badge variant={badgeInfo.variant}>
+                        <Badge variant={badgeInfo.variant} size="sm">
                           {badgeInfo.label}
                         </Badge>
                       </td>
+
                       <td className="py-3.5 px-4 text-center">
                         <div className="flex items-center justify-center gap-1.5">
-                          {rawAcc && rawAcc.status === "ACTIVE" && (
+                          {rawAcc && (
                             <button
-                              onClick={() => handleOpenConfirmStatus(rawAcc, "LOCKED")}
-                              className="p-1.5 text-slate-400 hover:text-rose-400 hover:bg-rose-950/40 rounded-lg transition-colors"
-                              title="Vô hiệu hóa / Khóa thẻ"
+                              type="button"
+                              onClick={() => handleOpenEdit(rawAcc)}
+                              className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition-colors"
+                              title="Chỉnh sửa tài khoản"
                             >
-                              <Lock className="w-4 h-4" />
-                            </button>
-                          )}
-                          {rawAcc && rawAcc.status === "LOCKED" && (
-                            <button
-                              onClick={() => handleOpenConfirmStatus(rawAcc, "ACTIVE")}
-                              className="p-1.5 text-amber-400 hover:text-emerald-400 hover:bg-emerald-950/40 rounded-lg transition-colors"
-                              title="Mở khóa / Kích hoạt lại thẻ"
-                            >
-                              <Unlock className="w-4 h-4" />
+                              <Edit2 className="w-3.5 h-3.5" />
                             </button>
                           )}
                           {rawAcc && (
                             <button
-                              onClick={() => handleOpenEdit(rawAcc)}
-                              className="p-1.5 text-slate-400 hover:text-emerald-400 hover:bg-slate-800 rounded-lg transition-colors"
-                              title="Chỉnh sửa thông tin thẻ"
+                              type="button"
+                              onClick={() =>
+                                handleOpenConfirmStatus(
+                                  rawAcc,
+                                  isLocked ? "ACTIVE" : "LOCKED"
+                                )
+                              }
+                              className={`p-1.5 rounded-lg transition-colors ${
+                                isLocked
+                                  ? "bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20"
+                                  : "bg-rose-500/10 text-rose-400 hover:bg-rose-500/20"
+                              }`}
+                              title={isLocked ? "Mở khóa tài khoản" : "Khóa tài khoản"}
                             >
-                              <Edit2 className="w-4 h-4" />
+                              {isLocked ? (
+                                <Unlock className="w-3.5 h-3.5" />
+                              ) : (
+                                <Lock className="w-3.5 h-3.5" />
+                              )}
                             </button>
                           )}
                         </div>
@@ -365,112 +470,90 @@ export const AccountsPage: React.FC = () => {
         </div>
       </Card>
 
-      {/* 4. Card Benefits & Cashback Policy Matrix */}
-      <Card>
-        <div className="flex items-center justify-between border-b border-slate-800 pb-3 mb-4">
-          <div>
-            <h3 className="text-base font-bold text-slate-100 flex items-center gap-2">
-              <Award className="w-5 h-5 text-emerald-400" />
-              <span>Chính Sách Ưu Đãi & Hoàn Tiền Thẻ (Card Benefits Matrix)</span>
-            </h3>
-            <p className="text-xs text-slate-400 mt-0.5">
-              Ma trận đặc quyền tích lũy điểm thưởng Shinhan Points và hoàn tiền Cashback HSBC/Sacombank
-            </p>
-          </div>
-        </div>
+      {/* Modals */}
+      <CreateAccountModal
+        isOpen={isCreateOpen}
+        onClose={() => setIsCreateOpen(false)}
+      />
 
-        {benefits.length === 0 ? (
-          <div className="h-32 flex items-center justify-center text-slate-500 text-xs">
-            Chưa có chính sách ưu đãi nào được cấu hình
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {benefits.map((b: CardBenefit) => (
-              <div
-                key={b.id}
-                className="p-4 bg-slate-950/60 rounded-2xl border border-slate-800 space-y-2.5 flex flex-col justify-between"
-              >
-                <div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-slate-200">{b.account_name}</span>
-                    <Badge variant={b.reward_type === "CASHBACK" ? "success" : "warning"}>
-                      {b.reward_type === "CASHBACK" ? "Hoàn Tiền" : "Tích Điểm"}
-                    </Badge>
-                  </div>
-                  <div className="text-[11px] text-emerald-400 font-semibold mt-1">
-                    {b.category_keyword || b.category_name || "Mọi chi tiêu"}
-                  </div>
-                  <p className="text-xs text-slate-300 mt-1 leading-relaxed">
-                    {b.description}
-                  </p>
-                </div>
-
-                <div className="pt-2 border-t border-slate-800/80 flex items-center justify-between text-xs">
-                  <span className="text-slate-400">Tỷ lệ ưu đãi:</span>
-                  <span className="font-bold text-emerald-400 font-mono text-sm">
-                    {Number(b.reward_rate_percent)}%
-                  </span>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </Card>
-
-
-      {/* 4. Edit Account Modal */}
+      {/* Edit Account Modal */}
       <Modal
         isOpen={isEditOpen}
         onClose={() => setIsEditOpen(false)}
-        title="Cập Nhật Thông Tin Thẻ Tín Dụng"
+        title="Chỉnh Sửa Thông Tin Tài Khoản"
       >
         <form onSubmit={handleSaveEdit} className="space-y-4">
+          {editError && (
+            <div className="p-3 bg-rose-500/10 border border-rose-500/30 rounded-xl text-xs text-rose-400">
+              {editError}
+            </div>
+          )}
+
           <div>
-            <CurrencyInput
-              label="Hạn Mức Tín Dụng (VNĐ)"
-              value={editLimit}
-              placeholder="VD: 50,000,000"
-              onValueChange={(val) => {
-                setEditLimit(String(val));
-                if (editError) setEditError(null);
-              }}
-              onChangeRaw={(raw) => setEditLimit(raw)}
-              error={editError || undefined}
+            <label className="block text-xs font-medium text-slate-300 mb-1.5">
+              Tên tài khoản / Ví
+            </label>
+            <Input
+              value={editAccountName}
+              onChange={(e) => setEditAccountName(e.target.value)}
               required
             />
           </div>
 
-
-          <Select
-            label="Trạng Thái Thẻ"
-            value={editStatus}
-            onChange={(e) => setEditStatus(e.target.value as AccountStatus)}
-            options={[
-              { value: "ACTIVE", label: "ACTIVE - Đang hoạt động" },
-              { value: "LOCKED", label: "LOCKED - Đã khóa / Vô hiệu hóa" },
-              { value: "CLOSED", label: "CLOSED - Đã đóng thẻ" },
-              { value: "EXPIRED", label: "EXPIRED - Hết hạn" },
-              { value: "REPLACED", label: "REPLACED - Đã thay thế" },
-            ]}
-          />
+          {editAccountType === "CREDIT_CARD" ? (
+            <div>
+              <label className="block text-xs font-medium text-slate-300 mb-1.5">
+                Hạn Mức Tín Dụng (VNĐ)
+              </label>
+              <CurrencyInput
+                value={editLimit}
+                onChange={setEditLimit}
+                placeholder="0"
+              />
+            </div>
+          ) : (
+            <div>
+              <label className="block text-xs font-medium text-slate-300 mb-1.5">
+                Số Dư Ban Đầu (VNĐ)
+              </label>
+              <CurrencyInput
+                value={editInitialBalance}
+                onChange={setEditInitialBalance}
+                placeholder="0"
+              />
+            </div>
+          )}
 
           <div>
-            <label className="block text-xs font-medium text-slate-400 mb-1.5">
-              Ghi Chú Cá Nhân
+            <label className="block text-xs font-medium text-slate-300 mb-1.5">
+              Trạng thái tài khoản
             </label>
-            <textarea
-              className="w-full bg-slate-950/80 border border-slate-800 rounded-xl px-3.5 py-2 text-sm text-slate-100 focus:outline-none focus:border-emerald-500"
-              rows={3}
-              value={editNote}
-              onChange={(e) => setEditNote(e.target.value)}
-              placeholder="VD: Thẻ dùng cho chi tiêu ăn uống tích điểm 5x..."
+            <Select
+              value={editStatus}
+              onChange={(e) => setEditStatus(e.target.value as AccountStatus)}
+              options={[
+                { value: "ACTIVE", label: "Đang hoạt động (ACTIVE)" },
+                { value: "LOCKED", label: "Đã khóa (LOCKED)" },
+                { value: "CLOSED", label: "Đã đóng vĩnh viễn (CLOSED)" },
+              ]}
             />
           </div>
 
-          <div className="flex justify-end gap-3 pt-4 border-t border-slate-800">
+          <div>
+            <label className="block text-xs font-medium text-slate-300 mb-1.5">
+              Ghi chú
+            </label>
+            <Input
+              value={editNote}
+              onChange={(e) => setEditNote(e.target.value)}
+              placeholder="Ghi chú thêm..."
+            />
+          </div>
+
+          <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-800">
             <Button
               type="button"
-              variant="outline"
+              variant="ghost"
               onClick={() => setIsEditOpen(false)}
             >
               Hủy
@@ -480,59 +563,41 @@ export const AccountsPage: React.FC = () => {
               variant="primary"
               isLoading={updateMutation.isPending}
             >
-              Lưu thay đổi
+              Lưu Thay Đổi
             </Button>
           </div>
         </form>
       </Modal>
 
-      {/* 5. Quick Confirm Status Modal */}
+      {/* Confirm Lock / Unlock Modal */}
       <Modal
         isOpen={isConfirmOpen}
-        onClose={() => !statusMutation.isPending && setIsConfirmOpen(false)}
-        title={targetNewStatus === "LOCKED" ? "Xác Nhận Khóa Thẻ" : "Xác Nhận Mở Khóa Thẻ"}
-        maxWidth="md"
+        onClose={() => setIsConfirmOpen(false)}
+        title={targetNewStatus === "LOCKED" ? "Khóa Tài Khoản" : "Mở Khóa Tài Khoản"}
       >
         <div className="space-y-4">
-          <div className="flex items-start gap-3 p-3.5 rounded-xl bg-slate-950/60 border border-slate-800">
-            {targetNewStatus === "LOCKED" ? (
-              <AlertCircle className="w-6 h-6 text-rose-400 shrink-0 mt-0.5" />
-            ) : (
-              <CheckCircle2 className="w-6 h-6 text-emerald-400 shrink-0 mt-0.5" />
-            )}
-            <div className="text-xs text-slate-300 space-y-1">
-              <p className="font-semibold text-sm text-slate-100">
-                {targetNewStatus === "LOCKED"
-                  ? `Vô hiệu hóa thẻ "${targetAccount?.account_name}"?`
-                  : `Kích hoạt lại thẻ "${targetAccount?.account_name}"?`}
-              </p>
-              <p className="text-slate-400">
-                {targetNewStatus === "LOCKED"
-                  ? "Thẻ sẽ được chuyển sang trạng thái ĐÃ KHÓA (LOCKED). Bạn sẽ tạm ngưng chi tiêu mới trên thẻ này cho đến khi mở khóa lại."
-                  : "Thẻ sẽ được chuyển về trạng thái HOẠT ĐỘNG (ACTIVE) và sẵn sàng tiếp tục sử dụng."}
-              </p>
-              <div className="pt-2 font-mono text-[11px] text-slate-400">
-                Số thẻ: <span className="text-slate-200">{targetAccount?.card_number_masked}</span>
-              </div>
-            </div>
-          </div>
-
-          <div className="flex justify-end gap-3 pt-3 border-t border-slate-800">
+          <p className="text-sm text-slate-300">
+            Bạn có chắc chắn muốn{" "}
+            <strong className="text-white">
+              {targetNewStatus === "LOCKED" ? "khóa" : "mở khóa"}
+            </strong>{" "}
+            tài khoản <strong className="text-emerald-400">{targetAccount?.account_name}</strong> không?
+          </p>
+          <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-800">
             <Button
               type="button"
-              variant="outline"
+              variant="ghost"
               onClick={() => setIsConfirmOpen(false)}
-              disabled={statusMutation.isPending}
             >
               Hủy
             </Button>
             <Button
               type="button"
               variant={targetNewStatus === "LOCKED" ? "danger" : "primary"}
-              onClick={handleConfirmToggleStatus}
+              onClick={handleConfirmStatusChange}
               isLoading={statusMutation.isPending}
             >
-              {targetNewStatus === "LOCKED" ? "Khóa thẻ ngay" : "Kích hoạt lại thẻ"}
+              Xác Nhận
             </Button>
           </div>
         </div>

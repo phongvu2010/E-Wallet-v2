@@ -24,6 +24,8 @@ class AccountTypeEnum(str, enum.Enum):
     DEBIT_CARD = "DEBIT_CARD"
     BANK_ACCOUNT = "BANK_ACCOUNT"
     E_WALLET = "E_WALLET"
+    CASH = "CASH"
+    SAVINGS = "SAVINGS"
 
 
 class AccountStatusEnum(str, enum.Enum):
@@ -41,7 +43,7 @@ class Account(Base):
     user_id = Column(UUID(as_uuid=True), nullable=True)
     institution_id = Column(
         UUID(as_uuid=True),
-        ForeignKey("institutions.id", ondelete="RESTRICT"),
+        ForeignKey("institutions.id", ondelete="SET NULL"),
         nullable=True,
     )
     account_name = Column(String(100), nullable=False)
@@ -50,8 +52,9 @@ class Account(Base):
         nullable=False,
         default=AccountTypeEnum.CREDIT_CARD,
     )
-    card_number_masked = Column(String(25), nullable=False)
-    card_number_last4 = Column(String(4), nullable=False)
+    card_number_masked = Column(String(25), default="")
+    card_number_last4 = Column(String(4), default="")
+    initial_balance = Column(Numeric(15, 2), default=0.00)
     credit_limit = Column(Numeric(15, 2), default=0.00)
     billing_day_of_month = Column(Integer, nullable=True)
     grace_period_days = Column(Integer, default=15)

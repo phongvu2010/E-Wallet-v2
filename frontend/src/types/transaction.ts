@@ -4,6 +4,7 @@ import { InstallmentPlan } from "./installment";
 
 export type TransactionType =
   | "PURCHASE"
+  | "INCOME"
   | "REPAYMENT"
   | "INSTALLMENT_PRINCIPAL"
   | "INSTALLMENT_MONTHLY"
@@ -62,6 +63,7 @@ export interface TransactionFilterParams {
 
 export interface TransactionSummary {
   total_transactions: number;
+  total_income?: number;
   total_spending: number;
   total_repayments: number;
   total_fees_interest: number;
@@ -79,6 +81,7 @@ export interface TransactionCreatePayload {
   account_id: string;
   statement_id?: string;
   installment_plan_id?: string;
+  transfer_to_account_id?: string;
   is_installment?: boolean;
   settles_statement_id?: string;
   transaction_date: string;

@@ -11,12 +11,13 @@ CREATE EXTENSION IF NOT EXISTS "pg_trgm";
 -- ====================================================================
 -- ENUMS
 -- ====================================================================
-CREATE TYPE account_type_enum AS ENUM ('CREDIT_CARD', 'DEBIT_CARD', 'BANK_ACCOUNT', 'E_WALLET');
+CREATE TYPE account_type_enum AS ENUM ('CREDIT_CARD', 'DEBIT_CARD', 'BANK_ACCOUNT', 'E_WALLET', 'CASH', 'SAVINGS');
 CREATE TYPE account_status_enum AS ENUM ('ACTIVE', 'LOCKED', 'CLOSED', 'EXPIRED', 'REPLACED');
 CREATE TYPE category_type_enum AS ENUM ('EXPENSE', 'INCOME', 'TRANSFER', 'ADJUSTMENT', 'FEE_INTEREST');
 CREATE TYPE statement_status_enum AS ENUM ('OPEN', 'BILLED', 'PAID', 'PARTIALLY_PAID', 'OVERDUE');
 CREATE TYPE transaction_type_enum AS ENUM (
     'PURCHASE',              -- Chi tiêu mua sắm thông thường
+    'INCOME',                -- Thu nhập (Lương, Thưởng, Lãi tiết kiệm, Thu nhập khác)
     'REPAYMENT',             -- Thanh toán dư nợ thẻ / Nạp tiền
     'INSTALLMENT_PRINCIPAL', -- Trừ số tiền gốc khi chuyển đổi sang trả góp (ghi có âm)
     'INSTALLMENT_MONTHLY',   -- Tiền trả góp định kỳ hàng tháng
@@ -51,11 +52,12 @@ CREATE TABLE institutions (
 CREATE TABLE accounts (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID, -- Sẵn sàng cho Supabase auth.users(id) / Multi-tenant
-    institution_id UUID REFERENCES institutions(id) ON DELETE RESTRICT,
-    account_name VARCHAR(100) NOT NULL, -- "Shinhan Hi-Point Gold", "HSBC Cash Back"
+    institution_id UUID REFERENCES institutions(id) ON DELETE SET NULL,
+    account_name VARCHAR(100) NOT NULL, -- "Shinhan Hi-Point Gold", "Vietcombank Priority", "Ví Tiền Mặt"
     account_type account_type_enum NOT NULL DEFAULT 'CREDIT_CARD',
-    card_number_masked VARCHAR(25) NOT NULL, -- "4696 72xx xxxx 2958", "4696 7200 1584 0642"
-    card_number_last4 VARCHAR(4) NOT NULL, -- "2958", "0642", "0702"
+    card_number_masked VARCHAR(25) DEFAULT '', -- "4696 72xx xxxx 2958", "0123456789" (hoặc chuỗi rỗng nếu là ví tiền mặt)
+    card_number_last4 VARCHAR(4) DEFAULT '', -- "2958", "0642", "6789"
+    initial_balance DECIMAL(15, 2) DEFAULT 0.00, -- Số dư ban đầu khi mở tài khoản/ví (VND)
     credit_limit DECIMAL(15, 2) DEFAULT 0.00 CONSTRAINT chk_accounts_credit_limit CHECK (credit_limit >= 0), -- Hạn mức tín dụng (VND)
     billing_day_of_month INT CHECK (billing_day_of_month BETWEEN 1 AND 31), -- Ngày chốt sao kê danh nghĩa (ví dụ: ngày 20)
     grace_period_days INT DEFAULT 15 CONSTRAINT chk_accounts_grace_period CHECK (grace_period_days >= 0), -- Số ngày gia hạn thanh toán sau sao kê
@@ -182,7 +184,7 @@ CREATE TABLE transactions (
     CONSTRAINT chk_transactions_sign_convention CHECK (
         (transaction_type IN ('REPAYMENT', 'REFUND', 'CASHBACK_CREDIT', 'INSTALLMENT_PRINCIPAL') AND total_amount <= 0)
         OR
-        (transaction_type IN ('PURCHASE', 'INSTALLMENT_MONTHLY', 'INTEREST', 'CASH_ADVANCE', 'TRANSFER') AND total_amount >= 0)
+        (transaction_type IN ('PURCHASE', 'INSTALLMENT_MONTHLY', 'INTEREST', 'CASH_ADVANCE', 'TRANSFER', 'INCOME') AND total_amount >= 0)
         OR
         (transaction_type IN ('ADJUSTMENT', 'FEE')) -- Cho phép FEE mang dấu âm khi hoàn phí
     )
@@ -709,7 +711,7 @@ WHERE p.status = 'ACTIVE' AND sch.is_billed = FALSE
 GROUP BY TO_CHAR(sch.due_date, 'YYYY-MM')
 ORDER BY billing_month ASC;
 
--- View 8: Dư nợ Thực tế Tức thời & Hạn mức Khả dụng (Real-time Live Balance & Available Limit)
+-- View 8: Dư nợ Thực tế Tức thời & Số dư Khả dụng Đa Tài khoản (Real-time Live Balance & Available Limit)
 CREATE OR REPLACE VIEW v_account_live_balance AS
 WITH latest_statement_per_account AS (
     SELECT DISTINCT ON (s.account_id)
@@ -726,7 +728,7 @@ unbilled_transactions_summary AS (
         a.id AS account_id,
         -- Tổng chi tiêu, phí, lãi chưa lên sao kê (mang dấu dương)
         COALESCE(SUM(CASE
-            WHEN t.total_amount > 0 THEN t.total_amount
+            WHEN t.total_amount > 0 AND t.transaction_type != 'INCOME' THEN t.total_amount
             ELSE 0
         END), 0.00) AS unbilled_charges,
         -- Tổng thanh toán, hoàn tiền chưa lên sao kê (lấy trị tuyệt đối)
@@ -746,12 +748,54 @@ unbilled_transactions_summary AS (
             OR COALESCE(t.post_date, t.transaction_date) > ls.latest_statement_date
         )
     GROUP BY a.id
+),
+asset_account_flows AS (
+    SELECT
+        a.id AS account_id,
+        -- Tiền vào (Inflows): Thu nhập trực tiếp + Hoàn tiền + Tiền chuyển đến từ tài khoản khác
+        COALESCE((
+            SELECT SUM(t_in.amount)
+            FROM transactions t_in
+            WHERE t_in.account_id = a.id AND t_in.transaction_type = 'INCOME'
+        ), 0.00) +
+        COALESCE((
+            SELECT SUM(ABS(t_ref.amount))
+            FROM transactions t_ref
+            WHERE t_ref.account_id = a.id AND t_ref.transaction_type IN ('REFUND', 'CASHBACK_CREDIT')
+        ), 0.00) +
+        COALESCE((
+            SELECT SUM(ABS(t_trans.total_amount))
+            FROM transactions t_trans
+            WHERE t_trans.transfer_to_account_id = a.id
+        ), 0.00) AS total_inflows,
+
+        -- Tiền ra (Outflows): Chi tiêu mua sắm + Phí + Chuyển đi tài khoản khác / Nạp ví / Thanh toán thẻ
+        COALESCE((
+            SELECT SUM(t_out.total_amount)
+            FROM transactions t_out
+            WHERE t_out.account_id = a.id AND t_out.transaction_type IN ('PURCHASE', 'FEE', 'INTEREST', 'CASH_ADVANCE')
+        ), 0.00) +
+        COALESCE((
+            SELECT SUM(ABS(t_trans_out.total_amount))
+            FROM transactions t_trans_out
+            WHERE t_trans_out.account_id = a.id AND (t_trans_out.transaction_type IN ('TRANSFER', 'REPAYMENT') OR t_trans_out.transfer_to_account_id IS NOT NULL)
+        ), 0.00) AS total_outflows
+    FROM accounts a
 )
 SELECT
     a.id AS account_id,
     a.account_name,
-    i.short_name AS bank_name,
+    a.account_type,
+    (a.account_type != 'CREDIT_CARD') AS is_asset,
+    COALESCE(i.short_name, i.name, CASE
+        WHEN a.account_type = 'CASH' THEN 'Ví Tiền Mặt'
+        WHEN a.account_type = 'E_WALLET' THEN 'Ví Điện Tử'
+        WHEN a.account_type = 'SAVINGS' THEN 'Tiết Kiệm'
+        ELSE 'Ngân hàng'
+    END) AS bank_name,
     a.card_number_masked,
+    a.color_hex,
+    a.initial_balance,
     a.credit_limit,
     COALESCE(ls.latest_statement_date, a.opened_date) AS latest_statement_date,
     COALESCE(ls.latest_statement_balance, 0.00) AS latest_statement_balance,
@@ -759,18 +803,34 @@ SELECT
     uts.unbilled_credits,
     uts.unbilled_net_amount,
     uts.unbilled_transaction_count,
-    -- Dư nợ thực tế tức thời (Live Current Balance)
-    GREATEST(0.00, COALESCE(ls.latest_statement_balance, 0.00) + uts.unbilled_net_amount) AS live_current_balance,
-    -- Hạn mức khả dụng thực tế tức thời (Live Available Limit)
-    GREATEST(0.00, a.credit_limit - GREATEST(0.00, COALESCE(ls.latest_statement_balance, 0.00) + uts.unbilled_net_amount)) AS live_available_limit,
-    -- Tỷ lệ sử dụng hạn mức tức thời (Live Utilization Percentage)
+    -- Số dư hiện tại (Live Current Balance):
+    --   - Đối với Thẻ tín dụng: Là dư nợ cần trả (Liability Debt)
+    --   - Đối với Tài sản (Ngân hàng, Tiền mặt, Ví): Là số tiền khả dụng hiện có (Asset Balance)
     CASE
-        WHEN a.credit_limit > 0 THEN
+        WHEN a.account_type = 'CREDIT_CARD' THEN
+            GREATEST(0.00, COALESCE(ls.latest_statement_balance, 0.00) + uts.unbilled_net_amount)
+        ELSE
+            GREATEST(0.00, COALESCE(a.initial_balance, 0.00) + COALESCE(aaf.total_inflows, 0.00) - COALESCE(aaf.total_outflows, 0.00))
+    END AS live_current_balance,
+
+    -- Hạn mức khả dụng / Số dư khả dụng (Live Available Limit / Balance):
+    CASE
+        WHEN a.account_type = 'CREDIT_CARD' THEN
+            GREATEST(0.00, a.credit_limit - GREATEST(0.00, COALESCE(ls.latest_statement_balance, 0.00) + uts.unbilled_net_amount))
+        ELSE
+            GREATEST(0.00, COALESCE(a.initial_balance, 0.00) + COALESCE(aaf.total_inflows, 0.00) - COALESCE(aaf.total_outflows, 0.00))
+    END AS live_available_limit,
+
+    -- Tỷ lệ sử dụng hạn mức (Live Utilization Percentage - chỉ áp dụng cho Thẻ tín dụng):
+    CASE
+        WHEN a.account_type = 'CREDIT_CARD' AND a.credit_limit > 0 THEN
             ROUND((GREATEST(0.00, COALESCE(ls.latest_statement_balance, 0.00) + uts.unbilled_net_amount) / a.credit_limit) * 100.0, 2)
         ELSE 0.00
     END AS live_utilization_percentage,
+
     -- Phân loại mức độ rủi ro tức thời
     CASE
+        WHEN a.account_type != 'CREDIT_CARD' THEN 'OPTIMAL (<30%)'
         WHEN a.credit_limit = 0 THEN 'NO_LIMIT'
         WHEN (GREATEST(0.00, COALESCE(ls.latest_statement_balance, 0.00) + uts.unbilled_net_amount) / a.credit_limit) > 0.70 THEN 'CRITICAL (>70%)'
         WHEN (GREATEST(0.00, COALESCE(ls.latest_statement_balance, 0.00) + uts.unbilled_net_amount) / a.credit_limit) > 0.50 THEN 'HIGH (>50%)'
@@ -780,10 +840,74 @@ SELECT
     ls.next_payment_due_date,
     a.status
 FROM accounts a
-JOIN institutions i ON a.institution_id = i.id
+LEFT JOIN institutions i ON a.institution_id = i.id
 LEFT JOIN latest_statement_per_account ls ON a.id = ls.account_id
 LEFT JOIN unbilled_transactions_summary uts ON a.id = uts.account_id
-ORDER BY a.status ASC, live_current_balance DESC;
+LEFT JOIN asset_account_flows aaf ON a.id = aaf.account_id
+ORDER BY (a.account_type = 'CREDIT_CARD') DESC, live_current_balance DESC;
+
+-- View 9: Tổng quan Tài Sản Ròng Toàn diện (Net Worth & Wealth Distribution)
+CREATE OR REPLACE VIEW v_net_worth_overview AS
+WITH account_metrics AS (
+    SELECT
+        account_type,
+        is_asset,
+        live_current_balance,
+        live_available_limit,
+        credit_limit
+    FROM v_account_live_balance
+    WHERE status = 'ACTIVE'
+)
+SELECT
+    -- Tổng tài sản thanh khoản (Liquid Assets: Ngân hàng + Tiền mặt + Ví điện tử + Tiết kiệm)
+    COALESCE(SUM(CASE WHEN is_asset = TRUE THEN live_current_balance ELSE 0.00 END), 0.00) AS total_liquid_assets,
+    -- Bóc tách từng nhóm tài sản
+    COALESCE(SUM(CASE WHEN account_type = 'BANK_ACCOUNT' THEN live_current_balance ELSE 0.00 END), 0.00) AS total_bank_assets,
+    COALESCE(SUM(CASE WHEN account_type = 'CASH' THEN live_current_balance ELSE 0.00 END), 0.00) AS total_cash_assets,
+    COALESCE(SUM(CASE WHEN account_type = 'E_WALLET' THEN live_current_balance ELSE 0.00 END), 0.00) AS total_ewallet_assets,
+    COALESCE(SUM(CASE WHEN account_type = 'SAVINGS' THEN live_current_balance ELSE 0.00 END), 0.00) AS total_savings_assets,
+
+    -- Tổng nghĩa vụ nợ thẻ tín dụng (Credit Card Debt)
+    COALESCE(SUM(CASE WHEN is_asset = FALSE THEN live_current_balance ELSE 0.00 END), 0.00) AS total_credit_debt,
+    COALESCE(SUM(CASE WHEN is_asset = FALSE THEN credit_limit ELSE 0.00 END), 0.00) AS total_credit_limit,
+    COALESCE(SUM(CASE WHEN is_asset = FALSE THEN live_available_limit ELSE 0.00 END), 0.00) AS total_available_credit,
+
+    -- TÀI SẢN RÒNG = Tổng Tài Sản Có - Tổng Nợ Thẻ
+    (
+        COALESCE(SUM(CASE WHEN is_asset = TRUE THEN live_current_balance ELSE 0.00 END), 0.00) -
+        COALESCE(SUM(CASE WHEN is_asset = FALSE THEN live_current_balance ELSE 0.00 END), 0.00)
+    ) AS net_worth,
+
+    -- Đếm số lượng tài khoản theo từng nhóm
+    COUNT(CASE WHEN is_asset = TRUE THEN 1 END) AS active_asset_accounts_count,
+    COUNT(CASE WHEN is_asset = FALSE THEN 1 END) AS active_credit_cards_count
+FROM account_metrics;
+
+-- View 10: Thống kê Dòng tiền Thu - Chi - Thặng dư hàng tháng (Monthly Cash Flow)
+CREATE OR REPLACE VIEW v_monthly_cash_flow AS
+SELECT
+    DATE_TRUNC('month', t.transaction_date)::DATE AS month,
+    COALESCE(SUM(CASE WHEN t.transaction_type = 'INCOME' THEN t.amount ELSE 0.00 END), 0.00) AS total_income,
+    COALESCE(SUM(CASE WHEN t.transaction_type IN ('PURCHASE', 'INSTALLMENT_MONTHLY', 'FEE', 'INTEREST', 'CASH_ADVANCE') THEN t.total_amount ELSE 0.00 END), 0.00) AS total_expense,
+    (
+        COALESCE(SUM(CASE WHEN t.transaction_type = 'INCOME' THEN t.amount ELSE 0.00 END), 0.00) -
+        COALESCE(SUM(CASE WHEN t.transaction_type IN ('PURCHASE', 'INSTALLMENT_MONTHLY', 'FEE', 'INTEREST', 'CASH_ADVANCE') THEN t.total_amount ELSE 0.00 END), 0.00)
+    ) AS net_savings,
+    CASE
+        WHEN COALESCE(SUM(CASE WHEN t.transaction_type = 'INCOME' THEN t.amount ELSE 0.00 END), 0.00) > 0 THEN
+            ROUND((
+                (
+                    COALESCE(SUM(CASE WHEN t.transaction_type = 'INCOME' THEN t.amount ELSE 0.00 END), 0.00) -
+                    COALESCE(SUM(CASE WHEN t.transaction_type IN ('PURCHASE', 'INSTALLMENT_MONTHLY', 'FEE', 'INTEREST', 'CASH_ADVANCE') THEN t.total_amount ELSE 0.00 END), 0.00)
+                ) /
+                COALESCE(SUM(CASE WHEN t.transaction_type = 'INCOME' THEN t.amount ELSE 0.00 END), 0.00)
+            ) * 100.0, 2)
+        ELSE 0.00
+    END AS savings_rate_percent,
+    COUNT(t.id) AS total_transactions_count
+FROM transactions t
+GROUP BY DATE_TRUNC('month', t.transaction_date)::DATE
+ORDER BY month DESC;
 
 -- ====================================================================
 -- 11. SUPABASE INTEGRATION & ROW LEVEL SECURITY (RLS) POLICIES

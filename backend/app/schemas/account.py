@@ -13,8 +13,9 @@ class AccountBase(BaseModel):
     institution_id: Optional[UUID] = None
     account_name: str
     account_type: AccountTypeEnum = AccountTypeEnum.CREDIT_CARD
-    card_number_masked: str
-    card_number_last4: str
+    card_number_masked: Optional[str] = ""
+    card_number_last4: Optional[str] = ""
+    initial_balance: Decimal = Field(default=Decimal("0.00"))
     credit_limit: Decimal = Field(default=Decimal("0.00"))
     billing_day_of_month: Optional[int] = Field(default=None, ge=1, le=31)
     grace_period_days: int = Field(default=15, ge=0)
@@ -32,6 +33,7 @@ class AccountCreate(AccountBase):
 
 class AccountUpdate(BaseModel):
     account_name: Optional[str] = None
+    initial_balance: Optional[Decimal] = None
     credit_limit: Optional[Decimal] = None
     billing_day_of_month: Optional[int] = None
     grace_period_days: Optional[int] = None
@@ -72,8 +74,12 @@ class AccountOverviewRead(BaseModel):
 class AccountLiveBalanceRead(BaseModel):
     account_id: UUID
     account_name: str
+    account_type: Optional[AccountTypeEnum] = AccountTypeEnum.CREDIT_CARD
+    is_asset: Optional[bool] = False
     bank_name: Optional[str] = None
-    card_number_masked: str
+    card_number_masked: Optional[str] = ""
+    color_hex: Optional[str] = "#3b82f6"
+    initial_balance: Optional[Decimal] = Decimal("0.00")
     credit_limit: Decimal
     latest_statement_date: Optional[date] = None
     latest_statement_balance: Decimal

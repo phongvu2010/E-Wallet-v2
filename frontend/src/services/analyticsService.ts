@@ -4,6 +4,8 @@ import {
   MonthlyCategorySpending,
   CreditUtilization,
   UpcomingObligation,
+  NetWorthOverview,
+  MonthlyCashFlow,
 } from "../types/analytics";
 
 /**
@@ -15,6 +17,24 @@ export const analyticsService = {
    */
   getOverview: async (): Promise<DashboardOverview> => {
     const res = await api.get<DashboardOverview>("/analytics/overview");
+    return res.data;
+  },
+
+  /**
+   * Fetch consolidated Net Worth and wealth allocation metrics.
+   */
+  getNetWorth: async (): Promise<NetWorthOverview> => {
+    const res = await api.get<NetWorthOverview>("/analytics/net-worth");
+    return res.data;
+  },
+
+  /**
+   * Fetch monthly cash flow (Income vs Expense vs Savings).
+   */
+  getCashFlow: async (limit: number = 12): Promise<MonthlyCashFlow[]> => {
+    const res = await api.get<MonthlyCashFlow[]>("/analytics/cash-flow", {
+      params: { limit },
+    });
     return res.data;
   },
 

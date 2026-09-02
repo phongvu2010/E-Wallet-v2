@@ -7,7 +7,9 @@ from app.core.database import get_db
 from app.schemas.analytics import (
     CreditUtilizationRead,
     DashboardOverviewRead,
+    MonthlyCashFlowRead,
     MonthlyCategorySpendingRead,
+    NetWorthOverviewRead,
     UpcomingObligationRead,
 )
 from app.services.analytics_service import AnalyticsService
@@ -23,6 +25,29 @@ router = APIRouter()
 async def get_dashboard_overview(db: AsyncSession = Depends(get_db)):
     """Fetch high-level portfolio overview: total limits, live balances, utilization %, risk grade, and upcoming dues."""
     return await AnalyticsService.get_dashboard_overview(db)
+
+
+@router.get(
+    "/net-worth",
+    response_model=NetWorthOverviewRead,
+    summary="Get net worth and wealth breakdown",
+)
+async def get_net_worth_overview(db: AsyncSession = Depends(get_db)):
+    """Fetch total liquid assets, credit liabilities, and net worth wealth distribution."""
+    return await AnalyticsService.get_net_worth_overview(db)
+
+
+@router.get(
+    "/cash-flow",
+    response_model=List[MonthlyCashFlowRead],
+    summary="Get monthly cash flow (Income vs Expenses vs Savings)",
+)
+async def get_monthly_cash_flow(
+    limit: int = Query(default=12, ge=1, le=60),
+    db: AsyncSession = Depends(get_db),
+):
+    """Retrieve monthly historical cash flow comparing income, expenses, and savings rate."""
+    return await AnalyticsService.get_monthly_cash_flow(db, limit=limit)
 
 
 @router.get(

@@ -44,6 +44,8 @@ import { formatCategoryTreeToGroups } from "../utils/categoryHelpers";
 
 const TRANSACTION_TYPES: { value: TransactionType; label: string; defaultKeywords: string[] }[] = [
   { value: "PURCHASE", label: "Chi tiêu mua sắm thông thường", defaultKeywords: ["Nhà hàng", "Ăn uống", "Cửa hàng", "Chi tiêu"] },
+  { value: "INCOME", label: "Khoản thu nhập (Lương, Thưởng, Lãi...)", defaultKeywords: ["Lương & Thu nhập", "Thu nhập", "Lương", "Thưởng"] },
+  { value: "TRANSFER", label: "Chuyển tiền giữa các tài khoản / ví", defaultKeywords: ["Chuyển khoản", "Chuyển tiền"] },
   { value: "REPAYMENT", label: "Thanh toán dư nợ / Nạp tiền", defaultKeywords: ["Thanh toán dư nợ", "Thanh toán", "Nạp tiền"] },
   { value: "INSTALLMENT_MONTHLY", label: "Trả góp định kỳ hàng tháng", defaultKeywords: ["Trả góp", "Tất toán trả góp"] },
   { value: "INSTALLMENT_PRINCIPAL", label: "Ghi có chuyển đổi trả góp", defaultKeywords: ["Chuyển đổi sang trả góp", "Trả góp"] },
@@ -53,7 +55,6 @@ const TRANSACTION_TYPES: { value: TransactionType; label: string; defaultKeyword
   { value: "CASHBACK_CREDIT", label: "Tiền hoàn Cashback ghi có", defaultKeywords: ["Hoàn tiền Cashback", "Hoàn tiền"] },
   { value: "CASH_ADVANCE", label: "Ứng tiền mặt qua thẻ", defaultKeywords: ["Chi tiêu khác", "Chi tiêu"] },
   { value: "ADJUSTMENT", label: "Điều chỉnh giao dịch", defaultKeywords: ["Điều chỉnh / Hủy", "Chi tiêu khác"] },
-  { value: "TRANSFER", label: "Chuyển tiền nội bộ", defaultKeywords: ["Thanh toán", "Chuyển khoản"] },
 ];
 
 export const TransactionsPage: React.FC = () => {
@@ -99,13 +100,11 @@ export const TransactionsPage: React.FC = () => {
   } = useTransactions(filterParams);
 
   const { data: summary } = useTransactionSummary(selectedAccountId || undefined);
+  const deleteMutation = useDeleteTransaction();
 
   const transactions = txData?.items || [];
   const totalCount = txData?.total || 0;
   const totalPages = txData?.total_pages || 1;
-
-  // Mutations
-  const deleteMutation = useDeleteTransaction();
 
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -140,10 +139,10 @@ export const TransactionsPage: React.FC = () => {
         <div>
           <h2 className="text-xl font-bold text-slate-100 flex items-center gap-2">
             <Receipt className="w-5 h-5 text-emerald-400" />
-            <span>Sổ Cái Giao Dịch Thẻ Tín Dụng</span>
+            <span>Sổ Cái Giao Dịch Tài Chính (Thu - Chi & Thẻ)</span>
           </h2>
           <p className="text-xs text-slate-400 mt-0.5">
-            Theo dõi dòng tiền mua sắm, trả góp, thanh toán dư nợ và phí thường niên
+            Theo dõi toàn bộ thu nhập, chi tiêu, chuyển khoản nội bộ và biến động số dư các tài khoản
           </p>
         </div>
 
@@ -158,7 +157,19 @@ export const TransactionsPage: React.FC = () => {
 
       {/* 2. Top Summary KPI Cards */}
       {summary && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+          <Card className="p-4 flex items-center gap-3.5">
+            <div className="p-2.5 rounded-xl bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+              <TrendingUp className="w-5 h-5" />
+            </div>
+            <div>
+              <p className="text-xs text-slate-400">Tổng Thu Nhập</p>
+              <p className="text-lg font-bold text-emerald-400 font-mono">
+                {formatCurrency(summary.total_income || 0)}
+              </p>
+            </div>
+          </Card>
+
           <Card className="p-4 flex items-center gap-3.5">
             <div className="p-2.5 rounded-xl bg-rose-500/10 text-rose-400 border border-rose-500/20">
               <TrendingDown className="w-5 h-5" />
@@ -172,12 +183,12 @@ export const TransactionsPage: React.FC = () => {
           </Card>
 
           <Card className="p-4 flex items-center gap-3.5">
-            <div className="p-2.5 rounded-xl bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-              <TrendingUp className="w-5 h-5" />
+            <div className="p-2.5 rounded-xl bg-teal-500/10 text-teal-400 border border-teal-500/20">
+              <RefreshCw className="w-5 h-5" />
             </div>
             <div>
-              <p className="text-xs text-slate-400">Tổng Tiền Đã Thanh Toán</p>
-              <p className="text-lg font-bold text-emerald-400 font-mono">
+              <p className="text-xs text-slate-400">Đã Thanh Toán / Nạp</p>
+              <p className="text-lg font-bold text-teal-400 font-mono">
                 {formatCurrency(summary.total_repayments)}
               </p>
             </div>
@@ -202,7 +213,7 @@ export const TransactionsPage: React.FC = () => {
             <div>
               <p className="text-xs text-slate-400">Tổng Số Bản Ghi</p>
               <p className="text-lg font-bold text-slate-100 font-mono">
-                {summary.total_transactions} giao dịch
+                {summary.total_transactions} GD
               </p>
             </div>
           </Card>

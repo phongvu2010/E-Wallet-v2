@@ -38,13 +38,43 @@ class UpcomingObligationRead(BaseModel):
     payment_status: str
 
 
-class DashboardOverviewRead(BaseModel):
+class NetWorthOverviewRead(BaseModel):
+    total_liquid_assets: Decimal
+    total_bank_assets: Decimal
+    total_cash_assets: Decimal
+    total_ewallet_assets: Decimal
+    total_savings_assets: Decimal
+    total_credit_debt: Decimal
     total_credit_limit: Decimal
-    total_live_balance: Decimal
-    total_available_limit: Decimal
-    overall_utilization_percentage: Decimal
-    overall_risk_level: str
-    active_cards_count: int
-    upcoming_obligations_count: int
-    total_upcoming_due_30d: Decimal
-    monthly_spending_current_month: Decimal
+    total_available_credit: Decimal
+    net_worth: Decimal
+    active_asset_accounts_count: int
+    active_credit_cards_count: int
+
+
+class MonthlyCashFlowRead(BaseModel):
+    month: date
+    total_income: Decimal
+    total_expense: Decimal
+    net_savings: Decimal
+    savings_rate_percent: Decimal
+    total_transactions_count: int
+
+
+class DashboardOverviewRead(BaseModel):
+    total_liquid_assets: Decimal = Decimal("0.00")
+    total_bank_assets: Decimal = Decimal("0.00")
+    total_cash_assets: Decimal = Decimal("0.00")
+    total_ewallet_assets: Decimal = Decimal("0.00")
+    total_credit_limit: Decimal = Decimal("0.00")
+    total_live_balance: Decimal = Decimal("0.00")
+    total_available_limit: Decimal = Decimal("0.00")
+    net_worth: Decimal = Decimal("0.00")
+    overall_utilization_percentage: Decimal = Decimal("0.00")
+    overall_risk_level: str = "OPTIMAL (<30%)"
+    active_cards_count: int = 0
+    active_asset_accounts_count: int = 0
+    upcoming_obligations_count: int = 0
+    total_upcoming_due_30d: Decimal = Decimal("0.00")
+    monthly_spending_current_month: Decimal = Decimal("0.00")
+    monthly_income_current_month: Decimal = Decimal("0.00")

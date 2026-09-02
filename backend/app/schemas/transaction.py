@@ -114,7 +114,8 @@ class TransactionFilterParams(BaseModel):
 
 class TransactionSummaryRead(BaseModel):
     total_transactions: int
-    total_spending: Decimal
-    total_repayments: Decimal
-    total_fees_interest: Decimal
-    net_flow: Decimal
+    total_income: Decimal = Field(default=Decimal("0.00"))
+    total_spending: Decimal = Field(default=Decimal("0.00"))
+    total_repayments: Decimal = Field(default=Decimal("0.00"))
+    total_fees_interest: Decimal = Field(default=Decimal("0.00"))
+    net_flow: Decimal = Field(default=Decimal("0.00"))

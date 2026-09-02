@@ -1,14 +1,39 @@
 import React from "react";
-import { BarChart3, PieChart, ShieldAlert, TrendingUp } from "lucide-react";
+import {
+  Banknote,
+  BarChart3,
+  Building2,
+  Calendar,
+  CreditCard,
+  PieChart,
+  PiggyBank,
+  ShieldAlert,
+  Smartphone,
+  Sparkles,
+  TrendingDown,
+  TrendingUp,
+  Wallet,
+} from "lucide-react";
 import { SpendingDonutChart } from "../components/charts/SpendingDonutChart";
 import { Badge } from "../components/common/Badge";
 import { Card } from "../components/common/Card";
 import { Spinner } from "../components/common/Spinner";
-import { useCreditUtilization, useMonthlySpending } from "../hooks/useFinanceQueries";
-import { CreditUtilization, MonthlyCategorySpending } from "../types/analytics";
+import {
+  useCashFlow,
+  useCreditUtilization,
+  useMonthlySpending,
+  useNetWorth,
+} from "../hooks/useFinanceQueries";
+import {
+  CreditUtilization,
+  MonthlyCashFlow,
+  MonthlyCategorySpending,
+} from "../types/analytics";
 import { formatCurrency, formatDate, getRiskLevelColor } from "../utils/formatters";
 
 export const AnalyticsPage: React.FC = () => {
+  const { data: nw, isLoading: nwLoading } = useNetWorth();
+  const { data: cashFlow = [], isLoading: cfLoading } = useCashFlow(12);
   const {
     data: monthlySpending = [],
     isLoading: spendingLoading,
@@ -18,7 +43,11 @@ export const AnalyticsPage: React.FC = () => {
     isLoading: utLoading,
   } = useCreditUtilization();
 
-  if ((spendingLoading || utLoading) && monthlySpending.length === 0 && utilization.length === 0) {
+  if (
+    (spendingLoading || utLoading || nwLoading || cfLoading) &&
+    monthlySpending.length === 0 &&
+    utilization.length === 0
+  ) {
     return (
       <div className="h-[60vh] flex flex-col items-center justify-center gap-3">
         <Spinner size="lg" />
@@ -54,20 +83,96 @@ export const AnalyticsPage: React.FC = () => {
       <div>
         <h2 className="text-xl font-bold text-slate-100 flex items-center gap-2">
           <BarChart3 className="w-5 h-5 text-emerald-400" />
-          <span>Báo Cáo Phân Tích & Quản Trị Rủi Ro Tín Dụng</span>
+          <span>Báo Cáo Phân Tích Dòng Tiền, Tài Sản Ròng & Rủi Ro Tín Dụng</span>
         </h2>
         <p className="text-xs text-slate-400 mt-0.5">
-          Phân tích cơ cấu chi tiêu theo nhóm danh mục và giám sát tỷ lệ sử dụng hạn mức
+          Tổng hợp dòng tiền thu nhập - chi tiêu (Cash Flow), cơ cấu tài sản (Net Worth) và tỷ lệ sử dụng hạn mức
         </p>
       </div>
 
-      {/* 2. Credit Utilization Matrix */}
+      {/* 2. Monthly Cash Flow (Thu Nhập vs Chi Tiêu vs Tích Lũy) */}
+      <Card>
+        <div className="flex items-center justify-between border-b border-slate-800 pb-3 mb-4">
+          <div>
+            <h3 className="text-base font-bold text-slate-100 flex items-center gap-2">
+              <Sparkles className="w-4 h-4 text-emerald-400" />
+              <span>Báo Cáo Dòng Tiền Thu - Chi Hàng Tháng (Cash Flow)</span>
+            </h3>
+            <p className="text-xs text-slate-400 mt-0.5">
+              So sánh Thu nhập (Income), Chi tiêu thực tế (Expense) và Tỷ lệ tích lũy/tiết kiệm (Savings Rate)
+            </p>
+          </div>
+        </div>
+
+        {cashFlow.length === 0 ? (
+          <div className="h-36 flex items-center justify-center text-slate-500 text-sm">
+            Chưa có đủ dữ liệu dòng tiền theo tháng
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs">
+              <thead className="bg-slate-950/60 text-slate-400 uppercase font-semibold border-b border-slate-800">
+                <tr>
+                  <th className="py-3 px-4">Tháng</th>
+                  <th className="py-3 px-4 text-right text-emerald-400 font-bold">Tổng Thu Nhập</th>
+                  <th className="py-3 px-4 text-right text-rose-400 font-bold">Tổng Chi Tiêu</th>
+                  <th className="py-3 px-4 text-right font-bold text-slate-200">Tiền Tích Lũy (Net)</th>
+                  <th className="py-3 px-4 text-center">Tỷ Lệ Tiết Kiệm</th>
+                  <th className="py-3 px-4 text-center">Số GD</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-800/60 font-medium">
+                {cashFlow.map((cf: MonthlyCashFlow, idx: number) => {
+                  const isPositive = Number(cf.net_savings) >= 0;
+                  const savingsRate = Number(cf.savings_rate_percent || 0);
+                  return (
+                    <tr key={idx} className="hover:bg-slate-800/40 transition-colors">
+                      <td className="py-3.5 px-4 font-mono font-bold text-slate-200">
+                        {formatDate(cf.month, "MM/yyyy")}
+                      </td>
+                      <td className="py-3.5 px-4 text-right font-mono text-emerald-400 font-semibold">
+                        +{formatCurrency(cf.total_income)}
+                      </td>
+                      <td className="py-3.5 px-4 text-right font-mono text-rose-400 font-semibold">
+                        -{formatCurrency(cf.total_expense)}
+                      </td>
+                      <td className="py-3.5 px-4 text-right font-mono font-bold">
+                        <span className={isPositive ? "text-emerald-400" : "text-rose-400"}>
+                          {isPositive ? "+" : ""}{formatCurrency(cf.net_savings)}
+                        </span>
+                      </td>
+                      <td className="py-3.5 px-4 text-center">
+                        <span
+                          className={`px-2 py-0.5 rounded-md text-[11px] font-bold border ${
+                            savingsRate >= 30
+                              ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
+                              : savingsRate >= 10
+                              ? "bg-sky-500/10 text-sky-400 border-sky-500/20"
+                              : "bg-amber-500/10 text-amber-400 border-amber-500/20"
+                          }`}
+                        >
+                          {savingsRate.toFixed(1)}%
+                        </span>
+                      </td>
+                      <td className="py-3.5 px-4 text-center font-mono text-slate-400">
+                        {cf.total_transactions_count}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Card>
+
+      {/* 3. Credit Utilization Matrix */}
       <Card>
         <div className="flex items-center justify-between border-b border-slate-800 pb-3 mb-4">
           <div>
             <h3 className="text-base font-bold text-slate-100 flex items-center gap-2">
               <ShieldAlert className="w-4 h-4 text-amber-400" />
-              <span>Ma Trận Tỷ Lệ Sử Dụng Hạn Mức (Credit Utilization Matrix)</span>
+              <span>Ma Trận Tỷ Lệ Sử Dụng Hạn Mức Thẻ (Credit Utilization Matrix)</span>
             </h3>
             <p className="text-xs text-slate-400 mt-0.5">
               Khuyến nghị chuẩn quốc tế: Duy trì tỷ lệ &lt; 30% để tối ưu điểm tín dụng CIC
@@ -75,15 +180,7 @@ export const AnalyticsPage: React.FC = () => {
           </div>
         </div>
 
-        <div className={`grid grid-cols-1 sm:grid-cols-2 gap-4 ${
-          utilization.length === 1
-            ? "lg:grid-cols-1"
-            : utilization.length === 2
-            ? "lg:grid-cols-2"
-            : utilization.length === 3
-            ? "lg:grid-cols-3"
-            : "lg:grid-cols-4"
-        }`}>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           {utilization.map((card: CreditUtilization) => {
             const risk = getRiskLevelColor(card.risk_level);
             return (
@@ -121,7 +218,7 @@ export const AnalyticsPage: React.FC = () => {
         </div>
       </Card>
 
-      {/* 3. Category Spending Breakdown */}
+      {/* 4. Category Spending Breakdown */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <Card className="lg:col-span-1 flex flex-col h-full">
           <h3 className="text-sm font-bold text-slate-100 flex items-center gap-2 border-b border-slate-800 pb-3 mb-4">

@@ -65,6 +65,24 @@ interface PresetChip {
 
 const PRESET_CHIPS: PresetChip[] = [
   {
+    id: "income",
+    icon: "💰",
+    label: "Lương & Thu nhập",
+    type: "INCOME",
+    categoryKeyword: "Lương",
+    defaultDesc: "Nhận tiền lương chuyển khoản",
+    color: "bg-emerald-500/10 text-emerald-300 border-emerald-500/30 hover:bg-emerald-500/20",
+  },
+  {
+    id: "transfer",
+    icon: "🔄",
+    label: "Chuyển tiền / Rút ATM",
+    type: "TRANSFER",
+    categoryKeyword: "Chuyển khoản",
+    defaultDesc: "Rút tiền mặt ATM / Chuyển khoản nội bộ",
+    color: "bg-cyan-500/10 text-cyan-300 border-cyan-500/30 hover:bg-cyan-500/20",
+  },
+  {
     id: "fnb",
     icon: "☕",
     label: "Cà phê & Ăn uống",
@@ -80,7 +98,7 @@ const PRESET_CHIPS: PresetChip[] = [
     type: "PURCHASE",
     categoryKeyword: "Siêu thị",
     defaultDesc: "MINISTOP / WINMART",
-    color: "bg-emerald-500/10 text-emerald-300 border-emerald-500/30 hover:bg-emerald-500/20",
+    color: "bg-teal-500/10 text-teal-300 border-teal-500/30 hover:bg-teal-500/20",
   },
   {
     id: "online",
@@ -110,21 +128,12 @@ const PRESET_CHIPS: PresetChip[] = [
     color: "bg-teal-500/10 text-teal-300 border-teal-500/30 hover:bg-teal-500/20",
   },
   {
-    id: "cloud",
-    icon: "☁️",
-    label: "Cloud & Ứng dụng số",
-    type: "PURCHASE",
-    categoryKeyword: "Dịch vụ số",
-    defaultDesc: "OPENAI CHATGPT PLUS",
-    color: "bg-purple-500/10 text-purple-300 border-purple-500/30 hover:bg-purple-500/20",
-  },
-  {
     id: "fee",
     icon: "🏷️",
-    label: "Phí thường niên / SMS",
+    label: "Phí dịch vụ / SMS",
     type: "FEE",
     categoryKeyword: "Phí & Lãi",
-    defaultDesc: "Phí quản lý tài khoản & SMS",
+    defaultDesc: "Phí dịch vụ tài khoản",
     color: "bg-rose-500/10 text-rose-300 border-rose-500/30 hover:bg-rose-500/20",
   },
 ];
@@ -143,6 +152,8 @@ const CURRENCIES = [
 
 const TRANSACTION_TYPES: { value: TransactionType; label: string }[] = [
   { value: "PURCHASE", label: "Chi tiêu mua sắm thông thường (+)" },
+  { value: "INCOME", label: "Khoản thu nhập (Lương, Thưởng, Tiền lãi...) (+)" },
+  { value: "TRANSFER", label: "Chuyển tiền giữa các tài khoản / ví" },
   { value: "REPAYMENT", label: "Thanh toán dư nợ thẻ / Nạp tiền (-)" },
   { value: "INSTALLMENT_MONTHLY", label: "Trả góp định kỳ hàng tháng (+)" },
   { value: "INSTALLMENT_PRINCIPAL", label: "Ghi có chuyển đổi trả góp (-)" },
@@ -152,7 +163,6 @@ const TRANSACTION_TYPES: { value: TransactionType; label: string }[] = [
   { value: "CASHBACK_CREDIT", label: "Tiền hoàn Cashback ghi có (-)" },
   { value: "CASH_ADVANCE", label: "Ứng tiền mặt qua thẻ (+)" },
   { value: "ADJUSTMENT", label: "Điều chỉnh giao dịch" },
-  { value: "TRANSFER", label: "Chuyển tiền nội bộ" },
 ];
 
 export const SmartCreateTransactionModal: React.FC<
@@ -207,6 +217,9 @@ export const SmartCreateTransactionModal: React.FC<
     useState<string>("");
   const [selectedInstallmentPlanId, setSelectedInstallmentPlanId] =
     useState<string>("");
+
+  // Transfer State
+  const [transferToAccountId, setTransferToAccountId] = useState<string>("");
 
   // Installment plans for the selected account (when INSTALLMENT_MONTHLY is chosen)
   const { data: accountInstallments = [] } = useInstallments(
@@ -520,6 +533,11 @@ export const SmartCreateTransactionModal: React.FC<
       payload.settles_statement_id = settlesStatementId;
     }
 
+    // Transfer target account link
+    if (transactionType === "TRANSFER" && transferToAccountId) {
+      payload.transfer_to_account_id = transferToAccountId;
+    }
+
     try {
       await createMutation.mutateAsync(payload);
       toast.success(
@@ -527,6 +545,10 @@ export const SmartCreateTransactionModal: React.FC<
           ? "Tạo giao dịch và tự động lập gói trả góp thành công!"
           : transactionType === "INSTALLMENT_MONTHLY" && selectedInstallmentPlanId
           ? "Tạo giao dịch và liên kết vào gói trả góp thành công!"
+          : transactionType === "TRANSFER"
+          ? "Chuyển tiền giữa các tài khoản thành công!"
+          : transactionType === "INCOME"
+          ? "Ghi nhận khoản thu nhập thành công!"
           : "Tạo giao dịch mới thành công!"
       );
       onClose();
@@ -540,6 +562,7 @@ export const SmartCreateTransactionModal: React.FC<
       setIsForeignCurrency(false);
       setIsInstallment(false);
       setSelectedInstallmentPlanId("");
+      setTransferToAccountId("");
       setNote("");
       setSettlesStatementId("");
     } catch (err: any) {
@@ -766,6 +789,30 @@ export const SmartCreateTransactionModal: React.FC<
                 )}
               </div>
             </div>
+
+            {/* Transfer Target Account Picker */}
+            {transactionType === "TRANSFER" && (
+              <div className="p-3.5 rounded-2xl bg-cyan-950/20 border border-cyan-500/30">
+                <Select
+                  label="Chuyển tới Tài Khoản / Ví Nhận Tiền"
+                  value={transferToAccountId}
+                  onChange={(e) => setTransferToAccountId(e.target.value)}
+                  options={[
+                    { value: "", label: "-- Chọn tài khoản / ví đích --" },
+                    ...activeAccounts
+                      .filter((a: Account) => a.id !== selectedAccountId)
+                      .map((a: Account) => ({
+                        value: a.id,
+                        label: `${a.account_name} (${a.card_number_masked || a.account_type})`,
+                      })),
+                  ]}
+                  required
+                />
+                <p className="text-[11px] text-cyan-400/80 mt-1 px-1">
+                  💡 Tiền sẽ được trừ khỏi tài khoản nguồn và cộng vào tài khoản đích.
+                </p>
+              </div>
+            )}
 
             {/* Multi-Currency & Amount Inputs */}
             <div className="space-y-3 pt-1">
