@@ -40,6 +40,12 @@ import {
   formatDate,
   getTransactionTypeLabel,
 } from "../../utils/formatters";
+import {
+  filterCategoryTreeByTransactionType,
+  formatCategoryTreeToGroups,
+  getDefaultCategoryForTransactionType,
+  inferTransactionTypeFromCategory,
+} from "../../utils/categoryHelpers";
 
 interface TransactionDetailModalProps {
   isOpen: boolean;
@@ -162,16 +168,45 @@ export const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  // Category Tree options
+  // Context-aware filtered category tree based on selected transactionType
+  const filteredCategoryTree = useMemo(() => {
+    return filterCategoryTreeByTransactionType(categoryTree, transactionType);
+  }, [categoryTree, transactionType]);
+
+  // Build grouped options from filtered category tree
   const categoryGroups = useMemo(() => {
-    return categoryTree.map((parent: CategoryTreeNode) => ({
-      label: parent.name,
-      options: (parent.children || []).map((child: Category) => ({
-        value: child.id,
-        label: child.name,
-      })),
-    }));
-  }, [categoryTree]);
+    return formatCategoryTreeToGroups(filteredCategoryTree);
+  }, [filteredCategoryTree]);
+
+  // Smart Bidirectional Category Change Handler
+  const handleCategoryChange = (newCatId: string) => {
+    setCategoryId(newCatId);
+    if (!newCatId) return;
+
+    const selectedCat = categories.find((c: Category) => c.id === newCatId);
+    const inferredType = inferTransactionTypeFromCategory(selectedCat);
+
+    if (inferredType && inferredType !== transactionType) {
+      setTransactionType(inferredType);
+    }
+  };
+
+  // Smart Bidirectional Transaction Type Change Handler
+  const handleTransactionTypeChange = (newType: TransactionType) => {
+    setTransactionType(newType);
+
+    const validTree = filterCategoryTreeByTransactionType(categoryTree, newType);
+    const validIds = new Set<string>();
+    validTree.forEach((p) => {
+      validIds.add(p.id);
+      (p.children || []).forEach((c) => validIds.add(c.id));
+    });
+
+    if (!categoryId || !validIds.has(categoryId)) {
+      const defaultCatId = getDefaultCategoryForTransactionType(categories, newType);
+      setCategoryId(defaultCatId);
+    }
+  };
 
   // Filtered merchant suggestions
   const filteredMerchants = useMemo(() => {
@@ -625,18 +660,25 @@ export const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({
                   label="Loại Giao Dịch"
                   value={transactionType}
                   onChange={(e) =>
-                    setTransactionType(e.target.value as TransactionType)
+                    handleTransactionTypeChange(e.target.value as TransactionType)
                   }
                   options={TRANSACTION_TYPES}
                 />
 
-                <Select
-                  label="Danh Mục Chi Tiêu"
-                  value={categoryId}
-                  onChange={(e) => setCategoryId(e.target.value)}
-                  options={[{ value: "", label: "-- Chọn danh mục --" }]}
-                  groups={categoryGroups}
-                />
+                <div>
+                  <Select
+                    label="Danh Mục Chi Tiêu"
+                    value={categoryId}
+                    onChange={(e) => handleCategoryChange(e.target.value)}
+                    options={[{ value: "", label: "-- Chọn danh mục --" }]}
+                    groups={categoryGroups}
+                  />
+                  {transactionType !== "PURCHASE" && (
+                    <p className="text-[10px] text-emerald-400/80 mt-1 px-1 italic">
+                      ✨ Đã lọc danh mục theo nghiệp vụ {TRANSACTION_TYPES.find((t) => t.value === transactionType)?.label.split(" (")[0]}
+                    </p>
+                  )}
+                </div>
               </div>
 
               {/* Amounts Row */}

@@ -39,6 +39,12 @@ import {
 } from "../../types/transaction";
 import { CardRecommendationItem } from "../../types/cardRecommendation";
 import { formatCurrency, formatDate } from "../../utils/formatters";
+import {
+  filterCategoryTreeByTransactionType,
+  formatCategoryTreeToGroups,
+  getDefaultCategoryForTransactionType,
+  inferTransactionTypeFromCategory,
+} from "../../utils/categoryHelpers";
 
 interface SmartCreateTransactionModalProps {
   isOpen: boolean;
@@ -283,22 +289,15 @@ export const SmartCreateTransactionModal: React.FC<
     }
   }, [isForeignCurrency, foreignAmount, exchangeRate, foreignFeePercent]);
 
-  // Build grouped options from categoryTree in Database
-  const categoryGroups = useMemo(
-    () =>
-      categoryTree.map((parent: CategoryTreeNode) => ({
-        label: parent.name,
-        options: [
-          ...(parent.children && parent.children.length > 0
-            ? parent.children.map((child: Category) => ({
-                value: child.id,
-                label: child.name,
-              }))
-            : [{ value: parent.id, label: `${parent.name} (Chung)` }]),
-        ],
-      })),
-    [categoryTree]
-  );
+  // Context-aware filtered category tree based on selected transactionType
+  const filteredCategoryTree = useMemo(() => {
+    return filterCategoryTreeByTransactionType(categoryTree, transactionType);
+  }, [categoryTree, transactionType]);
+
+  // Build grouped options from filtered category tree
+  const categoryGroups = useMemo(() => {
+    return formatCategoryTreeToGroups(filteredCategoryTree);
+  }, [filteredCategoryTree]);
 
   // Filtered Merchant Suggestions based on rawDescription
   const filteredMerchants = useMemo(() => {
@@ -313,29 +312,86 @@ export const SmartCreateTransactionModal: React.FC<
       .slice(0, 8);
   }, [merchantSuggestions, rawDescription]);
 
-  // Smart Category Matcher Helper
-  const inferCategoryFromKeyword = (keyword: string): string => {
-    if (!categories.length) return "";
-    const kw = keyword.toLowerCase();
-    const found = categories.find((c: Category) =>
-      c.name.toLowerCase().includes(kw)
-    );
-    return found ? found.id : "";
+  // Smart Bidirectional Category Change Handler
+  const handleCategoryChange = (newCatId: string) => {
+    setCategoryId(newCatId);
+    if (!newCatId) return;
+
+    const selectedCat = categories.find((c: Category) => c.id === newCatId);
+    const inferredType = inferTransactionTypeFromCategory(selectedCat);
+
+    if (inferredType && inferredType !== transactionType) {
+      setTransactionType(inferredType);
+      // Auto-populate helper fields based on inferred type
+      if (inferredType === "REPAYMENT" && pendingStatements.length > 0 && !settlesStatementId) {
+        setSettlesStatementId(pendingStatements[0].statement_id);
+        if ((!amountVND || parseFloat(amountVND) <= 0) && Number(pendingStatements[0].remaining_balance_to_pay) > 0) {
+          setAmountVND(String(pendingStatements[0].remaining_balance_to_pay));
+        }
+      } else if (inferredType === "INSTALLMENT_MONTHLY" && accountInstallments.length > 0 && !selectedInstallmentPlanId) {
+        const activePlan = accountInstallments.find((p: InstallmentPlan) => p.status === "ACTIVE") || accountInstallments[0];
+        setSelectedInstallmentPlanId(activePlan.id);
+        if (!amountVND || parseFloat(amountVND) <= 0) {
+          setAmountVND(String(activePlan.monthly_payment));
+        }
+      }
+    }
+  };
+
+  // Smart Bidirectional Transaction Type Change Handler
+  const handleTransactionTypeChange = (newType: TransactionType) => {
+    setTransactionType(newType);
+
+    // Filter categories for the new type and check if current categoryId is still valid
+    const validTree = filterCategoryTreeByTransactionType(categoryTree, newType);
+    const validIds = new Set<string>();
+    validTree.forEach((p) => {
+      validIds.add(p.id);
+      (p.children || []).forEach((c) => validIds.add(c.id));
+    });
+
+    if (!categoryId || !validIds.has(categoryId)) {
+      const defaultCatId = getDefaultCategoryForTransactionType(categories, newType);
+      setCategoryId(defaultCatId);
+    }
+
+    // Auto-setup contextual workflow for specific types
+    if (newType === "REPAYMENT") {
+      setIsInstallment(false);
+      setSelectedInstallmentPlanId("");
+      if (pendingStatements.length > 0) {
+        setSettlesStatementId(pendingStatements[0].statement_id);
+        if ((!amountVND || parseFloat(amountVND) <= 0) && Number(pendingStatements[0].remaining_balance_to_pay) > 0) {
+          setAmountVND(String(pendingStatements[0].remaining_balance_to_pay));
+        }
+      }
+    } else if (newType === "INSTALLMENT_MONTHLY") {
+      setIsInstallment(false);
+      setSettlesStatementId("");
+      if (accountInstallments.length > 0) {
+        const activePlan = accountInstallments.find((p: InstallmentPlan) => p.status === "ACTIVE") || accountInstallments[0];
+        setSelectedInstallmentPlanId(activePlan.id);
+        if (!amountVND || parseFloat(amountVND) <= 0) {
+          setAmountVND(String(activePlan.monthly_payment));
+        }
+      }
+    } else {
+      setSettlesStatementId("");
+      setSelectedInstallmentPlanId("");
+    }
   };
 
   // Preset Chip Click Handler
   const handleApplyPreset = (chip: PresetChip) => {
-    setTransactionType(chip.type);
+    handleTransactionTypeChange(chip.type);
     setRawDescription(chip.defaultDesc);
     setSelectedMerchantName(chip.defaultDesc.split(" ")[0]);
-    const catId = inferCategoryFromKeyword(chip.categoryKeyword);
-    if (catId) setCategoryId(catId);
 
-    // If repayment and pending statements exist, auto-select first pending statement
-    if (chip.type === "REPAYMENT" && pendingStatements.length > 0) {
-      setSettlesStatementId(pendingStatements[0].statement_id);
-      if (Number(pendingStatements[0].remaining_balance_to_pay) > 0) {
-        setAmountVND(String(pendingStatements[0].remaining_balance_to_pay));
+    if (chip.categoryKeyword) {
+      const kw = chip.categoryKeyword.toLowerCase();
+      const found = categories.find((c: Category) => c.name.toLowerCase().includes(kw));
+      if (found) {
+        setCategoryId(found.id);
       }
     }
   };
@@ -348,7 +404,7 @@ export const SmartCreateTransactionModal: React.FC<
     setIsSearchingMerchant(false);
 
     if (m.default_category_id) {
-      setCategoryId(m.default_category_id);
+      handleCategoryChange(m.default_category_id);
     }
   };
 
@@ -690,18 +746,25 @@ export const SmartCreateTransactionModal: React.FC<
                 label="Loại Giao Dịch"
                 value={transactionType}
                 onChange={(e) =>
-                  setTransactionType(e.target.value as TransactionType)
+                  handleTransactionTypeChange(e.target.value as TransactionType)
                 }
                 options={TRANSACTION_TYPES}
               />
 
-              <Select
-                label="Danh Mục Chi Tiêu"
-                value={categoryId}
-                onChange={(e) => setCategoryId(e.target.value)}
-                options={[{ value: "", label: "-- Chọn danh mục --" }]}
-                groups={categoryGroups}
-              />
+              <div>
+                <Select
+                  label="Danh Mục Chi Tiêu"
+                  value={categoryId}
+                  onChange={(e) => handleCategoryChange(e.target.value)}
+                  options={[{ value: "", label: "-- Chọn danh mục --" }]}
+                  groups={categoryGroups}
+                />
+                {transactionType !== "PURCHASE" && (
+                  <p className="text-[10px] text-emerald-400/80 mt-1 px-1 italic">
+                    ✨ Đã lọc danh mục theo nghiệp vụ {TRANSACTION_TYPES.find((t) => t.value === transactionType)?.label.split(" (")[0]}
+                  </p>
+                )}
+              </div>
             </div>
 
             {/* Multi-Currency & Amount Inputs */}

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   Edit3,
   Eye,
@@ -25,6 +25,7 @@ import { useToast } from "../context/ToastContext";
 import { useDeleteTransaction } from "../hooks/useFinanceMutations";
 import {
   useAccounts,
+  useCategoryTree,
   useTransactions,
   useTransactionSummary,
 } from "../hooks/useFinanceQueries";
@@ -39,6 +40,7 @@ import {
   formatDate,
   getTransactionTypeLabel,
 } from "../utils/formatters";
+import { formatCategoryTreeToGroups } from "../utils/categoryHelpers";
 
 const TRANSACTION_TYPES: { value: TransactionType; label: string; defaultKeywords: string[] }[] = [
   { value: "PURCHASE", label: "Chi tiêu mua sắm thông thường", defaultKeywords: ["Nhà hàng", "Ăn uống", "Cửa hàng", "Chi tiêu"] },
@@ -63,6 +65,7 @@ export const TransactionsPage: React.FC = () => {
   const [search, setSearch] = useState("");
   const [selectedAccountId, setSelectedAccountId] = useState<string>("");
   const [selectedType, setSelectedType] = useState<string>("");
+  const [selectedCategoryId, setSelectedCategoryId] = useState<string>("");
   const [startDate, setStartDate] = useState<string>("");
   const [endDate, setEndDate] = useState<string>("");
 
@@ -72,12 +75,18 @@ export const TransactionsPage: React.FC = () => {
 
   // Cached Queries
   const { data: accounts = [] } = useAccounts();
+  const { data: categoryTree = [] } = useCategoryTree();
+
+  const categoryFilterGroups = useMemo(() => {
+    return formatCategoryTreeToGroups(categoryTree);
+  }, [categoryTree]);
 
   const filterParams: TransactionFilterParams = {
     page,
     page_size: pageSize,
     account_id: selectedAccountId || undefined,
     transaction_type: (selectedType as TransactionType) || undefined,
+    category_id: selectedCategoryId || undefined,
     start_date: startDate || undefined,
     end_date: endDate || undefined,
     search: search || undefined,
@@ -108,6 +117,7 @@ export const TransactionsPage: React.FC = () => {
     setSearch("");
     setSelectedAccountId("");
     setSelectedType("");
+    setSelectedCategoryId("");
     setStartDate("");
     setEndDate("");
     setPage(1);
@@ -202,7 +212,7 @@ export const TransactionsPage: React.FC = () => {
       {/* 3. Filter Bar */}
       <Card className="p-4">
         <form onSubmit={handleSearchSubmit} className="space-y-3">
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-7 gap-3">
             {/* Search Input */}
             <div className="lg:col-span-2">
               <Input
@@ -241,14 +251,28 @@ export const TransactionsPage: React.FC = () => {
                 }}
                 options={[
                   { value: "", label: "Tất cả loại giao dịch" },
-                  { value: "PURCHASE", label: "Chi tiêu mua sắm" },
-                  { value: "REPAYMENT", label: "Thanh toán nợ" },
-                  { value: "INSTALLMENT_MONTHLY", label: "Trả góp định kỳ" },
-                  { value: "FEE", label: "Phí dịch vụ" },
-                  { value: "INTEREST", label: "Lãi suất" },
-                  { value: "REFUND", label: "Hoàn tiền" },
-                  { value: "CASHBACK_CREDIT", label: "Cashback" },
+                  { value: "PURCHASE", label: "Chi tiêu mua sắm (+)" },
+                  { value: "REPAYMENT", label: "Thanh toán nợ (-)" },
+                  { value: "INSTALLMENT_MONTHLY", label: "Trả góp định kỳ (+)" },
+                  { value: "FEE", label: "Phí dịch vụ (+)" },
+                  { value: "INTEREST", label: "Lãi suất (+)" },
+                  { value: "REFUND", label: "Hoàn tiền (-)" },
+                  { value: "CASHBACK_CREDIT", label: "Cashback (-)" },
+                  { value: "CASH_ADVANCE", label: "Ứng tiền mặt (+)" },
                 ]}
+              />
+            </div>
+
+            {/* Category Select */}
+            <div>
+              <Select
+                value={selectedCategoryId}
+                onChange={(e) => {
+                  setSelectedCategoryId(e.target.value);
+                  setPage(1);
+                }}
+                options={[{ value: "", label: "Tất cả danh mục" }]}
+                groups={categoryFilterGroups}
               />
             </div>
 
@@ -344,8 +368,10 @@ export const TransactionsPage: React.FC = () => {
                         )}
                       </td>
                       <td className="py-3.5 px-4 whitespace-nowrap">
-                        <span className="text-slate-300">
-                          {tx.category?.name || "Chưa phân loại"}
+                        <span className="text-slate-300 font-medium">
+                          {tx.transaction_type === "INSTALLMENT_MONTHLY" && tx.installment_plan?.product_name
+                            ? tx.installment_plan.product_name
+                            : tx.category?.name || "Chưa phân loại"}
                         </span>
                       </td>
                       <td className="py-3.5 px-4 whitespace-nowrap">

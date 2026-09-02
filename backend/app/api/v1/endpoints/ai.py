@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, File, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
+from app.core.rate_limit import ai_chat_limiter, pdf_parser_limiter
 from app.schemas.ai import (
     AIChatRequest,
     AIChatResponse,
@@ -22,6 +23,7 @@ router = APIRouter()
     "/chat",
     response_model=AIChatResponse,
     summary="Ask AI Financial Advisor Copilot with live ledger context",
+    dependencies=[Depends(ai_chat_limiter)],
 )
 async def chat_with_advisor(
     payload: AIChatRequest,
@@ -35,6 +37,7 @@ async def chat_with_advisor(
     "/extract-pdf",
     response_model=AIPdfExtractionResponse,
     summary="Directly extract structured transactions and statement metrics from PDF",
+    dependencies=[Depends(pdf_parser_limiter)],
 )
 async def extract_statement_pdf(
     file: UploadFile = File(...),

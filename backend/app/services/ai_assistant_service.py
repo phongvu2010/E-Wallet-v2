@@ -7,15 +7,34 @@ import httpx
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+import time
+
 from app.schemas.ai import AIChatMessage, AIChatRequest, AIChatResponse
 
 
 class AIAssistantService:
     """Intelligent Financial Advisor Service using Google Gemini API with fallback."""
 
+    # In-memory financial context cache with 30s TTL
+    _context_cache: Optional[Dict[str, Any]] = None
+    _context_cache_time: float = 0.0
+    _CACHE_TTL_SECONDS: float = 30.0
+
     @staticmethod
-    async def get_financial_context(db: AsyncSession) -> Dict[str, Any]:
-        """Aggregate current live financial metrics from database views to feed into AI system prompt."""
+    async def get_financial_context(
+        db: AsyncSession, force_refresh: bool = False
+    ) -> Dict[str, Any]:
+        """Aggregate current live financial metrics from database views to feed into AI system prompt.
+
+        Caches the aggregated dictionary for 30 seconds to optimize response speed during chat turns.
+        """
+        now = time.time()
+        if (
+            not force_refresh
+            and AIAssistantService._context_cache is not None
+            and (now - AIAssistantService._context_cache_time) < AIAssistantService._CACHE_TTL_SECONDS
+        ):
+            return AIAssistantService._context_cache
         # 1. Accounts Live Balances
         sql_cards = """
         SELECT account_name, bank_name, card_number_masked, credit_limit,
@@ -65,7 +84,7 @@ class AIAssistantService:
                 return obj.isoformat()
             return obj
 
-        return {
+        ctx = {
             "active_cards": [{k: sanitize(v) for k, v in c.items()} for c in cards],
             "upcoming_obligations_30d": [
                 {k: sanitize(v) for k, v in o.items()} for o in obligations
@@ -77,6 +96,10 @@ class AIAssistantService:
                 {k: sanitize(v) for k, v in i.items()} for i in installments
             ],
         }
+
+        AIAssistantService._context_cache = ctx
+        AIAssistantService._context_cache_time = time.time()
+        return ctx
 
     @staticmethod
     def _generate_rule_based_reply(query: str, ctx: Dict[str, Any]) -> AIChatResponse:

@@ -475,6 +475,16 @@ CREATE INDEX idx_installment_sched_plan_billed ON installment_schedules(installm
 CREATE INDEX idx_tx_raw_desc_trgm ON transactions USING gin (raw_description gin_trgm_ops);
 CREATE INDEX idx_merchant_aliases_pattern_trgm ON merchant_aliases USING gin (pattern gin_trgm_ops);
 
+-- Partial & Composite Indexes Tối ưu Hiệu năng (Performance Optimization)
+-- 1. Tối ưu cực đại cho view v_account_live_balance khi quét giao dịch chưa lên sao kê
+CREATE INDEX idx_tx_unbilled_live ON transactions (account_id, transaction_date, post_date, total_amount) WHERE statement_id IS NULL;
+-- 2. Tối ưu cho view v_statement_payment_status khi tổng hợp thanh toán nợ
+CREATE INDEX idx_tx_repayments ON transactions (account_id, transaction_date, total_amount) WHERE transaction_type = 'REPAYMENT';
+-- 3. Tối ưu tìm kỳ sao kê mới nhất cho v_account_live_balance và v_credit_utilization
+CREATE INDEX idx_statements_latest_lookup ON statements (account_id, statement_date DESC, statement_balance);
+-- 4. Tối ưu sắp xếp và phân trang danh sách giao dịch
+CREATE INDEX idx_tx_date_desc ON transactions (transaction_date DESC, created_at DESC);
+
 -- ====================================================================
 -- 10. ANALYTIC VIEWS (BÁO CÁO & ĐỐI SOÁT TÀI CHÍNH)
 -- ====================================================================

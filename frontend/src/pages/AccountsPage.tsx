@@ -175,7 +175,7 @@ export const AccountsPage: React.FC = () => {
       {/* 2. Visual Card Showcase */}
       <div>
         <h3 className="text-sm font-semibold text-slate-400 uppercase tracking-wider mb-4">
-          Thẻ Đang Hoạt Động (Nhấn để chọn đối soát)
+          Thẻ Đang Hoạt Động
         </h3>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {liveBalances

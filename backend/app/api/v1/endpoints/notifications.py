@@ -4,6 +4,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.rate_limit import telegram_test_limiter
 from app.core.database import get_db
 from app.schemas.notification import (
     NotificationCreate,
@@ -109,6 +110,7 @@ async def update_notification_settings(
     "/test-telegram",
     response_model=TelegramTestResponse,
     summary="Send test message to Telegram Bot",
+    dependencies=[Depends(telegram_test_limiter)],
 )
 async def test_telegram_push(
     payload: Optional[TelegramTestRequest] = None,

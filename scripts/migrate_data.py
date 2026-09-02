@@ -1481,8 +1481,26 @@ try:
 
     print(f"Migrated {len(reward_records)} Reward Ledger records (Bulk Insert).")
 
+    # 9. Apply Partial & Composite Performance Indexes
+    print("Applying performance database indexes...")
+    cur.execute("""
+        CREATE INDEX IF NOT EXISTS idx_tx_unbilled_live 
+        ON transactions (account_id, transaction_date, post_date, total_amount) 
+        WHERE statement_id IS NULL;
+
+        CREATE INDEX IF NOT EXISTS idx_tx_repayments 
+        ON transactions (account_id, transaction_date, total_amount) 
+        WHERE transaction_type = 'REPAYMENT';
+
+        CREATE INDEX IF NOT EXISTS idx_statements_latest_lookup 
+        ON statements (account_id, statement_date DESC, statement_balance);
+
+        CREATE INDEX IF NOT EXISTS idx_tx_date_desc 
+        ON transactions (transaction_date DESC, created_at DESC);
+    """)
+
     conn.commit()
-    print("\nALL DATA MIGRATED SUCCESSFULLY TO POSTGRESQL ON DOCKER!")
+    print("\nALL DATA MIGRATED & INDEXED SUCCESSFULLY TO POSTGRESQL ON DOCKER!")
 finally:
     cur.close()
     conn.close()

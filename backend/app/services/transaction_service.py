@@ -9,6 +9,7 @@ from sqlalchemy.future import select
 from sqlalchemy.orm import selectinload
 
 from app.models.account import Account
+from app.models.category import Category
 from app.models.installment import (
     InstallmentPlan,
     InstallmentSchedule,
@@ -65,7 +66,12 @@ class TransactionService:
         if filter_params.statement_id:
             conditions.append(Transaction.statement_id == filter_params.statement_id)
         if filter_params.category_id:
-            conditions.append(Transaction.category_id == filter_params.category_id)
+            conditions.append(
+                or_(
+                    Transaction.category_id == filter_params.category_id,
+                    Transaction.category.has(Category.parent_id == filter_params.category_id),
+                )
+            )
         if filter_params.merchant_id:
             conditions.append(Transaction.merchant_id == filter_params.merchant_id)
         if filter_params.transaction_type:
@@ -150,6 +156,43 @@ class TransactionService:
         return tx
 
     @staticmethod
+    async def _resolve_default_category_for_type(
+        db: AsyncSession,
+        tx_type: TransactionTypeEnum,
+        current_category_id: Optional[UUID],
+    ) -> Optional[UUID]:
+        """Auto-resolve default Category ID based on transaction type if not explicitly supplied."""
+        if current_category_id:
+            return current_category_id
+
+        target_names = []
+        if tx_type == TransactionTypeEnum.REPAYMENT:
+            target_names = ["Thanh toán dư nợ", "Thanh toán"]
+        elif tx_type == TransactionTypeEnum.INSTALLMENT_MONTHLY:
+            target_names = ["Trả góp"]
+        elif tx_type == TransactionTypeEnum.INSTALLMENT_PRINCIPAL:
+            target_names = ["Chuyển đổi sang trả góp"]
+        elif tx_type == TransactionTypeEnum.INTEREST:
+            target_names = ["Lãi suất"]
+        elif tx_type == TransactionTypeEnum.FEE:
+            target_names = ["Phí thường niên", "Phí SMS", "Phí & Lãi"]
+        elif tx_type == TransactionTypeEnum.CASHBACK_CREDIT:
+            target_names = ["Hoàn tiền Cashback", "Hoàn tiền"]
+        elif tx_type == TransactionTypeEnum.REFUND:
+            target_names = ["Hủy giao dịch"]
+        elif tx_type == TransactionTypeEnum.PURCHASE:
+            target_names = ["Chi tiêu khác", "Chi tiêu"]
+
+        for name in target_names:
+            cat_res = await db.execute(
+                select(Category.id).where(Category.name == name).limit(1)
+            )
+            found_id = cat_res.scalar_one_or_none()
+            if found_id:
+                return found_id
+        return None
+
+    @staticmethod
     async def create(db: AsyncSession, payload: TransactionCreate) -> Transaction:
         """Create a new transaction while strictly enforcing sign conventions.
 
@@ -173,6 +216,11 @@ class TransactionService:
         tx_data = payload.model_dump()
         convert_installment = tx_data.pop("convert_to_installment", None)
         merchant_name = tx_data.pop("merchant_name", None)
+
+        # Auto-resolve category if missing
+        tx_data["category_id"] = await TransactionService._resolve_default_category_for_type(
+            db, tx_data.get("transaction_type", TransactionTypeEnum.PURCHASE), tx_data.get("category_id")
+        )
 
         # 1. Resolve or dynamically create Merchant if merchant_name is provided and merchant_id is empty
         if not tx_data.get("merchant_id") and merchant_name and merchant_name.strip():

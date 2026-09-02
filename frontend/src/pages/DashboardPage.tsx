@@ -139,9 +139,9 @@ export const DashboardPage: React.FC = () => {
               <CreditCard className="w-5 h-5 text-emerald-400" />
               <span>Danh Sách Thẻ Tín Dụng ({accounts.filter((acc: AccountLiveBalance) => acc.status !== "CLOSED" && acc.status !== "REPLACED").length})</span>
             </h3>
-            <p className="text-xs text-slate-400 mt-0.5">
+            {/* <p className="text-xs text-slate-400 mt-0.5">
               Nhấn vào từng thẻ để xem chi tiết hạn mức và giao dịch
-            </p>
+            </p> */}
           </div>
           <Link
             to="/accounts"
