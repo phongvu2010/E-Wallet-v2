@@ -33,6 +33,9 @@ class Settings(BaseSettings):
     DB_POOL_TIMEOUT: int = 30
     DB_POOL_PRE_PING: bool = True
 
+    # Google Sheets ETL Ingestion
+    GOOGLE_SHEET_ID: str = "16kks0eL-j7SNxBAR3NlU5n1viIEvTjg-fAu9yWC9mAk"
+
     @model_validator(mode="after")
     def assemble_database_url(self) -> "Settings":
         """

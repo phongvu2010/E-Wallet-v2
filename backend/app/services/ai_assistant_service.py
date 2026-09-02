@@ -79,9 +79,7 @@ class AIAssistantService:
         }
 
     @staticmethod
-    def _generate_rule_based_reply(
-        query: str, ctx: Dict[str, Any]
-    ) -> AIChatResponse:
+    def _generate_rule_based_reply(query: str, ctx: Dict[str, Any]) -> AIChatResponse:
         """Intelligent local fallback response generator when Gemini API Key is not set."""
         q_lower = query.lower()
         cards = ctx.get("active_cards", [])
@@ -91,9 +89,7 @@ class AIAssistantService:
         total_limit = sum(c.get("credit_limit", 0) for c in cards)
         total_balance = sum(c.get("live_current_balance", 0) for c in cards)
         total_avail = sum(c.get("live_available_limit", 0) for c in cards)
-        overall_util = (
-            (total_balance / total_limit) * 100 if total_limit > 0 else 0
-        )
+        overall_util = (total_balance / total_limit) * 100 if total_limit > 0 else 0
 
         if any(
             k in q_lower
@@ -135,9 +131,7 @@ class AIAssistantService:
                     days = o.get("days_remaining", 0)
                     time_desc = "HÔM NAY" if days == 0 else f"còn {days} ngày"
                     reply += f"• **{o['account_name']}** ({o['obligation_type']}): **{o['total_amount_due']:,.0f} VNĐ** - Hạn chót: `{o['due_date']}` ({time_desc})\n"
-                reply += (
-                    "\n💡 *Khuyến nghị: Hãy thanh toán trước hạn 1-2 ngày để tránh chậm trễ ghi nhận giữa các ngân hàng.*"
-                )
+                reply += "\n💡 *Khuyến nghị: Hãy thanh toán trước hạn 1-2 ngày để tránh chậm trễ ghi nhận giữa các ngân hàng.*"
 
             return AIChatResponse(
                 reply=reply,
@@ -201,9 +195,7 @@ class AIAssistantService:
 
         # If no API key configured, use intelligent rule-based response
         if not gemini_api_key:
-            return AIAssistantService._generate_rule_based_reply(
-                payload.message, ctx
-            )
+            return AIAssistantService._generate_rule_based_reply(payload.message, ctx)
 
         # Gemini API System Prompt
         system_prompt = f"""
@@ -259,6 +251,4 @@ Nguyên tắc trả lời:
             print(f"[AIAssistantService] Gemini API call failed: {e}")
 
         # Fallback if API fails
-        return AIAssistantService._generate_rule_based_reply(
-            payload.message, ctx
-        )
+        return AIAssistantService._generate_rule_based_reply(payload.message, ctx)

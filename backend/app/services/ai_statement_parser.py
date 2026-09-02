@@ -94,9 +94,7 @@ class AIStatementParserService:
                             f"{t_date_str}/{stmt_date.year}", "%d/%m/%Y"
                         ).date()
                     else:
-                        t_d = datetime.datetime.strptime(
-                            t_date_str, "%d/%m/%Y"
-                        ).date()
+                        t_d = datetime.datetime.strptime(t_date_str, "%d/%m/%Y").date()
                 except Exception:
                     t_d = stmt_date
 
@@ -202,9 +200,7 @@ Yêu cầu trả về đúng JSON Schema:
                     print(f"[AIStatementParser] Gemini API fallback to local parser: {e}")
 
             # 3. Rule-based extraction fallback
-            result = AIStatementParserService._parse_pdf_text_rule_based(
-                full_text, fn
-            )
+            result = AIStatementParserService._parse_pdf_text_rule_based(full_text, fn)
             return AIPdfExtractionResponse(
                 success=True,
                 filename=fn,

@@ -92,9 +92,7 @@ class NotificationService:
         return result.rowcount
 
     @staticmethod
-    async def create(
-        db: AsyncSession, payload: NotificationCreate
-    ) -> Notification:
+    async def create(db: AsyncSession, payload: NotificationCreate) -> Notification:
         """Create a new in-app notification record and trigger Telegram push if enabled."""
         notif = Notification(
             user_id=payload.user_id,
@@ -189,7 +187,10 @@ class NotificationService:
                 response = await client.post(url, json=payload)
                 data = response.json()
                 if response.status_code == 200 and data.get("ok"):
-                    return {"success": True, "message": "Gửi tin nhắn Telegram thành công!"}
+                    return {
+                        "success": True,
+                        "message": "Gửi tin nhắn Telegram thành công!",
+                    }
                 else:
                     return {
                         "success": False,
@@ -297,7 +298,11 @@ class NotificationService:
                         message=message,
                         notification_type=NotificationTypeEnum.PAYMENT_DUE,
                         severity=severity,
-                        action_url="/statements" if ob["obligation_type"] == "STATEMENT" else "/installments",
+                        action_url=(
+                            "/statements"
+                            if ob["obligation_type"] == "STATEMENT"
+                            else "/installments"
+                        ),
                         metadata_json={
                             "reference_id": ref_id,
                             "obligation_type": ob["obligation_type"],

@@ -46,9 +46,7 @@ async def extract_statement_pdf(
         tmp_path = tmp.name
 
     try:
-        res = await AIStatementParserService.parse_pdf_file(
-            tmp_path, file.filename
-        )
+        res = await AIStatementParserService.parse_pdf_file(tmp_path, file.filename)
         return res
     finally:
         if os.path.exists(tmp_path):

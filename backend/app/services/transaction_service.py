@@ -1,3 +1,4 @@
+from decimal import Decimal
 from typing import List, Optional, Tuple
 from uuid import UUID
 
@@ -7,6 +8,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy.orm import selectinload
 
+from app.models.account import Account
+from app.models.installment import (
+    InstallmentPlan,
+    InstallmentSchedule,
+    InstallmentStatusEnum,
+)
+from app.models.merchant import Merchant
 from app.models.transaction import Transaction, TransactionTypeEnum
 from app.schemas.common import PaginationParams
 from app.schemas.transaction import (
@@ -15,6 +23,7 @@ from app.schemas.transaction import (
     TransactionSummaryRead,
     TransactionUpdate,
 )
+from app.services.installment_service import add_months_to_date
 
 
 class TransactionService:
@@ -46,6 +55,7 @@ class TransactionService:
         query = select(Transaction).options(
             selectinload(Transaction.category),
             selectinload(Transaction.merchant),
+            selectinload(Transaction.installment_plan),
         )
 
         conditions = []
@@ -126,6 +136,7 @@ class TransactionService:
                 selectinload(Transaction.merchant),
                 selectinload(Transaction.account),
                 selectinload(Transaction.statement),
+                selectinload(Transaction.installment_plan),
             )
             .where(Transaction.id == transaction_id)
         )
@@ -147,6 +158,8 @@ class TransactionService:
         Debit/Outflow types (PURCHASE, FEE, INTEREST, CASH_ADVANCE)
         are stored as positive amounts (increasing card balance).
 
+        Supports optional automatic merchant normalization and inline 0% installment plan creation.
+
         Args:
             db (AsyncSession): Active asynchronous database session.
             payload (TransactionCreate): Validated transaction input data.
@@ -158,8 +171,28 @@ class TransactionService:
             HTTPException: 400 Bad Request if validation or commit fails.
         """
         tx_data = payload.model_dump()
+        convert_installment = tx_data.pop("convert_to_installment", None)
+        merchant_name = tx_data.pop("merchant_name", None)
 
-        # Enforce sign conventions based on transaction_type
+        # 1. Resolve or dynamically create Merchant if merchant_name is provided and merchant_id is empty
+        if not tx_data.get("merchant_id") and merchant_name and merchant_name.strip():
+            m_clean = merchant_name.strip()
+            find_m = await db.execute(
+                select(Merchant).where(Merchant.cleaned_name.ilike(m_clean))
+            )
+            existing_m = find_m.scalar_one_or_none()
+            if existing_m:
+                tx_data["merchant_id"] = existing_m.id
+            else:
+                new_m = Merchant(
+                    cleaned_name=m_clean,
+                    default_category_id=tx_data.get("category_id"),
+                )
+                db.add(new_m)
+                await db.flush()
+                tx_data["merchant_id"] = new_m.id
+
+        # 2. Enforce sign conventions based on transaction_type
         credit_types = {
             TransactionTypeEnum.REPAYMENT,
             TransactionTypeEnum.REFUND,
@@ -176,8 +209,75 @@ class TransactionService:
             tx_data["total_amount"] = total_amt
             tx_data["amount"] = amt
 
+        if (
+            convert_installment
+            or tx_data.get("installment_plan_id")
+            or tx_data.get("transaction_type") == TransactionTypeEnum.INSTALLMENT_MONTHLY
+        ):
+            tx_data["is_installment"] = True
+
         tx = Transaction(**tx_data)
         db.add(tx)
+        await db.flush()
+
+        # 3. Handle inline Installment Plan & Schedule generation if requested
+        if convert_installment:
+            term = convert_installment.get("term_months", 3) or 3
+            p_name = convert_installment.get("product_name") or tx.raw_description
+            conv_fee = convert_installment.get("conversion_fee", Decimal("0.00")) or Decimal("0.00")
+            int_rate = convert_installment.get("interest_rate_percent", Decimal("0.00")) or Decimal("0.00")
+            plan_tot = abs(tx.total_amount)
+            base_monthly = round(plan_tot / term, 2)
+            accumulated_principal = Decimal("0.00")
+
+            # Fetch account billing day
+            acc_stmt = select(Account.billing_day_of_month).where(
+                Account.id == tx.account_id
+            )
+            acc_res = await db.execute(acc_stmt)
+            billing_day = acc_res.scalar_one_or_none()
+
+            plan = InstallmentPlan(
+                account_id=tx.account_id,
+                origin_transaction_id=tx.id,
+                product_name=p_name,
+                merchant_id=tx.merchant_id,
+                start_date=tx.transaction_date,
+                total_amount=plan_tot,
+                conversion_fee=conv_fee,
+                interest_rate_percent=int_rate,
+                term_months=term,
+                monthly_principal=base_monthly,
+                monthly_payment=base_monthly,
+                remaining_balance=plan_tot,
+                status=InstallmentStatusEnum.ACTIVE,
+            )
+            db.add(plan)
+            await db.flush()
+
+            # Generate monthly schedules with odd-cents balancing in the final period
+            for i in range(1, term + 1):
+                if i == term:
+                    period_principal = round(plan_tot - accumulated_principal, 2)
+                else:
+                    period_principal = base_monthly
+                    accumulated_principal += period_principal
+
+                due_date = add_months_to_date(tx.transaction_date, i, billing_day)
+
+                sched = InstallmentSchedule(
+                    installment_plan_id=plan.id,
+                    installment_index=i,
+                    total_installments=term,
+                    due_date=due_date,
+                    principal_amount=period_principal,
+                    total_installment_amount=period_principal,
+                    is_billed=False,
+                )
+                db.add(sched)
+
+            tx.installment_plan_id = plan.id
+
         try:
             await db.commit()
             return await TransactionService.get_by_id(db, tx.id)
@@ -192,7 +292,7 @@ class TransactionService:
     async def update(
         db: AsyncSession, transaction_id: UUID, payload: TransactionUpdate
     ) -> Transaction:
-        """Update fields of an existing transaction (e.g. note, category, dates).
+        """Update fields of an existing transaction (e.g. note, category, dates, amounts).
 
         Args:
             db (AsyncSession): Active asynchronous database session.
@@ -207,8 +307,76 @@ class TransactionService:
         """
         tx = await TransactionService.get_by_id(db, transaction_id)
         update_data = payload.model_dump(exclude_unset=True)
+
+        # 1. Resolve dynamic Merchant if merchant_name is provided and merchant_id is empty
+        merchant_name = update_data.pop("merchant_name", None)
+        if merchant_name and merchant_name.strip() and not update_data.get("merchant_id"):
+            m_clean = merchant_name.strip()
+            find_m = await db.execute(
+                select(Merchant).where(Merchant.cleaned_name.ilike(m_clean))
+            )
+            existing_m = find_m.scalar_one_or_none()
+            if existing_m:
+                update_data["merchant_id"] = existing_m.id
+            else:
+                new_m = Merchant(
+                    cleaned_name=m_clean,
+                    default_category_id=update_data.get("category_id") or tx.category_id,
+                )
+                db.add(new_m)
+                await db.flush()
+                update_data["merchant_id"] = new_m.id
+
+        # 2. Enforce sign conventions based on transaction_type
+        tx_type = update_data.get("transaction_type", tx.transaction_type)
+        credit_types = {
+            TransactionTypeEnum.REPAYMENT,
+            TransactionTypeEnum.REFUND,
+            TransactionTypeEnum.CASHBACK_CREDIT,
+            TransactionTypeEnum.INSTALLMENT_PRINCIPAL,
+        }
+
+        if "total_amount" in update_data:
+            tot = abs(update_data["total_amount"])
+            update_data["total_amount"] = -tot if tx_type in credit_types else tot
+        elif "transaction_type" in update_data:
+            tot = abs(tx.total_amount)
+            update_data["total_amount"] = -tot if tx_type in credit_types else tot
+
+        if "amount" in update_data:
+            a = abs(update_data["amount"])
+            update_data["amount"] = -a if tx_type in credit_types else a
+        elif "transaction_type" in update_data:
+            a = abs(tx.amount)
+            update_data["amount"] = -a if tx_type in credit_types else a
+
+        # Convert empty strings to None for nullable fields
+        for field in [
+            "note",
+            "post_date",
+            "original_currency",
+            "installment_plan_id",
+            "statement_id",
+            "settles_statement_id",
+        ]:
+            if update_data.get(field) == "":
+                update_data[field] = None
+
+        if (
+            update_data.get("installment_plan_id")
+            or tx_type == TransactionTypeEnum.INSTALLMENT_MONTHLY
+        ):
+            update_data["is_installment"] = True
+        elif (
+            "installment_plan_id" in update_data
+            and update_data["installment_plan_id"] is None
+            and tx_type != TransactionTypeEnum.INSTALLMENT_MONTHLY
+        ):
+            update_data["is_installment"] = False
+
         for key, value in update_data.items():
             setattr(tx, key, value)
+
         try:
             await db.commit()
             return await TransactionService.get_by_id(db, tx.id)

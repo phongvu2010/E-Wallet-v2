@@ -41,3 +41,13 @@ class MerchantSimpleRead(MerchantBase):
 
 class MerchantRead(MerchantSimpleRead):
     aliases: List[MerchantAliasRead] = []
+
+
+class MerchantSuggestionRead(BaseModel):
+    id: UUID
+    cleaned_name: str
+    default_category_id: Optional[UUID] = None
+    default_category_name: Optional[str] = None
+    aliases: List[str] = []
+
+    model_config = ConfigDict(from_attributes=True)

@@ -1,13 +1,18 @@
 import React, { useEffect, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
+  AlertCircle,
   Bell,
+  CloudDownload,
   Database,
+  ExternalLink,
+  FileSpreadsheet,
   FolderTree,
+  HelpCircle,
   RefreshCw,
+  Save,
   Send,
   Settings,
-  ShieldAlert,
   Terminal,
 } from "lucide-react";
 import { Badge } from "../components/common/Badge";
@@ -38,18 +43,20 @@ export const SettingsPage: React.FC = () => {
   const [telegramChatId, setTelegramChatId] = useState("");
   const [isTelegramEnabled, setIsTelegramEnabled] = useState(false);
   const [remindDays, setRemindDays] = useState(3);
-  const [utilThreshold, setUtilThreshold] = useState(70);
+  const [utilThreshold, setUtilThreshold] = useState(80);
 
+  // Mutations
   const updateNotifMutation = useUpdateNotificationSettings();
   const testTelegramMutation = useTestTelegram();
 
+  // Populate notification form when data is loaded
   useEffect(() => {
     if (notifSettings) {
       setTelegramToken(notifSettings.telegram_bot_token || "");
       setTelegramChatId(notifSettings.telegram_chat_id || "");
       setIsTelegramEnabled(notifSettings.is_telegram_enabled || false);
       setRemindDays(notifSettings.remind_days_before || 3);
-      setUtilThreshold(notifSettings.remind_utilization_threshold || 70);
+      setUtilThreshold(notifSettings.remind_utilization_threshold || 80);
     }
   }, [notifSettings]);
 
@@ -57,21 +64,21 @@ export const SettingsPage: React.FC = () => {
     e.preventDefault();
     try {
       await updateNotifMutation.mutateAsync({
-        telegram_bot_token: telegramToken.trim(),
-        telegram_chat_id: telegramChatId.trim(),
+        telegram_bot_token: telegramToken.trim() || undefined,
+        telegram_chat_id: telegramChatId.trim() || undefined,
         is_telegram_enabled: isTelegramEnabled,
         remind_days_before: Number(remindDays),
         remind_utilization_threshold: Number(utilThreshold),
       });
       toast.success("Lưu cấu hình thông báo thành công!");
     } catch (err: any) {
-      toast.error(`Lỗi cập nhật cấu hình: ${err.message}`);
+      toast.error(`Lỗi lưu cài đặt: ${err.message}`);
     }
   };
 
   const handleTestTelegram = async () => {
     if (!telegramToken.trim() || !telegramChatId.trim()) {
-      toast.error("Vui lòng nhập Bot Token và Chat ID trước khi test!");
+      toast.error("Vui lòng nhập đầy đủ Bot Token và Chat ID trước khi kiểm tra!");
       return;
     }
     try {
@@ -89,16 +96,73 @@ export const SettingsPage: React.FC = () => {
     }
   };
 
-  // ETL Sync state
+  // ETL Sync & Google Sheets state
+  const [googleSheetId, setGoogleSheetId] = useState(
+    "16kks0eL-j7SNxBAR3NlU5n1viIEvTjg-fAu9yWC9mAk"
+  );
+  const [sourceType, setSourceType] = useState<"google_sheet" | "excel">(
+    "google_sheet"
+  );
+  const [isSavingConfig, setIsSavingConfig] = useState(false);
+  const [hasLocalExcel, setHasLocalExcel] = useState(true);
+  const [hasCachedSheet, setHasCachedSheet] = useState(false);
+  const [showSheetGuide, setShowSheetGuide] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncOutput, setSyncOutput] = useState<string>("");
 
+  // Fetch ETL initial config
+  useEffect(() => {
+    etlService
+      .getConfig()
+      .then((res) => {
+        if (res.success && res.data) {
+          if (res.data.google_sheet_id)
+            setGoogleSheetId(res.data.google_sheet_id);
+          if (res.data.source_type)
+            setSourceType(res.data.source_type as any);
+          setHasLocalExcel(res.data.has_local_excel);
+          setHasCachedSheet(res.data.has_cached_sheet);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  const handleSaveSheetConfig = async () => {
+    if (!googleSheetId.trim()) {
+      toast.error("Vui lòng nhập Google Sheet ID hoặc đường dẫn URL");
+      return;
+    }
+    setIsSavingConfig(true);
+    try {
+      const res = await etlService.updateConfig(googleSheetId.trim());
+      if (res.success) {
+        setGoogleSheetId(res.data.google_sheet_id);
+        toast.success("Đã lưu cấu hình Google Sheet ID thành công!");
+      } else {
+        toast.error(`Lỗi: ${res.message}`);
+      }
+    } catch (err: any) {
+      toast.error(`Lỗi khi lưu: ${err.message}`);
+    } finally {
+      setIsSavingConfig(false);
+    }
+  };
+
   const handleTriggerSync = async () => {
     setIsSyncing(true);
-    setSyncOutput("Bắt đầu thực thi ETL Migration script từ Excel và PDF...");
-    toast.info("Đang chạy đồng bộ dữ liệu sao kê...");
+    const targetSource =
+      sourceType === "google_sheet"
+        ? `Google Sheets (${googleSheetId.slice(0, 8)}...)`
+        : "File Excel nội bộ (My Credit Wallet 2.0.xlsx)";
+    setSyncOutput(
+      `[Khởi chạy] Đang bắt đầu đồng bộ ETL Migration từ ${targetSource}...`
+    );
+    toast.info(`Đang chạy đồng bộ dữ liệu từ ${targetSource}...`);
     try {
-      const res = await etlService.sync();
+      const res = await etlService.sync(
+        sourceType === "google_sheet" ? googleSheetId : undefined,
+        sourceType
+      );
       if (res.success) {
         setSyncOutput(res.data.output || "Đồng bộ thành công!");
         toast.success("Đồng bộ dữ liệu ETL thành công!");
@@ -115,6 +179,11 @@ export const SettingsPage: React.FC = () => {
     }
   };
 
+  // Build clean Google Sheet URL for direct link opening
+  const directSheetUrl = googleSheetId.startsWith("http")
+    ? googleSheetId
+    : `https://docs.google.com/spreadsheets/d/${googleSheetId}/edit`;
+
   return (
     <div className="space-y-8">
       {/* 1. Header */}
@@ -124,7 +193,7 @@ export const SettingsPage: React.FC = () => {
           <span>Cài Đặt Hệ Thống, Thông Báo & Đồng Bộ ETL</span>
         </h2>
         <p className="text-xs text-slate-400 mt-0.5">
-          Quản lý kênh cảnh báo Telegram Bot, cây danh mục thu chi và công cụ nạp dữ liệu
+          Quản lý kênh cảnh báo Telegram Bot, cây danh mục thu chi và công cụ nạp dữ liệu từ Google Sheets / Excel
         </p>
       </div>
 
@@ -189,7 +258,7 @@ export const SettingsPage: React.FC = () => {
                 onChange={(e) => setUtilThreshold(Number(e.target.value))}
                 className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-100 focus:outline-none focus:border-emerald-500"
               />
-              <p className="text-[10px] text-slate-500 mt-1">Cảnh báo khi quẹt &gt; 70%</p>
+              <p className="text-[10px] text-slate-500 mt-1">Cảnh báo khi quẹt &gt; 80%</p>
             </div>
 
             <div className="flex flex-col justify-center">
@@ -235,16 +304,21 @@ export const SettingsPage: React.FC = () => {
         </form>
       </Card>
 
-      {/* 3. ETL Sync Panel */}
-      <Card className="space-y-4">
+      {/* 3. ETL Sync Panel - Google Sheets & Excel */}
+      <Card className="space-y-5">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-800 pb-4">
           <div>
-            <h3 className="text-base font-bold text-slate-100 flex items-center gap-2">
-              <RefreshCw className="w-4 h-4 text-emerald-400" />
-              <span>Đồng Bộ Dữ Liệu Tự Động (ETL Migration)</span>
-            </h3>
-            <p className="text-xs text-slate-400 mt-0.5">
-              Đọc dữ liệu từ file <b>data/My Credit Wallet 2.0.xlsx</b> và các tệp sao kê PDF trong thư mục data/
+            <div className="flex items-center gap-2">
+              <h3 className="text-base font-bold text-slate-100 flex items-center gap-2">
+                <CloudDownload className="w-4 h-4 text-emerald-400" />
+                <span>Đồng Bộ Dữ Liệu Tự Động (ETL Migration)</span>
+              </h3>
+              <Badge variant={sourceType === "google_sheet" ? "success" : "neutral"}>
+                {sourceType === "google_sheet" ? "GOOGLE SHEETS" : "LOCAL EXCEL"}
+              </Badge>
+            </div>
+            <p className="text-xs text-slate-400 mt-1">
+              Đồng bộ dữ liệu trực tuyến từ Google Sheets: Tự động đối chiếu (Smart 2-Tier Matching), gộp giao dịch thủ công, cập nhật ngày bút toán (post_date), gán sao kê và đối soát 3 chiều.
             </p>
           </div>
 
@@ -258,14 +332,158 @@ export const SettingsPage: React.FC = () => {
           </Button>
         </div>
 
+        {/* Source Selector Tabs */}
+        <div className="flex items-center gap-2 p-1 bg-slate-950 rounded-xl border border-slate-800 w-fit">
+          <button
+            type="button"
+            onClick={() => setSourceType("google_sheet")}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+              sourceType === "google_sheet"
+                ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 shadow-sm"
+                : "text-slate-400 hover:text-slate-200"
+            }`}
+          >
+            <CloudDownload className="w-3.5 h-3.5 text-emerald-400" />
+            <span>Google Sheets (Trực Tuyến)</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setSourceType("excel")}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+              sourceType === "excel"
+                ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 shadow-sm"
+                : "text-slate-400 hover:text-slate-200"
+            }`}
+          >
+            <FileSpreadsheet className="w-3.5 h-3.5 text-sky-400" />
+            <span>Tệp Excel Nội Bộ (data/My Credit Wallet 2.0.xlsx)</span>
+          </button>
+        </div>
+
+        {/* Google Sheet ID Input & Action Row */}
+        {sourceType === "google_sheet" && (
+          <div className="p-4 rounded-2xl bg-slate-950/60 border border-slate-800 space-y-3">
+            <div className="flex flex-col md:flex-row md:items-end gap-3">
+              <div className="flex-1">
+                <Input
+                  label="Google Sheet ID hoặc Đường Dẫn URL"
+                  placeholder="VD: 16kks0eL-j7SNxBAR3NlU5n1viIEvTjg-fAu9yWC9mAk hoặc link https://docs.google.com/..."
+                  value={googleSheetId}
+                  onChange={(e) => setGoogleSheetId(e.target.value)}
+                />
+              </div>
+
+              <div className="flex items-center gap-2 shrink-0">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={handleSaveSheetConfig}
+                  isLoading={isSavingConfig}
+                  leftIcon={<Save className="w-3.5 h-3.5 text-emerald-400" />}
+                >
+                  Lưu Cấu Hình
+                </Button>
+
+                <a
+                  href={directSheetUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold bg-slate-900 border border-slate-700 text-sky-300 hover:bg-slate-800 hover:text-sky-200 transition-colors"
+                >
+                  <ExternalLink className="w-3.5 h-3.5" />
+                  <span>Mở Google Sheet</span>
+                </a>
+
+                <button
+                  type="button"
+                  onClick={() => setShowSheetGuide(!showSheetGuide)}
+                  className="p-2 text-slate-400 hover:text-amber-300 rounded-xl hover:bg-slate-900 transition-colors"
+                  title="Hướng dẫn phân quyền Google Sheet"
+                >
+                  <HelpCircle className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+
+            {/* Quick Status Bar */}
+            <div className="flex flex-wrap items-center gap-3 text-[11px] text-slate-400 pt-1">
+              <span className="flex items-center gap-1">
+                <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
+                <span>Mã Sheet hiện tại:</span>
+                <code className="text-emerald-300 font-mono font-semibold">
+                  {googleSheetId.slice(0, 16)}...
+                </code>
+              </span>
+              {hasCachedSheet && (
+                <span className="text-slate-500">• Đã có bản sao lưu offline (Cache)</span>
+              )}
+              {hasLocalExcel && (
+                <span className="text-slate-500">• Có tệp Excel dự phòng</span>
+              )}
+            </div>
+
+            {/* Guide Box (Expandable) */}
+            {showSheetGuide && (
+              <div className="p-3.5 rounded-xl bg-amber-950/20 border border-amber-500/30 text-xs space-y-2 animate-fadeIn">
+                <div className="flex items-center gap-1.5 font-bold text-amber-300">
+                  <AlertCircle className="w-4 h-4 text-amber-400 shrink-0" />
+                  <span>Hướng dẫn cấp quyền đọc cho Google Sheet:</span>
+                </div>
+                <ol className="list-decimal list-inside space-y-1 text-slate-300 text-[11px] leading-relaxed">
+                  <li>
+                    Mở trang tính:{" "}
+                    <a
+                      href={directSheetUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-sky-400 underline"
+                    >
+                      {directSheetUrl}
+                    </a>
+                  </li>
+                  <li>
+                    Bấm nút <b>"Chia sẻ" (Share)</b> ở góc trên bên phải màn hình.
+                  </li>
+                  <li>
+                    Tại mục <b>"Quyền truy cập chung" (General access)</b>, chọn:
+                    <span className="text-amber-200 font-semibold ml-1">
+                      "Bất kỳ ai có đường liên kết" (Anyone with the link)
+                    </span>{" "}
+                    với quyền <b>"Người xem" (Viewer)</b>.
+                  </li>
+                  <li>
+                    Bấm <b>"Xong" (Done)</b> và quay lại đây bấm <b>"Chạy Đồng Bộ Ngay"</b>.
+                  </li>
+                </ol>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Local Excel Information */}
+        {sourceType === "excel" && (
+          <div className="p-3.5 rounded-xl bg-sky-950/20 border border-sky-500/30 text-xs text-sky-200/90 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <FileSpreadsheet className="w-4 h-4 text-sky-400 shrink-0" />
+              <span>
+                Nguồn nạp: <b>data/My Credit Wallet 2.0.xlsx</b> (Tệp Excel lưu trữ trong mã nguồn máy chủ)
+              </span>
+            </div>
+            <Badge variant={hasLocalExcel ? "success" : "danger"}>
+              {hasLocalExcel ? "TỆP KHẢ DỤNG" : "KHÔNG TÌM THẤY TỆP"}
+            </Badge>
+          </div>
+        )}
+
         {/* Terminal Output */}
         {syncOutput && (
-          <div className="p-4 bg-slate-950 rounded-xl border border-slate-800 font-mono text-xs text-slate-300 overflow-x-auto max-h-60 overflow-y-auto space-y-1">
+          <div className="p-4 bg-slate-950 rounded-xl border border-slate-800 font-mono text-xs text-slate-300 overflow-x-auto max-h-64 overflow-y-auto space-y-1">
             <div className="flex items-center gap-2 text-slate-500 pb-2 border-b border-slate-800">
-              <Terminal className="w-4 h-4" />
+              <Terminal className="w-4 h-4 text-emerald-400" />
               <span>ETL Console Output:</span>
             </div>
-            <pre className="whitespace-pre-wrap leading-relaxed">{syncOutput}</pre>
+            <pre className="whitespace-pre-wrap leading-relaxed font-mono">{syncOutput}</pre>
           </div>
         )}
       </Card>

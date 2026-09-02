@@ -6,7 +6,7 @@ interface ModalProps {
   onClose: () => void;
   title: string;
   children: React.ReactNode;
-  maxWidth?: "sm" | "md" | "lg" | "xl" | "2xl";
+  maxWidth?: "sm" | "md" | "lg" | "xl" | "2xl" | "3xl" | "4xl" | "5xl";
 }
 
 export const Modal: React.FC<ModalProps> = ({
@@ -28,16 +28,19 @@ export const Modal: React.FC<ModalProps> = ({
 
   if (!isOpen) return null;
 
-  const maxWidthStyles = {
+  const maxWidthStyles: Record<string, string> = {
     sm: "max-w-sm",
     md: "max-w-md",
     lg: "max-w-lg",
     xl: "max-w-xl",
     "2xl": "max-w-2xl",
+    "3xl": "max-w-3xl",
+    "4xl": "max-w-4xl",
+    "5xl": "max-w-5xl",
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
       {/* Backdrop */}
       <div
         className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm transition-opacity"
@@ -46,10 +49,10 @@ export const Modal: React.FC<ModalProps> = ({
 
       {/* Modal Dialog */}
       <div
-        className={`relative w-full ${maxWidthStyles[maxWidth]} bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl p-6 z-10 animate-in fade-in zoom-in-95 duration-200`}
+        className={`relative w-full ${maxWidthStyles[maxWidth] || "max-w-lg"} bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl z-10 animate-in fade-in zoom-in-95 duration-200 flex flex-col max-h-[92vh] overflow-hidden my-auto`}
       >
-        <div className="flex items-center justify-between pb-4 border-b border-slate-800 mb-5">
-          <h3 className="text-lg font-semibold text-slate-100">{title}</h3>
+        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800 shrink-0 bg-slate-900/90 backdrop-blur">
+          <h3 className="text-base sm:text-lg font-bold text-slate-100">{title}</h3>
           <button
             onClick={onClose}
             className="text-slate-400 hover:text-slate-200 p-1.5 rounded-lg hover:bg-slate-800 transition-colors"
@@ -57,7 +60,7 @@ export const Modal: React.FC<ModalProps> = ({
             <X className="w-5 h-5" />
           </button>
         </div>
-        <div>{children}</div>
+        <div className="p-5 sm:p-6 overflow-y-auto flex-1">{children}</div>
       </div>
     </div>
   );

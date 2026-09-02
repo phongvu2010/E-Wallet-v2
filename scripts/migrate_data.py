@@ -14,12 +14,15 @@ Execution Pipeline:
     7. Shinhan Reward Points / Cashback ledger recording.
 """
 
+import argparse
 import calendar
 import datetime
 import hashlib
 import os
 import re
+import urllib.error
 import urllib.parse
+import urllib.request
 import warnings
 from pathlib import Path
 from typing import Any, Optional
@@ -30,6 +33,46 @@ import psycopg2
 from psycopg2.extras import execute_values
 
 warnings.filterwarnings("ignore", category=UserWarning, module="openpyxl")
+
+# Parse CLI Arguments
+parser = argparse.ArgumentParser(
+    description="ETL Data Ingestion Script (Google Sheets / Excel)"
+)
+parser.add_argument(
+    "--sheet-id",
+    "-s",
+    type=str,
+    default=None,
+    help="Google Sheet ID or Google Sheet full URL",
+)
+parser.add_argument(
+    "--file",
+    "-f",
+    type=str,
+    default=None,
+    help="Local Excel file path fallback",
+)
+args, _ = parser.parse_known_args()
+
+
+def extract_google_sheet_id(raw_input: Optional[str]) -> Optional[str]:
+    """Extract standard Google Sheet ID from raw ID or full Google Sheets URL.
+
+    Args:
+        raw_input (Optional[str]): Full URL or ID string.
+
+    Returns:
+        Optional[str]: Extracted 44-character sheet ID.
+    """
+    if not raw_input:
+        return None
+    raw_input = raw_input.strip()
+    match = re.search(r"/spreadsheets/d/([a-zA-Z0-9-_]+)", raw_input)
+    if match:
+        return match.group(1)
+    if re.match(r"^[a-zA-Z0-9-_]{20,}$", raw_input):
+        return raw_input
+    return raw_input
 
 
 def add_months_to_date(
@@ -82,30 +125,99 @@ if not DB_URL:
     ssl_part = f"?sslmode={pg_ssl}" if pg_ssl else ""
     DB_URL = f"postgresql://{pg_user}{pwd_part}@{pg_host}:{pg_port}/{pg_db}{ssl_part}"
 
-excel_path = "data/My Credit Wallet 2.0.xlsx"
-wb = openpyxl.load_workbook(excel_path, data_only=True)
+# Resolve target Sheet ID or File
+target_sheet_id = extract_google_sheet_id(args.sheet_id or os.getenv("GOOGLE_SHEET_ID"))
+excel_file_path = args.file or "data/My Credit Wallet 2.0.xlsx"
+cache_sheet_path = "data/google_sheet_cache.xlsx"
+
+wb = None
+sheet_source_desc = ""
+
+if target_sheet_id:
+    print(f"[ETL Ingestion] Đang kết nối và tải dữ liệu từ Google Sheet (ID: {target_sheet_id})...")
+    export_url = f"https://docs.google.com/spreadsheets/d/{target_sheet_id}/export?format=xlsx"
+    req = urllib.request.Request(
+        export_url,
+        headers={
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+            )
+        },
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            content = resp.read()
+            Path(cache_sheet_path).parent.mkdir(parents=True, exist_ok=True)
+            with open(cache_sheet_path, "wb") as f:
+                f.write(content)
+            wb = openpyxl.load_workbook(cache_sheet_path, data_only=True)
+            sheet_source_desc = f"Google Sheet (ID: {target_sheet_id})"
+            print(f"[ETL Ingestion] ✅ Đã tải thành công {len(content):,} bytes từ Google Sheet!")
+            print(f"[ETL Ingestion] Danh sách trang tính nhận diện: {wb.sheetnames}")
+    except urllib.error.HTTPError as e:
+        print(f"\n[CẢNH BÁO / LỖI] ❌ Không thể tải Google Sheet (HTTP Error {e.code}: {e.reason})!")
+        if e.code in (401, 403):
+            print("=" * 70)
+            print("👉 HƯỚNG DẪN CẤP QUYỀN TRUY CẬP GOOGLE SHEET:")
+            print(f"   1. Mở trang tính trên trình duyệt: https://docs.google.com/spreadsheets/d/{target_sheet_id}")
+            print("   2. Bấm nút 'Chia sẻ' (Share) ở góc trên bên phải.")
+            print("   3. Tại mục 'Quyền truy cập chung' (General access), chọn:")
+            print("      'Bất kỳ ai có đường liên kết' (Anyone with the link) -> Quyền 'Người xem' (Viewer).")
+            print("   4. Bấm 'Xong' (Done) và chạy lại Đồng Bộ ETL!")
+            print("=" * 70)
+        # Fallback to cache or local excel file
+        if Path(cache_sheet_path).exists():
+            print(f"[ETL Ingestion] ⚠️ Sử dụng tệp Google Sheet đã lưu cache trước đó: {cache_sheet_path}")
+            wb = openpyxl.load_workbook(cache_sheet_path, data_only=True)
+            sheet_source_desc = f"Google Sheet Cache ({cache_sheet_path})"
+        elif Path(excel_file_path).exists():
+            print(f"[ETL Ingestion] ⚠️ Chuyển sang nạp từ tệp Excel dự phòng cục bộ: {excel_file_path}")
+            wb = openpyxl.load_workbook(excel_file_path, data_only=True)
+            sheet_source_desc = f"Tệp Excel cục bộ ({excel_file_path})"
+        else:
+            raise RuntimeError(
+                f"Không thể truy cập Google Sheet ({target_sheet_id}) và không tìm thấy tệp dữ liệu dự phòng."
+            )
+    except Exception as e:
+        print(f"[ETL Ingestion] ❌ Lỗi kết nối Google Sheet: {str(e)}")
+        if Path(cache_sheet_path).exists():
+            print(f"[ETL Ingestion] ⚠️ Sử dụng tệp Google Sheet đã lưu cache trước đó: {cache_sheet_path}")
+            wb = openpyxl.load_workbook(cache_sheet_path, data_only=True)
+            sheet_source_desc = f"Google Sheet Cache ({cache_sheet_path})"
+        elif Path(excel_file_path).exists():
+            print(f"[ETL Ingestion] ⚠️ Chuyển sang nạp từ tệp Excel cục bộ: {excel_file_path}")
+            wb = openpyxl.load_workbook(excel_file_path, data_only=True)
+            sheet_source_desc = f"Tệp Excel cục bộ ({excel_file_path})"
+        else:
+            raise RuntimeError(f"Không thể tải Google Sheet và không có tệp dự phòng: {str(e)}")
+
+if wb is None:
+    if Path(excel_file_path).exists():
+        print(f"[ETL Ingestion] Nạp dữ liệu từ tệp Excel cục bộ: {excel_file_path}")
+        wb = openpyxl.load_workbook(excel_file_path, data_only=True)
+        sheet_source_desc = f"Tệp Excel cục bộ ({excel_file_path})"
+    else:
+        raise FileNotFoundError(f"Không tìm thấy nguồn dữ liệu ({excel_file_path})")
 
 
 def load_sheet(name: str) -> pd.DataFrame:
-    """Read a specific worksheet from the Excel workbook into a cleaned pandas DataFrame.
+    """Read a specific worksheet into a cleaned pandas DataFrame with case-insensitive matching."""
+    matched_sheet = None
+    for s_name in wb.sheetnames:
+        if s_name.strip().lower() == name.strip().lower():
+            matched_sheet = s_name
+            break
 
-    Strips trailing empty columns and rows.
-
-    Args:
-        name (str): Worksheet tab name.
-
-    Returns:
-        pd.DataFrame: DataFrame containing worksheet records.
-    """
-    if name not in wb.sheetnames:
+    if not matched_sheet:
         return pd.DataFrame()
 
-    ws = wb[name]
+    ws = wb[matched_sheet]
     rows = list(ws.iter_rows(values_only=True))
     if not rows:
         return pd.DataFrame()
 
-    header = rows[0]
+    header = [str(c).strip() if c is not None else None for c in rows[0]]
     last_col = len(header)
     while last_col > 0 and header[last_col - 1] is None:
         last_col -= 1
@@ -218,7 +330,13 @@ def calculate_tx_fingerprint(
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
-conn = psycopg2.connect(DB_URL)
+try:
+    conn = psycopg2.connect(DB_URL)
+except Exception:
+    # Fallback to localhost if 'db' hostname cannot be resolved (when running outside Docker container)
+    local_db_url = re.sub(r"@db(:|\/|\?)", r"@localhost\1", DB_URL)
+    conn = psycopg2.connect(local_db_url)
+
 cur = conn.cursor()
 
 try:
@@ -492,9 +610,60 @@ try:
         f"Migrated {len(statement_id_map)} Statements and updated start_date & previous_balance history."
     )
 
-    # 6. Migrate Transactions (Bulk Insert with Fingerprint Deduplication & Enforced Sign Conventions)
-    tx_records = []
+    # 6. Migrate Transactions (Smart 2-Tier Matching: SHA-256 Fingerprint + Fuzzy Heuristic for Manual Transactions)
+    print("Loading existing transactions from database for smart reconciliation...")
+    cur.execute("""
+        SELECT id, account_id, transaction_date, post_date, raw_description, 
+               total_amount, amount, original_amount, original_currency, 
+               statement_id, settles_statement_id, merchant_id, category_id, tx_fingerprint, note
+        FROM transactions;
+    """)
+    existing_tx_rows = cur.fetchall()
+
+    # Fast lookups for existing transactions
+    db_tx_by_fp = {}
+    db_tx_candidates = []
+    for r in existing_tx_rows:
+        row_dict = {
+            "id": r[0],
+            "account_id": r[1],
+            "transaction_date": r[2],
+            "post_date": r[3],
+            "raw_description": r[4],
+            "total_amount": float(r[5]) if r[5] is not None else 0.0,
+            "amount": float(r[6]) if r[6] is not None else 0.0,
+            "original_amount": float(r[7]) if r[7] is not None else 0.0,
+            "original_currency": r[8] or "VND",
+            "statement_id": r[9],
+            "settles_statement_id": r[10],
+            "merchant_id": r[11],
+            "category_id": r[12],
+            "tx_fingerprint": r[13],
+            "note": r[14],
+        }
+        if r[13]:
+            db_tx_by_fp[r[13]] = row_dict
+        db_tx_candidates.append(row_dict)
+
+    def is_desc_similar(d1: Optional[str], d2: Optional[str]) -> bool:
+        if not d1 or not d2:
+            return True
+        c1 = re.sub(r"[^a-zA-Z0-9]", "", d1.lower())
+        c2 = re.sub(r"[^a-zA-Z0-9]", "", d2.lower())
+        if not c1 or not c2:
+            return True
+        if c1 in c2 or c2 in c1:
+            return True
+        w1 = set(d1.upper().split())
+        w2 = set(d2.upper().split())
+        return len(w1.intersection(w2)) > 0
+
+    tx_records_to_insert = []
+    tx_records_to_update = []
+    matched_db_tx_ids = set()
     seen_tx_counts = {}
+    matched_manual_count = 0
+    updated_existing_count = 0
 
     for _, row in df_transactions.iterrows():
         acc_num = str(row["Account Number"]).strip()
@@ -595,7 +764,7 @@ try:
             else (fee if orig_curr != "VND" else 0.0)
         )
 
-        note = (
+        excel_note = (
             str(row["Note"]).strip()
             if "Note" in row and not pd.isna(row["Note"])
             else None
@@ -622,31 +791,169 @@ try:
                 preceding_stmts.sort(key=lambda x: x[0], reverse=True)
                 settles_stmt_id = preceding_stmts[0][1]
 
-        tx_records.append(
-            (
-                acc_id,
-                stmt_id,
-                settles_stmt_id,
-                t_date,
-                p_date,
-                raw_desc,
-                merch_id,
-                cat_id,
-                tx_type,
-                orig_amt,
-                orig_curr,
-                ex_rate,
-                for_fee,
-                amt,
-                fee,
-                total_amt,
-                note,
-                (tx_type == "INSTALLMENT_MONTHLY"),
-                tx_fp,
+        # ---------------------------------------------------------
+        # SMART 2-TIER MATCHING LOGIC
+        # ---------------------------------------------------------
+        matched_db_id = None
+        is_manual_match = False
+
+        # Tier 1: Exact Hash Fingerprint Match
+        if tx_fp in db_tx_by_fp and str(db_tx_by_fp[tx_fp]["id"]) not in matched_db_tx_ids:
+            matched_db_id = db_tx_by_fp[tx_fp]["id"]
+            updated_existing_count += 1
+        else:
+            # Tier 2: Fuzzy Heuristic Match for Manually-Entered Transactions
+            # Find all candidates on the same account with matching amount and within 1 day
+            candidates_for_acc = [
+                cand
+                for cand in db_tx_candidates
+                if str(cand["id"]) not in matched_db_tx_ids
+                and str(cand["account_id"]).lower() == str(acc_id).lower()
+                and (
+                    abs(cand["total_amount"] - total_amt) < 1.0
+                    or abs(abs(cand["amount"]) - abs(amt)) < 1.0
+                    or (orig_curr != "VND" and abs(cand["original_amount"] - orig_amt) < 0.1)
+                )
+                and cand["transaction_date"]
+                and abs((cand["transaction_date"] - t_date).days) <= 1
+            ]
+
+            if len(candidates_for_acc) == 1:
+                # Exactly 1 candidate exists with identical amount and date on this card -> 100% Unambiguous Match!
+                matched_db_id = candidates_for_acc[0]["id"]
+                is_manual_match = True
+                matched_manual_count += 1
+            elif len(candidates_for_acc) > 1:
+                # Multiple candidates -> filter by description or merchant or payment type
+                for cand in candidates_for_acc:
+                    merchant_match = (
+                        cand["merchant_id"] and cand["merchant_id"] == merch_id
+                    )
+                    desc_match = is_desc_similar(cand["raw_description"], raw_desc)
+                    repay_match = (
+                        tx_type == "REPAYMENT"
+                        and (
+                            cand["total_amount"] < 0
+                            or "thanh toán" in (cand["raw_description"] or "").lower()
+                            or "sacombank" in (cand["raw_description"] or "").lower()
+                        )
+                    )
+                    inst_match = (
+                        tx_type in ["INSTALLMENT_MONTHLY", "INSTALLMENT_PRINCIPAL"]
+                        and (
+                            "install" in (cand["raw_description"] or "").lower()
+                            or "trả góp" in (cand["raw_description"] or "").lower()
+                            or "shopee" in (cand["raw_description"] or "").lower()
+                        )
+                    )
+                    if merchant_match or desc_match or repay_match or inst_match:
+                        matched_db_id = cand["id"]
+                        is_manual_match = True
+                        matched_manual_count += 1
+                        break
+                # Fallback to first candidate if no specific match
+                if not matched_db_id:
+                    matched_db_id = candidates_for_acc[0]["id"]
+                    is_manual_match = True
+                    matched_manual_count += 1
+
+        if matched_db_id:
+            matched_db_tx_ids.add(str(matched_db_id))
+            # Find candidate note if any to preserve custom manual notes if Excel note is empty
+            merged_note = excel_note
+            for cand in db_tx_candidates:
+                if str(cand["id"]) == str(matched_db_id):
+                    if not merged_note and cand.get("note"):
+                        merged_note = cand["note"]
+                    break
+
+            tx_records_to_update.append(
+                (
+                    stmt_id,
+                    settles_stmt_id,
+                    t_date,
+                    p_date,
+                    raw_desc,
+                    merch_id,
+                    cat_id,
+                    tx_type,
+                    orig_amt,
+                    orig_curr,
+                    ex_rate,
+                    for_fee,
+                    amt,
+                    fee,
+                    total_amt,
+                    merged_note,
+                    (tx_type == "INSTALLMENT_MONTHLY"),
+                    tx_fp,
+                    str(matched_db_id),
+                )
             )
+        else:
+            tx_records_to_insert.append(
+                (
+                    acc_id,
+                    stmt_id,
+                    settles_stmt_id,
+                    t_date,
+                    p_date,
+                    raw_desc,
+                    merch_id,
+                    cat_id,
+                    tx_type,
+                    orig_amt,
+                    orig_curr,
+                    ex_rate,
+                    for_fee,
+                    amt,
+                    fee,
+                    total_amt,
+                    excel_note,
+                    (tx_type == "INSTALLMENT_MONTHLY"),
+                    tx_fp,
+                )
+            )
+
+    # Execute Bulk Updates for Matched / Reconciled Transactions
+    if tx_records_to_update:
+        execute_values(
+            cur,
+            """
+            UPDATE transactions AS t
+            SET 
+                statement_id = v.statement_id::uuid,
+                settles_statement_id = v.settles_statement_id::uuid,
+                transaction_date = v.transaction_date::date,
+                post_date = v.post_date::date,
+                raw_description = v.raw_description,
+                merchant_id = v.merchant_id::uuid,
+                category_id = v.category_id::uuid,
+                transaction_type = v.transaction_type::transaction_type_enum,
+                original_amount = v.original_amount::numeric,
+                original_currency = v.original_currency,
+                exchange_rate = v.exchange_rate::numeric,
+                foreign_fee = v.foreign_fee::numeric,
+                amount = v.amount::numeric,
+                fee = v.fee::numeric,
+                total_amount = v.total_amount::numeric,
+                note = v.note,
+                is_installment = v.is_installment::boolean,
+                tx_fingerprint = v.tx_fingerprint
+            FROM (VALUES %s) AS v(
+                statement_id, settles_statement_id, transaction_date, post_date, raw_description,
+                merchant_id, category_id, transaction_type, original_amount, original_currency,
+                exchange_rate, foreign_fee, amount, fee, total_amount, note, is_installment,
+                tx_fingerprint, id
+            )
+            WHERE t.id = v.id::uuid;
+            """,
+            tx_records_to_update,
+            page_size=1000,
         )
 
-    if tx_records:
+    # Execute Bulk Insert for New Transactions
+    if tx_records_to_insert:
         execute_values(
             cur,
             """
@@ -659,17 +966,102 @@ try:
             ON CONFLICT (tx_fingerprint) DO UPDATE SET
                 statement_id = EXCLUDED.statement_id,
                 settles_statement_id = EXCLUDED.settles_statement_id,
+                post_date = EXCLUDED.post_date,
                 category_id = EXCLUDED.category_id,
                 merchant_id = EXCLUDED.merchant_id,
+                amount = EXCLUDED.amount,
+                fee = EXCLUDED.fee,
+                total_amount = EXCLUDED.total_amount,
                 note = EXCLUDED.note,
                 is_installment = EXCLUDED.is_installment;
             """,
-            tx_records,
+            tx_records_to_insert,
             page_size=1000,
         )
 
+    # Fallback Auto-Link: Link any unbilled manual transactions to closed statement cycles
+    cur.execute("""
+        UPDATE transactions t
+        SET 
+            statement_id = s.id,
+            post_date = COALESCE(t.post_date, t.transaction_date)
+        FROM statements s
+        WHERE t.account_id = s.account_id
+          AND t.statement_id IS NULL
+          AND t.transaction_date >= s.start_date
+          AND t.transaction_date <= s.end_date;
+    """)
+
+    # ---------------------------------------------------------
+    # 7. AUTOMATIC DEDUPLICATION & ORPHAN DUPLICATE PURGE
+    # ---------------------------------------------------------
+    print("Running automatic deduplication and orphan duplicate purge...")
+    cur.execute("""
+        WITH duplicate_pairs AS (
+            SELECT 
+                t_excel.id AS excel_id,
+                t_manual.id AS manual_id,
+                t_manual.note AS manual_note,
+                t_manual.installment_plan_id AS manual_plan_id,
+                ROW_NUMBER() OVER (
+                    PARTITION BY t_manual.id 
+                    ORDER BY 
+                        (t_excel.transaction_date = t_manual.transaction_date) DESC,
+                        (t_excel.raw_description = t_manual.raw_description) DESC,
+                        t_excel.created_at ASC
+                ) as rn
+            FROM transactions t_excel
+            JOIN transactions t_manual ON t_excel.account_id = t_manual.account_id
+                                      AND abs(t_excel.transaction_date - t_manual.transaction_date) <= 1
+                                      AND abs(t_excel.total_amount - t_manual.total_amount) < 1.0
+                                      AND t_excel.id != t_manual.id
+            WHERE t_excel.statement_id IS NOT NULL
+              AND (
+                  t_manual.statement_id IS NULL
+                  OR t_manual.created_at > t_excel.created_at
+                  OR t_manual.id > t_excel.id
+              )
+        )
+        SELECT excel_id, manual_id, manual_note, manual_plan_id
+        FROM duplicate_pairs
+        WHERE rn = 1;
+    """)
+    dup_rows = cur.fetchall()
+
+    purged_count = 0
+    for ex_id, man_id, man_note, man_plan_id in dup_rows:
+        # Transfer custom manual note if excel row note is empty
+        if man_note:
+            cur.execute("""
+                UPDATE transactions 
+                SET note = COALESCE(NULLIF(note, ''), %s)
+                WHERE id = %s;
+            """, (man_note, ex_id))
+
+        # Transfer installment plan linkage if any
+        if man_plan_id:
+            cur.execute("""
+                UPDATE transactions 
+                SET installment_plan_id = COALESCE(installment_plan_id, %s)
+                WHERE id = %s;
+            """, (man_plan_id, ex_id))
+            cur.execute("""
+                UPDATE installment_plans 
+                SET origin_transaction_id = %s 
+                WHERE origin_transaction_id = %s;
+            """, (ex_id, man_id))
+
+        # Safely delete duplicate record
+        cur.execute("DELETE FROM transactions WHERE id = %s;", (man_id,))
+        purged_count += 1
+
     print(
-        f"Migrated {len(tx_records)} Transactions (Bulk Insert with fingerprint deduplication & settlement mapping)."
+        f"Transactions Migration Summary:\n"
+        f"  • Matched & Reconciled Manual Transactions: {matched_manual_count}\n"
+        f"  • Updated Existing Hash Transactions: {updated_existing_count}\n"
+        f"  • Newly Inserted Transactions: {len(tx_records_to_insert)}\n"
+        f"  • Purged & Consolidated Duplicates: {purged_count}\n"
+        f"  • Total Processed from Excel: {len(df_transactions)}"
     )
 
     # 7. Migrate Installment Plans & Schedules (Dynamic Term Resolution & Rounding Offsets)

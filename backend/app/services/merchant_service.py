@@ -123,3 +123,39 @@ class MerchantService:
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Error creating alias: {str(e)}",
             )
+
+    @staticmethod
+    async def get_suggestions(
+        db: AsyncSession,
+        limit: int = 100,
+    ) -> List[dict]:
+        """Fetch simplified merchant list with aliases and category mappings for smart autocomplete.
+
+        Args:
+            db (AsyncSession): Active asynchronous database session.
+            limit (int): Maximum number of merchants to return.
+
+        Returns:
+            List[dict]: List of merchant suggestions formatted for autocomplete.
+        """
+        query = (
+            select(Merchant)
+            .options(
+                selectinload(Merchant.aliases),
+                selectinload(Merchant.default_category),
+            )
+            .order_by(Merchant.cleaned_name.asc())
+            .limit(limit)
+        )
+        result = await db.execute(query)
+        merchants = result.scalars().all()
+        return [
+            {
+                "id": m.id,
+                "cleaned_name": m.cleaned_name,
+                "default_category_id": m.default_category_id,
+                "default_category_name": m.default_category.name if m.default_category else None,
+                "aliases": [a.pattern for a in m.aliases],
+            }
+            for m in merchants
+        ]

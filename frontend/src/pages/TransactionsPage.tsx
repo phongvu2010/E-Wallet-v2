@@ -1,5 +1,7 @@
 import React, { useEffect, useState } from "react";
 import {
+  Edit3,
+  Eye,
   Filter,
   Percent,
   Plus,
@@ -13,26 +15,20 @@ import {
 import { Badge } from "../components/common/Badge";
 import { Button } from "../components/common/Button";
 import { Card } from "../components/common/Card";
-import { CurrencyInput } from "../components/common/CurrencyInput";
 import { Input } from "../components/common/Input";
-import { Modal } from "../components/common/Modal";
 import { Pagination } from "../components/common/Pagination";
 import { Select } from "../components/common/Select";
 import { Spinner } from "../components/common/Spinner";
+import { SmartCreateTransactionModal } from "../components/transactions/SmartCreateTransactionModal";
+import { TransactionDetailModal } from "../components/transactions/TransactionDetailModal";
 import { useToast } from "../context/ToastContext";
-import {
-  useCreateTransaction,
-  useDeleteTransaction,
-} from "../hooks/useFinanceMutations";
+import { useDeleteTransaction } from "../hooks/useFinanceMutations";
 import {
   useAccounts,
-  useCategories,
-  useCategoryTree,
   useTransactions,
   useTransactionSummary,
 } from "../hooks/useFinanceQueries";
 import { Account } from "../types/account";
-import { Category, CategoryTreeNode } from "../types/category";
 import {
   Transaction,
   TransactionFilterParams,
@@ -70,13 +66,12 @@ export const TransactionsPage: React.FC = () => {
   const [startDate, setStartDate] = useState<string>("");
   const [endDate, setEndDate] = useState<string>("");
 
+  // Modal states
+  const [isCreateOpen, setIsCreateOpen] = useState(false);
+  const [selectedDetailTx, setSelectedDetailTx] = useState<Transaction | null>(null);
+
   // Cached Queries
   const { data: accounts = [] } = useAccounts();
-  const { data: categories = [] } = useCategories();
-  const { data: categoryTree = [] } = useCategoryTree();
-
-  // Only ACTIVE accounts are selectable for creating new transactions
-  const activeAccounts = accounts.filter((a: Account) => a.status === "ACTIVE");
 
   const filterParams: TransactionFilterParams = {
     page,
@@ -101,73 +96,7 @@ export const TransactionsPage: React.FC = () => {
   const totalPages = txData?.total_pages || 1;
 
   // Mutations
-  const createMutation = useCreateTransaction();
   const deleteMutation = useDeleteTransaction();
-
-  // Create Modal State & Validation
-  const [isCreateOpen, setIsCreateOpen] = useState(false);
-  const [newAccountId, setNewAccountId] = useState("");
-  const [newDate, setNewDate] = useState(new Date().toISOString().split("T")[0]);
-  const [newDesc, setNewDesc] = useState("");
-  const [newType, setNewType] = useState<TransactionType>("PURCHASE");
-  const [newAmount, setNewAmount] = useState("");
-  const [newFee, setNewFee] = useState("0");
-  const [newCategoryId, setNewCategoryId] = useState("");
-  const [newNote, setNewNote] = useState("");
-  const [createErrors, setCreateErrors] = useState<Record<string, string>>({});
-
-  // Helper to match category from DB based on transaction type
-  const findDefaultCategoryId = (type: TransactionType): string => {
-    const typeConfig = TRANSACTION_TYPES.find((t) => t.value === type);
-    if (!typeConfig || categories.length === 0) return "";
-
-    for (const kw of typeConfig.defaultKeywords) {
-      const found = categories.find((c: Category) => c.name.toLowerCase().includes(kw.toLowerCase()));
-      if (found) return found.id;
-    }
-    return categories[0]?.id || "";
-  };
-
-  const handleTypeChange = (type: TransactionType) => {
-    setNewType(type);
-    const matchedId = findDefaultCategoryId(type);
-    if (matchedId) {
-      setNewCategoryId(matchedId);
-    }
-  };
-
-  // Ensure default active account selected when activeAccounts load
-  useEffect(() => {
-    if (activeAccounts.length > 0) {
-      if (!newAccountId || !activeAccounts.some((a: Account) => a.id === newAccountId)) {
-        setNewAccountId(activeAccounts[0].id);
-      }
-    }
-  }, [activeAccounts, newAccountId]);
-
-  // Ensure default category selected when categories load
-  useEffect(() => {
-    if (categories.length > 0 && !newCategoryId) {
-      const matchedId = findDefaultCategoryId(newType);
-      if (matchedId) {
-        setNewCategoryId(matchedId);
-      }
-    }
-  }, [categories, newCategoryId, newType]);
-
-  // Build grouped options from categoryTree in Database
-  const categoryGroups = categoryTree.map((parent: CategoryTreeNode) => ({
-    label: parent.name,
-    options: [
-      ...(parent.children && parent.children.length > 0
-        ? parent.children.map((child: Category) => ({
-            value: child.id,
-            label: child.name,
-          }))
-        : [{ value: parent.id, label: `${parent.name} (Chung)` }]),
-    ],
-  }));
-
 
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -182,62 +111,6 @@ export const TransactionsPage: React.FC = () => {
     setStartDate("");
     setEndDate("");
     setPage(1);
-  };
-
-  const validateCreateForm = () => {
-    const errors: Record<string, string> = {};
-    if (!newAccountId) {
-      errors.account_id = "Vui lòng chọn tài khoản / thẻ tín dụng";
-    }
-    if (!newDate) {
-      errors.transaction_date = "Vui lòng chọn ngày giao dịch";
-    }
-    if (!newDesc.trim()) {
-      errors.raw_description = "Vui lòng nhập nội dung / tên đơn vị chấp nhận thẻ";
-    }
-    const amt = parseFloat(newAmount);
-    if (!newAmount || isNaN(amt) || amt <= 0) {
-      errors.amount = "Số tiền giao dịch phải lớn hơn 0 VNĐ";
-    }
-    const fee = parseFloat(newFee);
-    if (newFee && (isNaN(fee) || fee < 0)) {
-      errors.fee = "Phí giao dịch không thể là số âm";
-    }
-    setCreateErrors(errors);
-    return Object.keys(errors).length === 0;
-  };
-
-  const handleCreateTransaction = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!validateCreateForm()) return;
-
-    try {
-      const parsedAmount = parseFloat(newAmount) || 0;
-      const parsedFee = parseFloat(newFee) || 0;
-
-      await createMutation.mutateAsync({
-        account_id: newAccountId,
-        transaction_date: newDate,
-        raw_description: newDesc.trim(),
-        transaction_type: newType,
-        amount: parsedAmount,
-        fee: parsedFee,
-        total_amount: parsedAmount + parsedFee,
-        category_id: newCategoryId || undefined,
-        note: newNote ? newNote.trim() : undefined,
-      });
-
-      toast.success("Tạo giao dịch mới thành công!");
-      setIsCreateOpen(false);
-      // Reset form
-      setNewDesc("");
-      setNewAmount("");
-      setNewFee("0");
-      setNewNote("");
-      setCreateErrors({});
-    } catch (err: any) {
-      toast.error(`Lỗi tạo giao dịch: ${err.message}`);
-    }
   };
 
   const handleDeleteTransaction = async (id: string) => {
@@ -440,7 +313,6 @@ export const TransactionsPage: React.FC = () => {
                   <th className="py-3 px-4">Nội Dung Chi Tiết</th>
                   <th className="py-3 px-4">Danh Mục</th>
                   <th className="py-3 px-4">Loại GD</th>
-                  <th className="py-3 px-4 text-right">Nguyên Tệ / Tỷ Giá</th>
                   <th className="py-3 px-4 text-right font-bold">Số Tiền (VNĐ)</th>
                   <th className="py-3 px-4 text-center">Thao Tác</th>
                 </tr>
@@ -452,13 +324,17 @@ export const TransactionsPage: React.FC = () => {
                   return (
                     <tr
                       key={tx.id}
-                      className="hover:bg-slate-800/40 transition-colors"
+                      onClick={() => setSelectedDetailTx(tx)}
+                      className="hover:bg-slate-800/60 cursor-pointer transition-colors group"
                     >
                       <td className="py-3.5 px-4 font-mono text-slate-300 whitespace-nowrap">
                         {formatDate(tx.transaction_date)}
                       </td>
-                      <td className="py-3.5 px-4 max-w-xs">
-                        <div className="font-semibold text-slate-100 truncate" title={tx.raw_description}>
+                      <td className="py-3.5 px-4 max-w-sm">
+                        <div
+                          className="font-semibold text-slate-100 truncate group-hover:text-emerald-400 transition-colors"
+                          title={tx.raw_description}
+                        >
                           {tx.raw_description}
                         </div>
                         {tx.note && (
@@ -467,29 +343,17 @@ export const TransactionsPage: React.FC = () => {
                           </div>
                         )}
                       </td>
-                      <td className="py-3.5 px-4">
+                      <td className="py-3.5 px-4 whitespace-nowrap">
                         <span className="text-slate-300">
                           {tx.category?.name || "Chưa phân loại"}
                         </span>
                       </td>
-                      <td className="py-3.5 px-4">
-                        <span className={`px-2 py-0.5 rounded-md text-[11px] font-semibold border ${typeMeta.color}`}>
+                      <td className="py-3.5 px-4 whitespace-nowrap">
+                        <span
+                          className={`inline-flex items-center whitespace-nowrap px-2.5 py-0.5 rounded-md text-[11px] font-semibold border ${typeMeta.color}`}
+                        >
                           {typeMeta.label}
                         </span>
-                      </td>
-                      <td className="py-3.5 px-4 text-right font-mono text-slate-400">
-                        {tx.original_currency && tx.original_currency !== "VND" ? (
-                          <div>
-                            <span className="text-slate-200">
-                              {Number(tx.original_amount).toFixed(2)} {tx.original_currency}
-                            </span>
-                            <div className="text-[10px] text-slate-400">
-                              Tỷ giá: {Number(tx.exchange_rate).toLocaleString()}
-                            </div>
-                          </div>
-                        ) : (
-                          "-"
-                        )}
                       </td>
                       <td className="py-3.5 px-4 text-right font-mono font-bold whitespace-nowrap">
                         <span className={isCredit ? "text-emerald-400" : "text-rose-400"}>
@@ -497,14 +361,26 @@ export const TransactionsPage: React.FC = () => {
                           {formatCurrency(Number(tx.total_amount))}
                         </span>
                       </td>
-                      <td className="py-3.5 px-4 text-center">
-                        <button
-                          onClick={() => handleDeleteTransaction(tx.id)}
-                          className="p-1 text-slate-400 hover:text-rose-400 hover:bg-slate-800 rounded transition-colors"
-                          title="Xóa giao dịch"
+                      <td className="py-3.5 px-4 text-center whitespace-nowrap">
+                        <div
+                          className="flex items-center justify-center gap-1"
+                          onClick={(e) => e.stopPropagation()}
                         >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
+                          <button
+                            onClick={() => setSelectedDetailTx(tx)}
+                            className="p-1.5 text-slate-400 hover:text-emerald-400 hover:bg-slate-800 rounded-lg transition-colors"
+                            title="Xem chi tiết & Chỉnh sửa"
+                          >
+                            <Edit3 className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            onClick={() => handleDeleteTransaction(tx.id)}
+                            className="p-1.5 text-slate-400 hover:text-rose-400 hover:bg-slate-800 rounded-lg transition-colors"
+                            title="Xóa giao dịch"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   );
@@ -524,137 +400,19 @@ export const TransactionsPage: React.FC = () => {
         />
       </Card>
 
-      {/* 5. Create Transaction Modal */}
-      <Modal
+      {/* 5. Smart Create Transaction Modal */}
+      <SmartCreateTransactionModal
         isOpen={isCreateOpen}
         onClose={() => setIsCreateOpen(false)}
-        title="Thêm Giao Dịch Mới Thủ Công"
-      >
-        <form onSubmit={handleCreateTransaction} className="space-y-4">
-          <div className="grid grid-cols-2 gap-3">
-            <Select
-              label="Tài Khoản / Thẻ (Đang hoạt động)"
-              value={newAccountId}
-              onChange={(e) => {
-                setNewAccountId(e.target.value);
-                if (createErrors.account_id) setCreateErrors((prev) => ({ ...prev, account_id: "" }));
-              }}
-              error={createErrors.account_id}
-              options={
-                activeAccounts.length > 0
-                  ? activeAccounts.map((a: Account) => ({
-                      value: a.id,
-                      label: `${a.account_name} (•••• ${a.card_number_last4})`,
-                    }))
-                  : [{ value: "", label: "Không có thẻ đang hoạt động", disabled: true }]
-              }
-              required
-            />
+        defaultAccountId={selectedAccountId}
+      />
 
-            <Input
-              label="Ngày Giao Dịch"
-              type="date"
-              value={newDate}
-              onChange={(e) => {
-                setNewDate(e.target.value);
-                if (createErrors.transaction_date) setCreateErrors((prev) => ({ ...prev, transaction_date: "" }));
-              }}
-              error={createErrors.transaction_date}
-              required
-            />
-          </div>
-
-          <Input
-            label="Nội Dung / Đơn Vị Chấp Nhận Thẻ"
-            placeholder="VD: STARBUCKS NGUYEN THI MINH KHAI"
-            value={newDesc}
-            onChange={(e) => {
-              setNewDesc(e.target.value);
-              if (createErrors.raw_description) setCreateErrors((prev) => ({ ...prev, raw_description: "" }));
-            }}
-            error={createErrors.raw_description}
-            required
-          />
-
-          <div className="grid grid-cols-2 gap-3">
-            <Select
-              label="Loại Giao Dịch"
-              value={newType}
-              onChange={(e) => handleTypeChange(e.target.value as TransactionType)}
-              options={TRANSACTION_TYPES.map((t) => ({
-                value: t.value,
-                label: t.label,
-              }))}
-            />
-
-            <Select
-              label="Danh Mục (Cơ sở dữ liệu)"
-              value={newCategoryId}
-              onChange={(e) => setNewCategoryId(e.target.value)}
-              options={[{ value: "", label: "-- Chọn danh mục --" }]}
-              groups={categoryGroups}
-            />
-          </div>
-
-
-          <div className="grid grid-cols-2 gap-3">
-            <CurrencyInput
-              label="Số Tiền (VNĐ)"
-              placeholder="VD: 150,000"
-              value={newAmount}
-              onValueChange={(val) => {
-                setNewAmount(String(val));
-                if (createErrors.amount) setCreateErrors((prev) => ({ ...prev, amount: "" }));
-              }}
-              onChangeRaw={(raw) => setNewAmount(raw)}
-              error={createErrors.amount}
-              required
-            />
-            <CurrencyInput
-              label="Phí Đi Kèm (VNĐ)"
-              placeholder="0"
-              value={newFee}
-              onValueChange={(val) => {
-                setNewFee(String(val));
-                if (createErrors.fee) setCreateErrors((prev) => ({ ...prev, fee: "" }));
-              }}
-              onChangeRaw={(raw) => setNewFee(raw)}
-              error={createErrors.fee}
-            />
-          </div>
-
-
-          <div>
-            <label className="block text-xs font-medium text-slate-400 mb-1.5">
-              Ghi Chú Cá Nhân
-            </label>
-            <textarea
-              className="w-full bg-slate-950/80 border border-slate-800 rounded-xl px-3.5 py-2 text-sm text-slate-100 focus:outline-none focus:border-emerald-500"
-              rows={2}
-              value={newNote}
-              onChange={(e) => setNewNote(e.target.value)}
-              placeholder="Ghi chú chi tiêu..."
-            />
-          </div>
-
-          <div className="flex justify-end gap-3 pt-4 border-t border-slate-800">
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => setIsCreateOpen(false)}
-            >
-              Hủy
-            </Button>
-            <Button
-              type="submit"
-              variant="primary"
-              isLoading={createMutation.isPending}
-            >
-              Tạo Giao Dịch
-            </Button>
-          </div>
-        </form>
-      </Modal>
+      {/* 6. Transaction Detail & Edit Modal */}
+      <TransactionDetailModal
+        isOpen={Boolean(selectedDetailTx)}
+        onClose={() => setSelectedDetailTx(null)}
+        transaction={selectedDetailTx}
+      />
     </div>
   );
 };

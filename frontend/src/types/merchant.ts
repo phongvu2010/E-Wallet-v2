@@ -14,3 +14,11 @@ export interface Merchant {
   created_at?: string;
   aliases?: MerchantAlias[];
 }
+
+export interface MerchantSuggestion {
+  id: string;
+  cleaned_name: string;
+  default_category_id?: string;
+  default_category_name?: string;
+  aliases: string[];
+}

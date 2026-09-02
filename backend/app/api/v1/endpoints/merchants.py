@@ -10,10 +10,24 @@ from app.schemas.merchant import (
     MerchantAliasRead,
     MerchantCreate,
     MerchantRead,
+    MerchantSuggestionRead,
 )
 from app.services.merchant_service import MerchantService
 
 router = APIRouter()
+
+
+@router.get(
+    "/suggestions",
+    response_model=List[MerchantSuggestionRead],
+    summary="Get merchant suggestions for autocomplete",
+)
+async def get_merchant_suggestions(
+    limit: int = 100,
+    db: AsyncSession = Depends(get_db),
+):
+    """Retrieve simplified list of merchants with category mappings and aliases for smart autocomplete."""
+    return await MerchantService.get_suggestions(db, limit=limit)
 
 
 @router.get("", response_model=List[MerchantRead], summary="List all merchants")

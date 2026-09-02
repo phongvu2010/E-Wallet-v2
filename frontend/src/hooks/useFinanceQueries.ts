@@ -152,6 +152,7 @@ export function useCreditUtilization() {
 
 import { notificationService } from "../services/notificationService";
 import { recommendationService } from "../services/recommendationService";
+import { merchantService } from "../services/merchantService";
 
 /**
  * Query hook to fetch all categories as flat list.
@@ -211,5 +212,16 @@ export function useCardBenefits(accountId?: string) {
   return useQuery({
     queryKey: ["card-benefits", accountId || "all"],
     queryFn: () => recommendationService.getBenefits(accountId),
+  });
+}
+
+/**
+ * Query hook to fetch merchant suggestions for smart autocomplete.
+ */
+export function useMerchantSuggestions() {
+  return useQuery({
+    queryKey: ["merchant-suggestions"],
+    queryFn: () => merchantService.getSuggestions(100),
+    staleTime: 5 * 60 * 1000,
   });
 }
