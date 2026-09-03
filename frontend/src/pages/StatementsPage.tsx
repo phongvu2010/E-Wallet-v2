@@ -114,43 +114,21 @@ export const StatementsPage: React.FC = () => {
               Không có dữ liệu tiến độ thanh toán
             </div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs">
-                <thead className="bg-slate-950/60 text-slate-400 uppercase font-semibold border-b border-slate-800">
-                  <tr>
-                    <th className="py-3 px-4">Tên Thẻ</th>
-                    <th className="py-3 px-4">Ngày Chốt Sao Kê</th>
-                    <th className="py-3 px-4">Hạn Thanh Toán</th>
-                    <th className="py-3 px-4 text-right">Dư Nợ Cần Trả</th>
-                    <th className="py-3 px-4 text-right">Đã Thanh Toán</th>
-                    <th className="py-3 px-4 text-right font-bold">Còn Lại Phải Trả</th>
-                    <th className="py-3 px-4 text-center">Trạng Thái</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-800/60 font-medium">
-                  {paymentStatuses.map((st: StatementPaymentStatus) => (
-                    <tr key={st.statement_id} className="hover:bg-slate-800/40 transition-colors">
-                      <td className="py-3.5 px-4 font-semibold text-slate-200">
-                        {st.account_name} ({st.card_number_masked.slice(-4)})
-                      </td>
-                      <td className="py-3.5 px-4 font-mono text-slate-300">
-                        {formatDate(st.statement_date)}
-                      </td>
-                      <td className="py-3.5 px-4 font-mono text-slate-300">
-                        {formatDate(st.payment_due_date)}
-                      </td>
-                      <td className="py-3.5 px-4 text-right font-mono text-slate-300">
-                        {formatCurrency(st.billed_amount)}
-                      </td>
-                      <td className="py-3.5 px-4 text-right font-mono text-emerald-400">
-                        {formatCurrency(st.total_paid_amount)}
-                      </td>
-                      <td className="py-3.5 px-4 text-right font-mono font-bold">
-                        <span className={Number(st.remaining_balance_to_pay) > 0 ? "text-rose-400" : "text-slate-400"}>
-                          {formatCurrency(st.remaining_balance_to_pay)}
-                        </span>
-                      </td>
-                      <td className="py-3.5 px-4 text-center">
+            <>
+              {/* Mobile Card View for Payment Status (< md) */}
+              <div className="block md:hidden divide-y divide-slate-800/60">
+                {paymentStatuses.map((st: StatementPaymentStatus) => {
+                  const billedAmt = Number(st.billed_amount) || 0;
+                  const paidAmt = Number(st.total_paid_amount) || 0;
+                  const remainingAmt = Number(st.remaining_balance_to_pay) || 0;
+                  const progressPct = billedAmt > 0 ? Math.min(100, Math.round((paidAmt / billedAmt) * 100)) : 100;
+
+                  return (
+                    <div key={st.statement_id} className="p-4 space-y-3">
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="font-bold text-slate-100 text-sm">
+                          {st.account_name} ({st.card_number_masked.slice(-4)})
+                        </div>
                         <Badge
                           variant={
                             st.payment_status === "PAID"
@@ -164,12 +142,114 @@ export const StatementsPage: React.FC = () => {
                         >
                           {st.payment_status}
                         </Badge>
-                      </td>
+                      </div>
+
+                      {/* Dates */}
+                      <div className="flex items-center justify-between text-xs text-slate-400 font-mono bg-slate-900/60 p-2 rounded-lg border border-slate-800/60">
+                        <div>
+                          <span>Chốt: </span>
+                          <span className="text-slate-200">{formatDate(st.statement_date)}</span>
+                        </div>
+                        <div>
+                          <span>Hạn trả: </span>
+                          <span className="text-amber-400 font-semibold">{formatDate(st.payment_due_date)}</span>
+                        </div>
+                      </div>
+
+                      {/* Payment Progress Bar */}
+                      <div className="space-y-1">
+                        <div className="flex justify-between text-[11px]">
+                          <span className="text-slate-400">Tiến độ thanh toán:</span>
+                          <span className="font-mono text-emerald-400 font-bold">{progressPct}%</span>
+                        </div>
+                        <div className="w-full bg-slate-800 h-2 rounded-full overflow-hidden">
+                          <div
+                            className="bg-gradient-to-r from-emerald-500 to-teal-400 h-2 rounded-full transition-all duration-300"
+                            style={{ width: `${progressPct}%` }}
+                          />
+                        </div>
+                      </div>
+
+                      {/* Financial amounts */}
+                      <div className="grid grid-cols-3 gap-2 text-center pt-1 border-t border-slate-800/40">
+                        <div>
+                          <p className="text-[10px] text-slate-400">Cần trả</p>
+                          <p className="text-xs font-mono font-bold text-slate-200">{formatCurrency(billedAmt)}</p>
+                        </div>
+                        <div>
+                          <p className="text-[10px] text-slate-400">Đã trả</p>
+                          <p className="text-xs font-mono font-bold text-emerald-400">{formatCurrency(paidAmt)}</p>
+                        </div>
+                        <div>
+                          <p className="text-[10px] text-slate-400">Còn lại</p>
+                          <p className={`text-xs font-mono font-bold ${remainingAmt > 0 ? "text-rose-400" : "text-slate-400"}`}>
+                            {formatCurrency(remainingAmt)}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Desktop Table View for Payment Status (>= md) */}
+              <div className="hidden md:block overflow-x-auto">
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-slate-950/60 text-slate-400 uppercase font-semibold border-b border-slate-800">
+                    <tr>
+                      <th className="py-3 px-4">Tên Thẻ</th>
+                      <th className="py-3 px-4">Ngày Chốt Sao Kê</th>
+                      <th className="py-3 px-4">Hạn Thanh Toán</th>
+                      <th className="py-3 px-4 text-right">Dư Nợ Cần Trả</th>
+                      <th className="py-3 px-4 text-right">Đã Thanh Toán</th>
+                      <th className="py-3 px-4 text-right font-bold">Còn Lại Phải Trả</th>
+                      <th className="py-3 px-4 text-center">Trạng Thái</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800/60 font-medium">
+                    {paymentStatuses.map((st: StatementPaymentStatus) => (
+                      <tr key={st.statement_id} className="hover:bg-slate-800/40 transition-colors">
+                        <td className="py-3.5 px-4 font-semibold text-slate-200">
+                          {st.account_name} ({st.card_number_masked.slice(-4)})
+                        </td>
+                        <td className="py-3.5 px-4 font-mono text-slate-300">
+                          {formatDate(st.statement_date)}
+                        </td>
+                        <td className="py-3.5 px-4 font-mono text-slate-300">
+                          {formatDate(st.payment_due_date)}
+                        </td>
+                        <td className="py-3.5 px-4 text-right font-mono text-slate-300">
+                          {formatCurrency(st.billed_amount)}
+                        </td>
+                        <td className="py-3.5 px-4 text-right font-mono text-emerald-400">
+                          {formatCurrency(st.total_paid_amount)}
+                        </td>
+                        <td className="py-3.5 px-4 text-right font-mono font-bold">
+                          <span className={Number(st.remaining_balance_to_pay) > 0 ? "text-rose-400" : "text-slate-400"}>
+                            {formatCurrency(st.remaining_balance_to_pay)}
+                          </span>
+                        </td>
+                        <td className="py-3.5 px-4 text-center">
+                          <Badge
+                            variant={
+                              st.payment_status === "PAID"
+                                ? "success"
+                                : st.payment_status === "PARTIALLY_PAID"
+                                ? "warning"
+                                : st.payment_status === "OVERDUE"
+                                ? "danger"
+                                : "info"
+                            }
+                          >
+                            {st.payment_status}
+                          </Badge>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
           )
         ) : (
           /* Reconciliation Tab */
@@ -178,64 +258,119 @@ export const StatementsPage: React.FC = () => {
               Không có dữ liệu đối soát sao kê
             </div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs">
-                <thead className="bg-slate-950/60 text-slate-400 uppercase font-semibold border-b border-slate-800">
-                  <tr>
-                    <th className="py-3 px-4">Tên Thẻ</th>
-                    <th className="py-3 px-4">Ngày Sao Kê</th>
-                    <th className="py-3 px-4 text-right">Dư Nợ Kỳ Trước</th>
-                    <th className="py-3 px-4 text-right">Mua Sắm / Trả Góp</th>
-                    <th className="py-3 px-4 text-right">Thanh Toán Vào Thẻ</th>
-                    <th className="py-3 px-4 text-right font-bold text-slate-200">Sao Kê Thực Tế</th>
-                    <th className="py-3 px-4 text-right font-bold text-sky-400">Dự Tính Sổ Cái</th>
-                    <th className="py-3 px-4 text-center">Đối Soát</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-800/60 font-medium">
-                  {reconciliations.map((rec: StatementReconciliation) => (
-                    <tr key={rec.statement_id} className="hover:bg-slate-800/40 transition-colors">
-                      <td className="py-3.5 px-4 font-semibold text-slate-200">
-                        {rec.account_name} ({rec.card_number_masked.slice(-4)})
-                      </td>
-                      <td className="py-3.5 px-4 font-mono text-slate-300">
-                        {formatDate(rec.statement_date)}
-                      </td>
-                      <td className="py-3.5 px-4 text-right font-mono text-slate-400">
-                        {formatCurrency(rec.previous_balance)}
-                      </td>
-                      <td className="py-3.5 px-4 text-right font-mono text-slate-300">
-                        {formatCurrency(Number(rec.purchases_amount) + Number(rec.installments_amount))}
-                      </td>
-                      <td className="py-3.5 px-4 text-right font-mono text-emerald-400">
-                        {formatCurrency(rec.payments_received)}
-                      </td>
-                      <td className="py-3.5 px-4 text-right font-mono font-bold text-slate-100">
-                        {formatCurrency(rec.billed_statement_balance)}
-                      </td>
-                      <td className="py-3.5 px-4 text-right font-mono font-bold text-sky-400">
-                        {formatCurrency(rec.expected_statement_balance)}
-                      </td>
-                      <td className="py-3.5 px-4 text-center">
-                        <Badge
-                          variant={rec.reconciliation_status === "MATCHED" ? "success" : "danger"}
-                        >
-                          {rec.reconciliation_status === "MATCHED" ? (
-                            <span className="flex items-center gap-1">
-                              <CheckCircle className="w-3 h-3" /> MATCHED
-                            </span>
-                          ) : (
-                            <span className="flex items-center gap-1">
-                              <AlertTriangle className="w-3 h-3" /> LỆCH TIỀN
-                            </span>
-                          )}
-                        </Badge>
-                      </td>
+            <>
+              {/* Mobile Card View for Reconciliation (< md) */}
+              <div className="block md:hidden divide-y divide-slate-800/60">
+                {reconciliations.map((rec: StatementReconciliation) => (
+                  <div key={rec.statement_id} className="p-4 space-y-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <div>
+                        <div className="font-bold text-slate-100 text-sm">
+                          {rec.account_name} ({rec.card_number_masked.slice(-4)})
+                        </div>
+                        <div className="text-[11px] text-slate-400 font-mono mt-0.5">
+                          Kỳ: {formatDate(rec.statement_date)}
+                        </div>
+                      </div>
+                      <Badge
+                        variant={rec.reconciliation_status === "MATCHED" ? "success" : "danger"}
+                      >
+                        {rec.reconciliation_status === "MATCHED" ? (
+                          <span className="flex items-center gap-1">
+                            <CheckCircle className="w-3 h-3" /> MATCHED
+                          </span>
+                        ) : (
+                          <span className="flex items-center gap-1">
+                            <AlertTriangle className="w-3 h-3" /> LỆCH TIỀN
+                          </span>
+                        )}
+                      </Badge>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2 text-xs bg-slate-900/60 p-2.5 rounded-xl border border-slate-800">
+                      <div>
+                        <span className="text-slate-400">Sao kê thực tế:</span>
+                        <p className="font-mono font-bold text-slate-100 text-sm mt-0.5">
+                          {formatCurrency(rec.billed_statement_balance)}
+                        </p>
+                      </div>
+                      <div>
+                        <span className="text-slate-400">Dự tính sổ cái:</span>
+                        <p className="font-mono font-bold text-sky-400 text-sm mt-0.5">
+                          {formatCurrency(rec.expected_statement_balance)}
+                        </p>
+                      </div>
+                    </div>
+
+                    {rec.reconciliation_status !== "MATCHED" && (
+                      <div className="text-xs text-rose-400 font-mono bg-rose-500/10 p-2 rounded-lg border border-rose-500/20">
+                        Chênh lệch: {formatCurrency(Math.abs(Number(rec.discrepancy)))}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+
+              {/* Desktop Table View for Reconciliation (>= md) */}
+              <div className="hidden md:block overflow-x-auto">
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-slate-950/60 text-slate-400 uppercase font-semibold border-b border-slate-800">
+                    <tr>
+                      <th className="py-3 px-4">Tên Thẻ</th>
+                      <th className="py-3 px-4">Ngày Sao Kê</th>
+                      <th className="py-3 px-4 text-right">Dư Nợ Kỳ Trước</th>
+                      <th className="py-3 px-4 text-right">Mua Sắm / Trả Góp</th>
+                      <th className="py-3 px-4 text-right">Thanh Toán Vào Thẻ</th>
+                      <th className="py-3 px-4 text-right font-bold text-slate-200">Sao Kê Thực Tế</th>
+                      <th className="py-3 px-4 text-right font-bold text-sky-400">Dự Tính Sổ Cái</th>
+                      <th className="py-3 px-4 text-center">Đối Soát</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800/60 font-medium">
+                    {reconciliations.map((rec: StatementReconciliation) => (
+                      <tr key={rec.statement_id} className="hover:bg-slate-800/40 transition-colors">
+                        <td className="py-3.5 px-4 font-semibold text-slate-200">
+                          {rec.account_name} ({rec.card_number_masked.slice(-4)})
+                        </td>
+                        <td className="py-3.5 px-4 font-mono text-slate-300">
+                          {formatDate(rec.statement_date)}
+                        </td>
+                        <td className="py-3.5 px-4 text-right font-mono text-slate-400">
+                          {formatCurrency(rec.previous_balance)}
+                        </td>
+                        <td className="py-3.5 px-4 text-right font-mono text-slate-300">
+                          {formatCurrency(Number(rec.purchases_amount) + Number(rec.installments_amount))}
+                        </td>
+                        <td className="py-3.5 px-4 text-right font-mono text-emerald-400">
+                          {formatCurrency(rec.payments_received)}
+                        </td>
+                        <td className="py-3.5 px-4 text-right font-mono font-bold text-slate-100">
+                          {formatCurrency(rec.billed_statement_balance)}
+                        </td>
+                        <td className="py-3.5 px-4 text-right font-mono font-bold text-sky-400">
+                          {formatCurrency(rec.expected_statement_balance)}
+                        </td>
+                        <td className="py-3.5 px-4 text-center">
+                          <Badge
+                            variant={rec.reconciliation_status === "MATCHED" ? "success" : "danger"}
+                          >
+                            {rec.reconciliation_status === "MATCHED" ? (
+                              <span className="flex items-center gap-1">
+                                <CheckCircle className="w-3 h-3" /> MATCHED
+                              </span>
+                            ) : (
+                              <span className="flex items-center gap-1">
+                                <AlertTriangle className="w-3 h-3" /> LỆCH TIỀN
+                              </span>
+                            )}
+                          </Badge>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
           )
         )}
       </Card>

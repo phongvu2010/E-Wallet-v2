@@ -92,16 +92,16 @@ export const InstallmentsPage: React.FC = () => {
       {/* 1. Header & Quick KPIs */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h2 className="text-xl font-bold text-slate-100 flex items-center gap-2">
+          <h2 className="text-lg sm:text-xl font-bold text-slate-100 flex items-center gap-2">
             <Clock className="w-5 h-5 text-emerald-400" />
-            <span>Quản Lý Gói Trả Góp & Dự Phóng Dòng Tiền</span>
+            <span>Quản Lý Gói Trả Góp & Dự Phóng</span>
           </h2>
           <p className="text-xs text-slate-400 mt-0.5">
             Lịch biểu chi tiết từng kỳ trả góp và tính năng tất toán trước hạn tự động
           </p>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-2 sm:gap-3">
           <Badge variant="purple" size="md">
             {activePlans.length} Gói Đang Trả Góp
           </Badge>

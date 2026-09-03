@@ -36,6 +36,10 @@ class Settings(BaseSettings):
     # Google Sheets ETL Ingestion
     GOOGLE_SHEET_ID: str = "16kks0eL-j7SNxBAR3NlU5n1viIEvTjg-fAu9yWC9mAk"
 
+    # Automated Background Alert Scheduler
+    ENABLE_BACKGROUND_SCHEDULER: bool = True
+    ALERT_SCAN_INTERVAL_HOURS: int = 6
+
     @model_validator(mode="after")
     def assemble_database_url(self) -> "Settings":
         """

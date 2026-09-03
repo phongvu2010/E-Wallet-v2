@@ -3,6 +3,7 @@ import {
   NotificationSettings,
   NotificationSettingsUpdate,
   NotificationSummary,
+  SchedulerStatus,
   TelegramTestResponse,
 } from "../types/notification";
 import api from "./api";
@@ -58,6 +59,11 @@ export const notificationService = {
       "/notifications/test-telegram",
       payload
     );
+    return res.data;
+  },
+
+  getSchedulerStatus: async (): Promise<SchedulerStatus> => {
+    const res = await api.get<SchedulerStatus>("/notifications/scheduler/status");
     return res.data;
   },
 };

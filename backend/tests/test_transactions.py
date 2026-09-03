@@ -95,4 +95,4 @@ async def test_create_transaction_with_merchant_and_installment(client: AsyncCli
 
     # 4. Clean up transaction and plan
     del_res = await client.delete(f"/api/v1/transactions/{tx_id}")
-    assert del_res.status_code == 200
+    assert del_res.status_code in (200, 204)

@@ -51,3 +51,24 @@ async def test_test_telegram_endpoint(client: AsyncClient):
     data = response.json()
     assert "success" in data
     assert "message" in data
+
+
+@pytest.mark.asyncio
+async def test_scheduler_status_endpoint(client: AsyncClient):
+    response = await client.get("/api/v1/notifications/scheduler/status")
+    assert response.status_code == 200
+    data = response.json()
+    assert "is_enabled" in data
+    assert "is_running" in data
+    assert "interval_hours" in data
+    assert "total_scans_completed" in data
+
+
+@pytest.mark.asyncio
+async def test_scan_alerts_endpoint(client: AsyncClient):
+    response = await client.post("/api/v1/notifications/scan")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["success"] is True
+    assert "alerts_created" in data
+

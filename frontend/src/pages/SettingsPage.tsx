@@ -1,18 +1,23 @@
 import React, { useEffect, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
+  Activity,
   AlertCircle,
   Bell,
+  CheckCircle2,
+  Clock,
   CloudDownload,
   Database,
   ExternalLink,
   FileSpreadsheet,
   FolderTree,
   HelpCircle,
+  Play,
   RefreshCw,
   Save,
   Send,
   Settings,
+  ShieldCheck,
   Terminal,
 } from "lucide-react";
 import { Badge } from "../components/common/Badge";
@@ -28,13 +33,16 @@ import {
 import {
   useCategoryTree,
   useNotificationSettings,
+  useSchedulerStatus,
 } from "../hooks/useFinanceQueries";
 import { etlService } from "../services/etlService";
+import { notificationService } from "../services/notificationService";
 import { Category, CategoryTreeNode } from "../types/category";
 
 export const SettingsPage: React.FC = () => {
   const { data: categories = [], isLoading: catLoading } = useCategoryTree();
   const { data: notifSettings } = useNotificationSettings();
+  const { data: schedulerStatus } = useSchedulerStatus();
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
@@ -44,6 +52,7 @@ export const SettingsPage: React.FC = () => {
   const [isTelegramEnabled, setIsTelegramEnabled] = useState(false);
   const [remindDays, setRemindDays] = useState(3);
   const [utilThreshold, setUtilThreshold] = useState(80);
+  const [isScanningNow, setIsScanningNow] = useState(false);
 
   // Mutations
   const updateNotifMutation = useUpdateNotificationSettings();
@@ -96,9 +105,26 @@ export const SettingsPage: React.FC = () => {
     }
   };
 
+  const handleTriggerManualScan = async () => {
+    setIsScanningNow(true);
+    try {
+      const res = await notificationService.scanAlerts();
+      toast.success(
+        `Quét thành công! Hệ thống đã tạo ${res.alerts_created} thông báo / cảnh báo mới.`
+      );
+      queryClient.invalidateQueries({ queryKey: ["notification-summary"] });
+      queryClient.invalidateQueries({ queryKey: ["notifications"] });
+      queryClient.invalidateQueries({ queryKey: ["scheduler-status"] });
+    } catch (err: any) {
+      toast.error(`Lỗi khi quét cảnh báo: ${err.message}`);
+    } finally {
+      setIsScanningNow(false);
+    }
+  };
+
   // ETL Sync & Google Sheets state
   const [googleSheetId, setGoogleSheetId] = useState(
-    "16kks0eL-j7SNxBAR3NlU5n1viIEvTjg-fAu9yWC9mAk"
+    ""
   );
   const [sourceType, setSourceType] = useState<"google_sheet" | "excel">(
     "google_sheet"
@@ -193,11 +219,96 @@ export const SettingsPage: React.FC = () => {
           <span>Cài Đặt Hệ Thống, Thông Báo & Đồng Bộ ETL</span>
         </h2>
         <p className="text-xs text-slate-400 mt-0.5">
-          Quản lý kênh cảnh báo Telegram Bot, cây danh mục thu chi và công cụ nạp dữ liệu từ Google Sheets / Excel
+          Quản lý kênh cảnh báo Telegram Bot, tiến trình giám sát nền và công cụ nạp dữ liệu từ Google Sheets / Excel
         </p>
       </div>
 
-      {/* 2. Smart Notification & Telegram Bot Settings */}
+      {/* 2. Automated Monitoring & Background Scheduler Card */}
+      <Card className="space-y-4 border-emerald-500/20 bg-slate-900/40">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800 pb-3">
+          <div className="flex items-center gap-3">
+            <div className="p-2.5 rounded-xl bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+              <Activity className="w-5 h-5 animate-pulse" />
+            </div>
+            <div>
+              <h3 className="text-base font-bold text-slate-100 flex items-center gap-2">
+                <span>Tự Động Hóa Giám Sát & Quét Cảnh Báo</span>
+                <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping"></span>
+                  BACKGROUND ENGINE
+                </span>
+              </h3>
+              <p className="text-xs text-slate-400 mt-0.5">
+                Tiến trình nền tự động quét hạn trả nợ, lịch trả góp, tỷ lệ sử dụng hạn mức và điểm thưởng
+              </p>
+            </div>
+          </div>
+
+          <Button
+            type="button"
+            variant="primary"
+            size="sm"
+            onClick={handleTriggerManualScan}
+            isLoading={isScanningNow}
+            leftIcon={<Play className="w-3.5 h-3.5 fill-current" />}
+            className="w-full sm:w-auto justify-center"
+          >
+            Quét Cảnh Báo Ngay
+          </Button>
+        </div>
+
+        {/* Scheduler Diagnostic Grid */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+          <div className="p-3 bg-slate-950/70 rounded-xl border border-slate-800 space-y-1">
+            <span className="text-slate-400 flex items-center gap-1.5 text-[11px]">
+              <Clock className="w-3.5 h-3.5 text-sky-400" />
+              <span>Chu kỳ quét tự động</span>
+            </span>
+            <p className="font-mono font-bold text-slate-200 text-sm">
+              Mỗi {schedulerStatus?.interval_hours ?? 6} Giờ
+            </p>
+          </div>
+
+          <div className="p-3 bg-slate-950/70 rounded-xl border border-slate-800 space-y-1">
+            <span className="text-slate-400 flex items-center gap-1.5 text-[11px]">
+              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+              <span>Lần quét gần nhất</span>
+            </span>
+            <p className="font-mono font-semibold text-slate-300 text-xs truncate">
+              {schedulerStatus?.last_run_at
+                ? new Date(schedulerStatus.last_run_at).toLocaleTimeString("vi-VN", {
+                    hour: "2-digit",
+                    minute: "2-digit",
+                    day: "2-digit",
+                    month: "2-digit",
+                  })
+                : "Chưa quét"}
+            </p>
+          </div>
+
+          <div className="p-3 bg-slate-950/70 rounded-xl border border-slate-800 space-y-1">
+            <span className="text-slate-400 flex items-center gap-1.5 text-[11px]">
+              <Activity className="w-3.5 h-3.5 text-amber-400" />
+              <span>Tổng chu kỳ hoàn tất</span>
+            </span>
+            <p className="font-mono font-bold text-slate-200 text-sm">
+              {schedulerStatus?.total_scans_completed ?? 0} lần
+            </p>
+          </div>
+
+          <div className="p-3 bg-slate-950/70 rounded-xl border border-slate-800 space-y-1">
+            <span className="text-slate-400 flex items-center gap-1.5 text-[11px]">
+              <Bell className="w-3.5 h-3.5 text-teal-400" />
+              <span>Cảnh báo mới nhất</span>
+            </span>
+            <p className="font-mono font-bold text-emerald-400 text-sm">
+              {schedulerStatus?.last_alerts_generated ?? 0} alerts
+            </p>
+          </div>
+        </div>
+      </Card>
+
+      {/* 3. Smart Notification & Telegram Bot Settings */}
       <Card className="space-y-5">
         <div className="flex items-center justify-between border-b border-slate-800 pb-4">
           <div>

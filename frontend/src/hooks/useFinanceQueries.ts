@@ -302,3 +302,15 @@ export function useInstitutions() {
     staleTime: 60 * 60 * 1000,
   });
 }
+
+/**
+ * Query hook to fetch background alert scheduler diagnostics.
+ */
+export function useSchedulerStatus() {
+  return useQuery({
+    queryKey: ["scheduler-status"],
+    queryFn: () => notificationService.getSchedulerStatus(),
+    refetchInterval: 30000,
+    staleTime: 15 * 1000,
+  });
+}

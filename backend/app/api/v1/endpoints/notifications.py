@@ -16,8 +16,20 @@ from app.schemas.notification import (
     TelegramTestResponse,
 )
 from app.services.notification_service import NotificationService
+from app.services.scheduler_service import AlertSchedulerService
+
+from datetime import datetime
 
 router = APIRouter()
+
+
+@router.get(
+    "/scheduler/status",
+    summary="Get background monitoring scheduler real-time status",
+)
+async def get_scheduler_status():
+    """Retrieve diagnostic information and schedule timing for the background alert scheduler."""
+    return AlertSchedulerService.get_status()
 
 
 @router.get(
@@ -77,6 +89,10 @@ async def mark_all_notifications_read(db: AsyncSession = Depends(get_db)):
 async def scan_alerts(db: AsyncSession = Depends(get_db)):
     """Scan analytical views and generate smart notifications for due dates, high utilization, and expiring points."""
     created_count = await NotificationService.scan_and_generate_alerts(db)
+    inst = AlertSchedulerService.get_instance()
+    inst._last_run_at = datetime.now()
+    inst._total_scans_completed += 1
+    inst._last_alerts_generated = created_count
     return {
         "success": True,
         "message": f"Scan completed. Generated {created_count} new smart alerts.",

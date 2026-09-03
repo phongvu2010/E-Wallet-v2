@@ -54,3 +54,14 @@ export interface TelegramTestResponse {
   message: string;
   detail?: string;
 }
+
+export interface SchedulerStatus {
+  is_enabled: boolean;
+  is_running: boolean;
+  interval_hours: number;
+  last_run_at?: string | null;
+  next_run_at?: string | null;
+  total_scans_completed: number;
+  last_alerts_generated: number;
+  last_error?: string | null;
+}

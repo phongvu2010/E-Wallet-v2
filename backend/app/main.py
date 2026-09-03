@@ -8,6 +8,7 @@ from sqlalchemy import text
 from app.api.v1.api import api_router
 from app.core.config import settings
 from app.core.database import async_engine
+from app.services.scheduler_service import AlertSchedulerService
 
 
 @asynccontextmanager
@@ -19,7 +20,15 @@ async def lifespan(app: FastAPI):
         print("[FastAPI] Successfully connected to PostgreSQL Database.")
     except Exception as e:
         print(f"[FastAPI] Warning: Database connection failed during startup: {e}")
+
+    # Startup: Initialize background monitoring alert scheduler
+    AlertSchedulerService.start()
+
     yield
+
+    # Shutdown: Stop background monitoring scheduler
+    await AlertSchedulerService.stop()
+
     # Shutdown: Dispose engine pool
     await async_engine.dispose()
     print("[FastAPI] Database engine connection pool disposed.")

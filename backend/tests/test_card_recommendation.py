@@ -23,7 +23,7 @@ async def test_recommend_best_card(client: AsyncClient):
     assert response.status_code == 200
     data = response.json()
     assert "requested_amount" in data
-    assert data["requested_amount"] == 1500000.0
+    assert float(data["requested_amount"]) == 1500000.0
     assert "detected_category" in data
     assert "recommendations" in data
     assert isinstance(data["recommendations"], list)

@@ -19,21 +19,28 @@ export const Navbar: React.FC<NavbarProps> = ({
   isRefreshing = false,
 }) => {
   return (
-    <header className="sticky top-0 z-30 flex items-center justify-between h-20 px-6 sm:px-8 bg-slate-950/80 backdrop-blur-md border-b border-slate-800/80">
-      <div className="flex items-center gap-4">
+    <header className="sticky top-0 z-30 flex items-center justify-between h-16 sm:h-20 px-4 sm:px-8 bg-slate-950/85 backdrop-blur-md border-b border-slate-800/80">
+      <div className="flex items-center gap-2 sm:gap-4 min-w-0">
         <button
           onClick={onMenuClick}
-          className="p-2 -ml-2 text-slate-400 rounded-xl hover:text-white hover:bg-slate-800 lg:hidden"
+          aria-label="Open Menu"
+          className="p-2 -ml-1 text-slate-400 rounded-xl hover:text-white hover:bg-slate-800 lg:hidden focus:outline-none"
         >
-          <Menu className="w-6 h-6" />
+          <Menu className="w-5 h-5 sm:w-6 sm:h-6" />
         </button>
-        <div>
-          <h2 className="text-xl font-bold text-slate-100 tracking-tight">{title}</h2>
-          {subtitle && <p className="text-xs text-slate-400 mt-0.5">{subtitle}</p>}
+        <div className="min-w-0">
+          <h2 className="text-base sm:text-xl font-bold text-slate-100 tracking-tight truncate">
+            {title}
+          </h2>
+          {subtitle && (
+            <p className="text-[11px] sm:text-xs text-slate-400 mt-0.5 truncate hidden xs:block">
+              {subtitle}
+            </p>
+          )}
         </div>
       </div>
 
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0">
         {onRefresh && (
           <Button
             variant="outline"
@@ -41,7 +48,7 @@ export const Navbar: React.FC<NavbarProps> = ({
             onClick={onRefresh}
             isLoading={isRefreshing}
             leftIcon={<RefreshCw className="w-4 h-4" />}
-            className="hidden sm:inline-flex"
+            className="hidden md:inline-flex"
           >
             Làm mới
           </Button>
@@ -49,8 +56,8 @@ export const Navbar: React.FC<NavbarProps> = ({
 
         <NotificationBell />
 
-        <div className="flex items-center gap-3 pl-3 border-l border-slate-800">
-          <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-emerald-600 to-teal-500 flex items-center justify-center font-bold text-xs text-white shadow-md shadow-emerald-950/50">
+        <div className="flex items-center gap-2.5 pl-2 sm:pl-3 border-l border-slate-800">
+          <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-gradient-to-tr from-emerald-600 to-teal-500 flex items-center justify-center font-bold text-xs text-white shadow-md shadow-emerald-950/50">
             HV
           </div>
           <div className="hidden md:block text-left">
