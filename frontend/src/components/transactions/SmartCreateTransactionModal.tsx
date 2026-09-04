@@ -469,9 +469,6 @@ export const SmartCreateTransactionModal: React.FC<
     if (!transactionDate) {
       errs.transaction_date = "Vui lòng chọn ngày giao dịch";
     }
-    if (!rawDescription.trim()) {
-      errs.raw_description = "Vui lòng nhập nội dung / đơn vị chấp nhận thẻ";
-    }
     if (!amountVND || parsedAmtVND <= 0) {
       errs.amount = "Số tiền giao dịch phải lớn hơn 0 VNĐ";
     }
@@ -493,7 +490,7 @@ export const SmartCreateTransactionModal: React.FC<
     const payload: TransactionCreatePayload = {
       account_id: selectedAccountId,
       transaction_date: transactionDate,
-      raw_description: rawDescription.trim(),
+      raw_description: rawDescription.trim() || undefined,
       merchant_id: selectedMerchantId || undefined,
       merchant_name: selectedMerchantName || undefined,
       category_id: categoryId || undefined,
@@ -706,11 +703,11 @@ export const SmartCreateTransactionModal: React.FC<
               </div>
             </div>
 
-            {/* Smart Merchant Autocomplete Input */}
+            {/* Smart Merchant Autocomplete Input (Optional) */}
             <div className="relative" ref={merchantDropdownRef}>
               <Input
-                label="Nội Dung / Đơn Vị Chấp Nhận Thẻ (Merchant)"
-                placeholder="VD: STARBUCKS, SHOPEE, GRAB, NETFLIX, CIRCLE K..."
+                label="Nội Dung / Đơn Vị Chấp Nhận Thẻ (Tùy chọn)"
+                placeholder="Tùy chọn: STARBUCKS, Cafe vỉa hè, Tiền chợ, Bún bò..."
                 value={rawDescription}
                 onChange={(e) => {
                   setRawDescription(e.target.value);
@@ -725,7 +722,6 @@ export const SmartCreateTransactionModal: React.FC<
                 onFocus={() => setIsSearchingMerchant(true)}
                 leftIcon={<Search className="w-4 h-4 text-emerald-400" />}
                 error={errors.raw_description}
-                required
               />
 
               {/* Autocomplete Dropdown List */}

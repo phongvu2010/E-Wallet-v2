@@ -197,6 +197,42 @@ class TransactionService:
         return None
 
     @staticmethod
+    async def _resolve_fallback_description(
+        db: AsyncSession,
+        raw_description: Optional[str],
+        merchant_name: Optional[str],
+        note: Optional[str],
+        category_id: Optional[UUID],
+        tx_type: TransactionTypeEnum,
+    ) -> str:
+        """Resolve a meaningful fallback description when raw_description is omitted by user."""
+        if raw_description and raw_description.strip():
+            return raw_description.strip()
+        if merchant_name and merchant_name.strip():
+            return merchant_name.strip()
+        if note and note.strip():
+            return note.strip()
+        if category_id:
+            cat = await db.get(Category, category_id)
+            if cat and cat.name:
+                return f"Chi tiêu {cat.name}" if tx_type == TransactionTypeEnum.PURCHASE else cat.name
+
+        type_fallbacks = {
+            TransactionTypeEnum.PURCHASE: "Chi tiêu mua sắm",
+            TransactionTypeEnum.INCOME: "Thu nhập",
+            TransactionTypeEnum.TRANSFER: "Chuyển tiền nội bộ",
+            TransactionTypeEnum.REPAYMENT: "Thanh toán nợ thẻ",
+            TransactionTypeEnum.INSTALLMENT_MONTHLY: "Trả góp định kỳ",
+            TransactionTypeEnum.FEE: "Phí dịch vụ",
+            TransactionTypeEnum.INTEREST: "Lãi suất phát sinh",
+            TransactionTypeEnum.REFUND: "Hoàn tiền giao dịch",
+            TransactionTypeEnum.CASHBACK_CREDIT: "Tiền hoàn Cashback",
+            TransactionTypeEnum.CASH_ADVANCE: "Ứng tiền mặt",
+            TransactionTypeEnum.ADJUSTMENT: "Điều chỉnh giao dịch",
+        }
+        return type_fallbacks.get(tx_type, "Giao dịch tài chính")
+
+    @staticmethod
     async def create(db: AsyncSession, payload: TransactionCreate) -> Transaction:
         """Create a new transaction while strictly enforcing sign conventions.
 
@@ -224,6 +260,16 @@ class TransactionService:
         # Auto-resolve category if missing
         tx_data["category_id"] = await TransactionService._resolve_default_category_for_type(
             db, tx_data.get("transaction_type", TransactionTypeEnum.PURCHASE), tx_data.get("category_id")
+        )
+
+        # Auto-resolve fallback description if empty (e.g. coffee vỉa hè / cash transaction)
+        tx_data["raw_description"] = await TransactionService._resolve_fallback_description(
+            db,
+            tx_data.get("raw_description"),
+            merchant_name,
+            tx_data.get("note"),
+            tx_data.get("category_id"),
+            tx_data.get("transaction_type", TransactionTypeEnum.PURCHASE),
         )
 
         # 1. Resolve or dynamically create Merchant if merchant_name is provided and merchant_id is empty
@@ -377,7 +423,19 @@ class TransactionService:
                 )
                 db.add(new_m)
                 await db.flush()
-                update_data["merchant_id"] = new_m.id
+        # Handle raw_description fallback if updated to empty
+        if "raw_description" in update_data:
+            if update_data["raw_description"] and update_data["raw_description"].strip():
+                update_data["raw_description"] = update_data["raw_description"].strip()
+            else:
+                update_data["raw_description"] = await TransactionService._resolve_fallback_description(
+                    db,
+                    None,
+                    merchant_name,
+                    update_data.get("note", tx.note),
+                    update_data.get("category_id", tx.category_id),
+                    tx_type,
+                )
 
         # 2. Enforce sign conventions based on transaction_type
         tx_type = update_data.get("transaction_type", tx.transaction_type)

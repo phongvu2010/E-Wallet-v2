@@ -96,3 +96,40 @@ async def test_create_transaction_with_merchant_and_installment(client: AsyncCli
     # 4. Clean up transaction and plan
     del_res = await client.delete(f"/api/v1/transactions/{tx_id}")
     assert del_res.status_code in (200, 204)
+
+
+@pytest.mark.asyncio
+async def test_create_transaction_without_raw_description_fallback(client: AsyncClient):
+    """Test manual transaction (e.g. coffee vỉa hè / cash) with raw_description left blank."""
+    # 1. Get an active account
+    acc_res = await client.get("/api/v1/accounts")
+    accounts = [a for a in acc_res.json() if a.get("status") == "ACTIVE"]
+    assert len(accounts) > 0
+    acc_id = accounts[0]["id"]
+
+    # 2. Post transaction with no raw_description and no merchant_name
+    tx_payload = {
+        "account_id": acc_id,
+        "transaction_date": "2026-09-04",
+        "raw_description": None,
+        "merchant_name": None,
+        "transaction_type": "PURCHASE",
+        "amount": "25000.00",
+        "fee": "0.00",
+        "total_amount": "25000.00",
+        "note": "Cafe vỉa hè với bạn",
+    }
+
+    create_res = await client.post("/api/v1/transactions", json=tx_payload)
+    assert create_res.status_code == 201
+    created_tx = create_res.json()
+    tx_id = created_tx["id"]
+
+    # Must have auto-fallback from note
+    assert created_tx["raw_description"] == "Cafe vỉa hè với bạn"
+    assert created_tx["note"] == "Cafe vỉa hè với bạn"
+
+    # 3. Clean up
+    del_res = await client.delete(f"/api/v1/transactions/{tx_id}")
+    assert del_res.status_code in (200, 204)
+

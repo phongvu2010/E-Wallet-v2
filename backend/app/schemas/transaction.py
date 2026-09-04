@@ -19,7 +19,7 @@ class TransactionBase(BaseModel):
 
     transaction_date: date
     post_date: Optional[date] = None
-    raw_description: str
+    raw_description: Optional[str] = None
     merchant_id: Optional[UUID] = None
     category_id: Optional[UUID] = None
     transaction_type: TransactionTypeEnum = TransactionTypeEnum.PURCHASE

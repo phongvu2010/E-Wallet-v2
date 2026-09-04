@@ -25,7 +25,7 @@ export interface Transaction {
   settles_statement_id?: string;
   transaction_date: string;
   post_date?: string;
-  raw_description: string;
+  raw_description?: string;
   merchant_id?: string;
   category_id?: string;
   transaction_type: TransactionType;
@@ -86,7 +86,7 @@ export interface TransactionCreatePayload {
   settles_statement_id?: string;
   transaction_date: string;
   post_date?: string;
-  raw_description: string;
+  raw_description?: string;
   merchant_id?: string;
   merchant_name?: string;
   category_id?: string;

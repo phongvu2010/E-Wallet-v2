@@ -244,7 +244,7 @@ export const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({
       await updateMutation.mutateAsync({
         id: transaction.id,
         payload: {
-          raw_description: rawDescription.trim(),
+          raw_description: rawDescription.trim() || undefined,
           transaction_date: transactionDate,
           post_date: postDate ? postDate : null,
           transaction_type: transactionType,
@@ -608,11 +608,11 @@ export const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({
                 />
               </div>
 
-              {/* Merchant / Description Autocomplete Input */}
+              {/* Merchant / Description Autocomplete Input (Optional) */}
               <div className="relative" ref={merchantDropdownRef}>
                 <Input
-                  label="Nội Dung / Đơn Vị Chấp Nhận Thẻ (Merchant)"
-                  placeholder="VD: STARBUCKS, SHOPEE, GRAB..."
+                  label="Nội Dung / Đơn Vị Chấp Nhận Thẻ (Tùy chọn)"
+                  placeholder="Tùy chọn: STARBUCKS, Cafe vỉa hè, Tiền chợ..."
                   value={rawDescription}
                   onChange={(e) => {
                     setRawDescription(e.target.value);
@@ -621,7 +621,6 @@ export const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({
                   }}
                   onFocus={() => setIsSearchingMerchant(true)}
                   leftIcon={<Search className="w-4 h-4 text-emerald-400" />}
-                  required
                 />
 
                 {isSearchingMerchant && filteredMerchants.length > 0 && (

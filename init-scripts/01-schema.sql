@@ -157,7 +157,7 @@ CREATE TABLE transactions (
     transaction_date DATE NOT NULL, -- Ngày quẹt thẻ / giao dịch
     post_date DATE, -- Ngày hệ thống ghi nợ (Post date)
 
-    raw_description VARCHAR(500) NOT NULL, -- Chuỗi gốc từ sao kê: "STARBUCKS SU VAN HANH"
+    raw_description VARCHAR(500), -- Chuỗi gốc từ sao kê: "STARBUCKS SU VAN HANH" (Tùy chọn với giao dịch nhập tay)
     merchant_id UUID REFERENCES merchants(id) ON DELETE SET NULL,
     category_id UUID REFERENCES categories(id) ON DELETE SET NULL,
     transaction_type transaction_type_enum NOT NULL DEFAULT 'PURCHASE',
@@ -202,7 +202,7 @@ BEGIN
         FROM transactions
         WHERE account_id = NEW.account_id
           AND transaction_date = NEW.transaction_date
-          AND raw_description = NEW.raw_description
+          AND COALESCE(raw_description, '') = COALESCE(NEW.raw_description, '')
           AND total_amount = NEW.total_amount;
 
         -- Sinh SHA-256 fingerprint với đúng chỉ số xuất hiện thực tế (1, 2, 3...)
@@ -211,7 +211,7 @@ BEGIN
                 NEW.account_id::text || '|' ||
                 NEW.transaction_date::text || '|' ||
                 COALESCE(NEW.post_date::text, '') || '|' ||
-                NEW.raw_description || '|' ||
+                COALESCE(NEW.raw_description, '') || '|' ||
                 NEW.total_amount::text || '|' ||
                 COALESCE(NEW.original_amount::text, '') || '|' ||
                 COALESCE(NEW.original_currency, 'VND') || '|' ||

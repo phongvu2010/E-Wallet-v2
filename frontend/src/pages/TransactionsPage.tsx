@@ -414,7 +414,7 @@ export const TransactionsPage: React.FC = () => {
                     {/* Middle Row: Description & Notes */}
                     <div>
                       <div className="font-semibold text-slate-100 text-sm line-clamp-2">
-                        {tx.raw_description}
+                        {tx.raw_description || tx.category?.name || tx.note || "Giao dịch chi tiêu"}
                       </div>
                       {tx.note && (
                         <div className="text-xs text-slate-400 italic mt-0.5 line-clamp-1">
@@ -504,9 +504,9 @@ export const TransactionsPage: React.FC = () => {
                         <td className="py-3.5 px-4 max-w-sm">
                           <div
                             className="font-semibold text-slate-100 truncate group-hover:text-emerald-400 transition-colors"
-                            title={tx.raw_description}
+                            title={tx.raw_description || tx.category?.name || "Giao dịch"}
                           >
-                            {tx.raw_description}
+                            {tx.raw_description || tx.category?.name || tx.note || "Giao dịch chi tiêu"}
                           </div>
                           {tx.note && (
                             <div className="text-[11px] text-slate-400 truncate italic">

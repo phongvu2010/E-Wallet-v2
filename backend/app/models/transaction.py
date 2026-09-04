@@ -67,7 +67,7 @@ class Transaction(Base):
 
     transaction_date = Column(Date, nullable=False)
     post_date = Column(Date, nullable=True)
-    raw_description = Column(String(500), nullable=False)
+    raw_description = Column(String(500), nullable=True)
     merchant_id = Column(
         UUID(as_uuid=True),
         ForeignKey("merchants.id", ondelete="SET NULL"),
