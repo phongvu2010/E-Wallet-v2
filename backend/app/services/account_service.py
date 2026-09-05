@@ -92,6 +92,11 @@ class AccountService:
         elif not data.get("card_number_last4"):
             data["card_number_last4"] = data["card_number_masked"].replace(" ", "")[-4:]
 
+        # Convert empty strings to None for nullable fields
+        for field in ["note", "color_hex", "replaces_account_id", "opened_date", "closed_date"]:
+            if field in data and isinstance(data[field], str) and data[field].strip() == "":
+                data[field] = None
+
         account = Account(**data)
         db.add(account)
         try:
@@ -123,6 +128,12 @@ class AccountService:
         """
         account = await AccountService.get_by_id(db, account_id)
         update_data = payload.model_dump(exclude_unset=True)
+
+        # Convert empty strings to None for nullable fields
+        for field in ["note", "color_hex", "replaces_account_id", "closed_date"]:
+            if field in update_data and isinstance(update_data[field], str) and update_data[field].strip() == "":
+                update_data[field] = None
+
         for key, value in update_data.items():
             setattr(account, key, value)
         try:

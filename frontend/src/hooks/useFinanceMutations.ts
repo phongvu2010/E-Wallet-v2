@@ -4,11 +4,13 @@ import { installmentService } from "../services/installmentService";
 import { accountService } from "../services/accountService";
 import { notificationService } from "../services/notificationService";
 import { recommendationService } from "../services/recommendationService";
+import { categoryService } from "../services/categoryService";
 import { TransactionCreatePayload, TransactionUpdatePayload } from "../types/transaction";
 import { EarlySettlePayload } from "../types/installment";
 import { AccountCreatePayload, AccountUpdatePayload, AccountStatus } from "../types/account";
 import { NotificationSettingsUpdate } from "../types/notification";
 import { CardRecommendationRequest } from "../types/cardRecommendation";
+import { CategoryCreatePayload, CategoryUpdatePayload } from "../types/category";
 
 export function useCreateTransaction() {
   const queryClient = useQueryClient();
@@ -185,5 +187,45 @@ export function useCardRecommendation() {
   return useMutation({
     mutationFn: (payload: CardRecommendationRequest) =>
       recommendationService.getBestCard(payload),
+  });
+}
+
+export function useCreateCategory() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: CategoryCreatePayload) => categoryService.create(payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["category-tree"] });
+      queryClient.invalidateQueries({ queryKey: ["categories"] });
+      queryClient.invalidateQueries({ queryKey: ["transactions"] });
+      queryClient.invalidateQueries({ queryKey: ["monthly-spending"] });
+    },
+  });
+}
+
+export function useUpdateCategory() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, payload }: { id: string; payload: CategoryUpdatePayload }) =>
+      categoryService.update(id, payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["category-tree"] });
+      queryClient.invalidateQueries({ queryKey: ["categories"] });
+      queryClient.invalidateQueries({ queryKey: ["transactions"] });
+      queryClient.invalidateQueries({ queryKey: ["monthly-spending"] });
+    },
+  });
+}
+
+export function useDeleteCategory() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => categoryService.delete(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["category-tree"] });
+      queryClient.invalidateQueries({ queryKey: ["categories"] });
+      queryClient.invalidateQueries({ queryKey: ["transactions"] });
+      queryClient.invalidateQueries({ queryKey: ["monthly-spending"] });
+    },
   });
 }

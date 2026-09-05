@@ -41,10 +41,8 @@ import {
   getTransactionTypeLabel,
 } from "../../utils/formatters";
 import {
-  filterCategoryTreeByTransactionType,
-  formatCategoryTreeToGroups,
-  getDefaultCategoryForTransactionType,
   inferTransactionTypeFromCategory,
+  resolveCategoryHierarchy,
 } from "../../utils/categoryHelpers";
 
 interface TransactionDetailModalProps {
@@ -92,7 +90,9 @@ export const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({
   const [transactionDate, setTransactionDate] = useState("");
   const [postDate, setPostDate] = useState("");
   const [transactionType, setTransactionType] = useState<TransactionType>("PURCHASE");
-  const [categoryId, setCategoryId] = useState("");
+  const [parentCategoryId, setParentCategoryId] = useState("");
+  const [subCategoryId, setSubCategoryId] = useState("");
+  const [showAdvancedTxType, setShowAdvancedTxType] = useState(false);
   const [selectedMerchantName, setSelectedMerchantName] = useState("");
   const [selectedMerchantId, setSelectedMerchantId] = useState("");
   const [amountVND, setAmountVND] = useState("");
@@ -112,6 +112,19 @@ export const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({
   const [isSearchingMerchant, setIsSearchingMerchant] = useState(false);
   const merchantDropdownRef = useRef<HTMLDivElement>(null);
 
+  const effectiveCategoryId = useMemo(() => {
+    return subCategoryId || parentCategoryId || "";
+  }, [subCategoryId, parentCategoryId]);
+
+  const selectedParent = useMemo(() => {
+    return categoryTree.find((p: CategoryTreeNode) => p.id === parentCategoryId);
+  }, [categoryTree, parentCategoryId]);
+
+  const currentCategory = useMemo(() => {
+    if (!effectiveCategoryId) return null;
+    return categories.find((c: Category) => c.id === effectiveCategoryId) || null;
+  }, [effectiveCategoryId, categories]);
+
   // Sync state when transaction prop changes
   useEffect(() => {
     if (transaction) {
@@ -121,7 +134,21 @@ export const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({
       setTransactionDate(transaction.transaction_date || "");
       setPostDate(transaction.post_date || "");
       setTransactionType(transaction.transaction_type || "PURCHASE");
-      setCategoryId(transaction.category_id || "");
+
+      if (transaction.category_id) {
+        const hierarchy = resolveCategoryHierarchy(
+          transaction.category_id,
+          categories,
+          categoryTree
+        );
+        setParentCategoryId(hierarchy.parentId);
+        setSubCategoryId(hierarchy.subId);
+      } else {
+        setParentCategoryId("");
+        setSubCategoryId("");
+      }
+      setShowAdvancedTxType(false);
+
       setSelectedMerchantId(transaction.merchant_id || "");
       setSelectedMerchantName(
         transaction.merchant?.cleaned_name ||
@@ -152,7 +179,7 @@ export const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({
         }
       }
     }
-  }, [transaction, isOpen]);
+  }, [transaction, isOpen, categories, categoryTree]);
 
   // Click outside merchant autocomplete dropdown
   useEffect(() => {
@@ -168,44 +195,39 @@ export const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  // Context-aware filtered category tree based on selected transactionType
-  const filteredCategoryTree = useMemo(() => {
-    return filterCategoryTreeByTransactionType(categoryTree, transactionType);
-  }, [categoryTree, transactionType]);
+  // Parent Category Change Handler (Cấp 1)
+  const handleParentCategoryChange = (newParentId: string) => {
+    setParentCategoryId(newParentId);
+    setSubCategoryId("");
 
-  // Build grouped options from filtered category tree
-  const categoryGroups = useMemo(() => {
-    return formatCategoryTreeToGroups(filteredCategoryTree);
-  }, [filteredCategoryTree]);
+    if (!newParentId) return;
 
-  // Smart Bidirectional Category Change Handler
-  const handleCategoryChange = (newCatId: string) => {
-    setCategoryId(newCatId);
-    if (!newCatId) return;
-
-    const selectedCat = categories.find((c: Category) => c.id === newCatId);
-    const inferredType = inferTransactionTypeFromCategory(selectedCat);
-
-    if (inferredType && inferredType !== transactionType) {
-      setTransactionType(inferredType);
+    const parentNode = categoryTree.find(
+      (p: CategoryTreeNode) => p.id === newParentId
+    );
+    if (parentNode) {
+      const inferred = inferTransactionTypeFromCategory(parentNode);
+      setTransactionType(inferred);
     }
   };
 
-  // Smart Bidirectional Transaction Type Change Handler
+  // Subcategory Change Handler (Cấp 2)
+  const handleSubCategoryChange = (newSubId: string) => {
+    setSubCategoryId(newSubId);
+
+    const targetId = newSubId || parentCategoryId;
+    if (!targetId) return;
+
+    const targetCat = categories.find((c: Category) => c.id === targetId);
+    if (targetCat) {
+      const inferred = inferTransactionTypeFromCategory(targetCat);
+      setTransactionType(inferred);
+    }
+  };
+
+  // Explicit transaction type change handler
   const handleTransactionTypeChange = (newType: TransactionType) => {
     setTransactionType(newType);
-
-    const validTree = filterCategoryTreeByTransactionType(categoryTree, newType);
-    const validIds = new Set<string>();
-    validTree.forEach((p) => {
-      validIds.add(p.id);
-      (p.children || []).forEach((c) => validIds.add(c.id));
-    });
-
-    if (!categoryId || !validIds.has(categoryId)) {
-      const defaultCatId = getDefaultCategoryForTransactionType(categories, newType);
-      setCategoryId(defaultCatId);
-    }
   };
 
   // Filtered merchant suggestions
@@ -248,7 +270,7 @@ export const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({
           transaction_date: transactionDate,
           post_date: postDate ? postDate : null,
           transaction_type: transactionType,
-          category_id: categoryId ? categoryId : null,
+          category_id: effectiveCategoryId ? effectiveCategoryId : null,
           merchant_id: selectedMerchantId ? selectedMerchantId : null,
           merchant_name: selectedMerchantName.trim()
             ? selectedMerchantName.trim()
@@ -639,8 +661,22 @@ export const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({
                           setSelectedMerchantId(m.id);
                           setSelectedMerchantName(m.cleaned_name);
                           setRawDescription(m.cleaned_name);
-                          if (m.default_category_id)
-                            setCategoryId(m.default_category_id);
+                          if (m.default_category_id) {
+                            const hierarchy = resolveCategoryHierarchy(
+                              m.default_category_id,
+                              categories,
+                              categoryTree
+                            );
+                            setParentCategoryId(hierarchy.parentId);
+                            setSubCategoryId(hierarchy.subId);
+                            const targetCat = categories.find(
+                              (c: Category) => c.id === m.default_category_id
+                            );
+                            if (targetCat) {
+                              const inferred = inferTransactionTypeFromCategory(targetCat);
+                              setTransactionType(inferred);
+                            }
+                          }
                           setIsSearchingMerchant(false);
                         }}
                         className="w-full text-left p-2.5 hover:bg-emerald-500/10 hover:text-emerald-300 transition-colors flex items-center justify-between text-xs"
@@ -659,31 +695,95 @@ export const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({
                 )}
               </div>
 
-              {/* Transaction Type & Category */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <Select
-                  label="Loại Giao Dịch"
-                  value={transactionType}
-                  onChange={(e) =>
-                    handleTransactionTypeChange(e.target.value as TransactionType)
-                  }
-                  options={TRANSACTION_TYPES}
-                />
+              {/* 2-Tier Hierarchical Category Picker (Nhóm Cha Cấp 1 & Danh Mục Con Cấp 2) */}
+              <div className="space-y-2">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <Select
+                      label="Nhóm Danh Mục Cha (Cấp 1)"
+                      value={parentCategoryId}
+                      onChange={(e) => handleParentCategoryChange(e.target.value)}
+                      options={[
+                        { value: "", label: "-- Chọn Nhóm Danh Mục Cha --" },
+                        ...categoryTree.map((p: CategoryTreeNode) => ({
+                          value: p.id,
+                          label: p.name,
+                        })),
+                      ]}
+                      required
+                    />
+                  </div>
 
-                <div>
-                  <Select
-                    label="Danh Mục Chi Tiêu"
-                    value={categoryId}
-                    onChange={(e) => handleCategoryChange(e.target.value)}
-                    options={[{ value: "", label: "-- Chọn danh mục --" }]}
-                    groups={categoryGroups}
-                  />
-                  {transactionType !== "PURCHASE" && (
-                    <p className="text-[10px] text-emerald-400/80 mt-1 px-1 italic">
-                      ✨ Đã lọc danh mục theo nghiệp vụ {TRANSACTION_TYPES.find((t) => t.value === transactionType)?.label.split(" (")[0]}
-                    </p>
-                  )}
+                  <div>
+                    <Select
+                      label="Danh Mục Con (Cấp 2)"
+                      value={subCategoryId}
+                      onChange={(e) => handleSubCategoryChange(e.target.value)}
+                      options={[
+                        {
+                          value: "",
+                          label:
+                            selectedParent && selectedParent.children && selectedParent.children.length > 0
+                              ? "-- Chọn danh mục con (Cấp 2) --"
+                              : selectedParent
+                              ? `-- Dùng nhóm cha: ${selectedParent.name} --`
+                              : "-- Vui lòng chọn nhóm cha trước --",
+                        },
+                        ...((selectedParent?.children || []).map((c: Category) => ({
+                          value: c.id,
+                          label: c.name,
+                        }))),
+                      ]}
+                      disabled={!parentCategoryId}
+                    />
+                  </div>
                 </div>
+
+                {/* Category Status & Inferred Transaction Type Info Badge */}
+                {currentCategory && (
+                  <div className="flex items-center justify-between text-[11px] px-3 py-1.5 rounded-xl bg-slate-900/60 border border-slate-800 text-slate-300">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span
+                        className="w-2.5 h-2.5 rounded-full shrink-0 shadow-sm"
+                        style={{
+                          backgroundColor:
+                            currentCategory.color || selectedParent?.color || "#10b981",
+                        }}
+                      />
+                      <span className="truncate">
+                        Đã chọn: <strong className="text-slate-100">{currentCategory.name}</strong>
+                      </span>
+                      <span className="text-slate-600 hidden sm:inline">•</span>
+                      <span className="text-emerald-400 font-medium hidden sm:inline">
+                        Nghiệp vụ: {TRANSACTION_TYPES.find((t) => t.value === transactionType)?.label.split(" (")[0] || transactionType}
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setShowAdvancedTxType(!showAdvancedTxType)}
+                      className="text-[10px] text-slate-400 hover:text-emerald-300 underline shrink-0 ml-2"
+                    >
+                      {showAdvancedTxType ? "Ẩn nâng cao" : "Tuỳ chỉnh nâng cao"}
+                    </button>
+                  </div>
+                )}
+
+                {/* Advanced Override for Transaction Type */}
+                {showAdvancedTxType && (
+                  <div className="p-3 rounded-2xl bg-slate-950 border border-slate-800 space-y-1.5">
+                    <Select
+                      label="Tuỳ chỉnh Loại Giao Dịch Hệ Thống (Nâng cao)"
+                      value={transactionType}
+                      onChange={(e) =>
+                        handleTransactionTypeChange(e.target.value as TransactionType)
+                      }
+                      options={TRANSACTION_TYPES}
+                    />
+                    <p className="text-[10px] text-slate-500 italic">
+                      💡 Mặc định hệ thống tự động nhận diện loại giao dịch từ danh mục bạn chọn. Bạn chỉ cần can thiệp nếu cần ghi nhận trường hợp đặc biệt.
+                    </p>
+                  </div>
+                )}
               </div>
 
               {/* Amounts Row */}

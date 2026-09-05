@@ -764,7 +764,7 @@ asset_account_flows AS (
             WHERE t_ref.account_id = a.id AND t_ref.transaction_type IN ('REFUND', 'CASHBACK_CREDIT')
         ), 0.00) +
         COALESCE((
-            SELECT SUM(ABS(t_trans.total_amount))
+            SELECT SUM(ABS(t_trans.amount))
             FROM transactions t_trans
             WHERE t_trans.transfer_to_account_id = a.id
         ), 0.00) AS total_inflows,

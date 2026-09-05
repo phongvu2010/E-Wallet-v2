@@ -126,3 +126,62 @@ async def test_net_worth_and_cash_flow_endpoints(client: AsyncClient):
     assert "total_liquid_assets" in overview_data
     assert "net_worth" in overview_data
     assert "monthly_income_current_month" in overview_data
+
+
+@pytest.mark.asyncio
+async def test_wallet_transfer_with_fees(client: AsyncClient):
+    # 1. Create Wallet A (5,000,000đ) and Wallet B (1,000,000đ)
+    wallet_a_res = await client.post(
+        "/api/v1/accounts",
+        json={
+            "account_name": "Ví Momo Nguồn A",
+            "account_type": "E_WALLET",
+            "initial_balance": 5000000.0,
+            "color_hex": "#d946ef",
+        },
+    )
+    assert wallet_a_res.status_code == 201
+    wallet_a_id = wallet_a_res.json()["id"]
+
+    wallet_b_res = await client.post(
+        "/api/v1/accounts",
+        json={
+            "account_name": "Ví ZaloPay Đích B",
+            "account_type": "E_WALLET",
+            "initial_balance": 1000000.0,
+            "color_hex": "#06b6d4",
+        },
+    )
+    assert wallet_b_res.status_code == 201
+    wallet_b_id = wallet_b_res.json()["id"]
+
+    # 2. Transfer 500,000đ from Wallet A to Wallet B with fee 1,100đ (total_amount = 501,100đ)
+    transfer_res = await client.post(
+        "/api/v1/transactions",
+        json={
+            "account_id": wallet_a_id,
+            "transfer_to_account_id": wallet_b_id,
+            "transaction_date": "2026-09-05",
+            "raw_description": "Chuyen tien Momo sang ZaloPay",
+            "transaction_type": "TRANSFER",
+            "amount": 500000.0,
+            "fee": 1100.0,
+            "total_amount": 501100.0,
+            "note": "Phí giao dịch chuyển ví",
+        },
+    )
+    assert transfer_res.status_code == 201
+    tx_data = transfer_res.json()
+    assert tx_data["amount"] == 500000.0
+    assert tx_data["fee"] == 1100.0
+    assert tx_data["total_amount"] == 501100.0
+
+    # 3. Check Live Balances
+    live_res = await client.get("/api/v1/accounts/live-balance")
+    assert live_res.status_code == 200
+    balances = {b["account_id"]: b["live_current_balance"] for b in live_res.json()}
+
+    # Wallet A should have 5,000,000 - 501,100 = 4,498,900đ
+    assert balances[wallet_a_id] == 4498900.0
+    # Wallet B should have 1,000,000 + 500,000 = 1,500,000đ (NOT 1,501,100đ)
+    assert balances[wallet_b_id] == 1500000.0

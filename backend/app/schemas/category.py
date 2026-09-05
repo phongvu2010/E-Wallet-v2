@@ -20,6 +20,15 @@ class CategoryCreate(CategoryBase):
     pass
 
 
+class CategoryUpdate(BaseModel):
+    name: Optional[str] = None
+    category_type: Optional[CategoryTypeEnum] = None
+    parent_id: Optional[UUID] = None
+    icon: Optional[str] = None
+    color: Optional[str] = None
+    is_system: Optional[bool] = None
+
+
 class CategoryRead(CategoryBase):
     id: UUID
     user_id: Optional[UUID] = None

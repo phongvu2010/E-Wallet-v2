@@ -27,6 +27,62 @@ async def test_category_tree(client: AsyncClient):
 
 
 @pytest.mark.asyncio
+async def test_category_crud(client: AsyncClient):
+    # 1. Create a parent category
+    parent_res = await client.post(
+        "/api/v1/categories",
+        json={
+            "name": "Đầu tư & Tiết kiệm Test",
+            "category_type": "INCOME",
+            "icon": "TrendingUp",
+            "color": "#10b981",
+        },
+    )
+    assert parent_res.status_code == 201
+    parent_data = parent_res.json()
+    parent_id = parent_data["id"]
+    assert parent_data["name"] == "Đầu tư & Tiết kiệm Test"
+    assert parent_data["category_type"] == "INCOME"
+
+    # 2. Create a child subcategory under this parent
+    child_res = await client.post(
+        "/api/v1/categories",
+        json={
+            "name": "Cổ tức chứng khoán",
+            "parent_id": parent_id,
+            "icon": "Coins",
+            "color": "#059669",
+        },
+    )
+    assert child_res.status_code == 201
+    child_data = child_res.json()
+    child_id = child_data["id"]
+    assert child_data["parent_id"] == parent_id
+    assert child_data["category_type"] == "INCOME"  # inherited from parent
+
+    # 3. Update the child category
+    update_res = await client.put(
+        f"/api/v1/categories/{child_id}",
+        json={
+            "name": "Cổ tức & Trái tức",
+            "color": "#047857",
+        },
+    )
+    assert update_res.status_code == 200
+    updated_child = update_res.json()
+    assert updated_child["name"] == "Cổ tức & Trái tức"
+    assert updated_child["color"] == "#047857"
+
+    # 4. Delete child category
+    del_child_res = await client.delete(f"/api/v1/categories/{child_id}")
+    assert del_child_res.status_code == 204
+
+    # 5. Delete parent category
+    del_parent_res = await client.delete(f"/api/v1/categories/{parent_id}")
+    assert del_parent_res.status_code == 204
+
+
+@pytest.mark.asyncio
 async def test_merchants_list(client: AsyncClient):
     response = await client.get("/api/v1/merchants?search=Shopee")
     assert response.status_code == 200

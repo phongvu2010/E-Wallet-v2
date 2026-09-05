@@ -63,30 +63,30 @@ export interface AccountLiveBalance {
 }
 
 export interface AccountCreatePayload {
-  institution_id?: string;
+  institution_id?: string | null;
   account_name: string;
   account_type?: AccountType;
   card_number_masked?: string;
   card_number_last4?: string;
   initial_balance?: number;
   credit_limit?: number;
-  billing_day_of_month?: number;
+  billing_day_of_month?: number | null;
   grace_period_days?: number;
   status?: AccountStatus;
-  replaces_account_id?: string;
-  color_hex?: string;
-  note?: string;
+  replaces_account_id?: string | null;
+  color_hex?: string | null;
+  note?: string | null;
 }
 
 export interface AccountUpdatePayload {
   account_name?: string;
   initial_balance?: number;
   credit_limit?: number;
-  billing_day_of_month?: number;
+  billing_day_of_month?: number | null;
   grace_period_days?: number;
   status?: AccountStatus;
-  replaces_account_id?: string;
-  closed_date?: string;
-  color_hex?: string;
-  note?: string;
+  replaces_account_id?: string | null;
+  closed_date?: string | null;
+  color_hex?: string | null;
+  note?: string | null;
 }

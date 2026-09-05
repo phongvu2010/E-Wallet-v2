@@ -6,7 +6,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.models.category import CategoryTypeEnum
-from app.schemas.category import CategoryCreate, CategoryRead, CategoryTreeNode
+from app.schemas.category import (
+    CategoryCreate,
+    CategoryRead,
+    CategoryTreeNode,
+    CategoryUpdate,
+)
 from app.services.category_service import CategoryService
 
 router = APIRouter()
@@ -46,3 +51,31 @@ async def get_category(category_id: UUID, db: AsyncSession = Depends(get_db)):
 async def create_category(payload: CategoryCreate, db: AsyncSession = Depends(get_db)):
     """Create a new root category or child subcategory."""
     return await CategoryService.create(db, payload=payload)
+
+
+@router.put(
+    "/{category_id}",
+    response_model=CategoryRead,
+    summary="Update category details",
+)
+async def update_category(
+    category_id: UUID,
+    payload: CategoryUpdate,
+    db: AsyncSession = Depends(get_db),
+):
+    """Update category properties (name, icon, color, category_type, parent_id)."""
+    return await CategoryService.update(db, category_id=category_id, payload=payload)
+
+
+@router.delete(
+    "/{category_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Delete a category",
+)
+async def delete_category(
+    category_id: UUID,
+    db: AsyncSession = Depends(get_db),
+):
+    """Delete a category. If it is a parent category, all nested subcategories are cascade-deleted."""
+    await CategoryService.delete(db, category_id=category_id)
+    return None

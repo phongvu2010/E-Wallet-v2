@@ -15,3 +15,21 @@ export interface Category {
 export interface CategoryTreeNode extends Category {
   children: Category[];
 }
+
+export interface CategoryCreatePayload {
+  name: string;
+  category_type?: CategoryType;
+  parent_id?: string;
+  icon?: string;
+  color?: string;
+  is_system?: boolean;
+}
+
+export interface CategoryUpdatePayload {
+  name?: string;
+  category_type?: CategoryType;
+  parent_id?: string | null;
+  icon?: string;
+  color?: string;
+  is_system?: boolean;
+}

@@ -188,38 +188,74 @@ export function getDefaultCategoryForTransactionType(
  */
 export function inferTransactionTypeFromCategory(
   category: Category | undefined
-): TransactionType | null {
-  if (!category) return null;
+): TransactionType {
+  if (!category) return "PURCHASE";
 
   const name = (category.name || "").toLowerCase().trim();
   const catType = category.category_type;
 
-  if (name.includes("lãi suất")) {
+  if (name.includes("lãi suất") || name.includes("tiền lãi")) {
     return "INTEREST";
   }
-  if (catType === "FEE_INTEREST" || name.includes("phí")) {
+  if (name.includes("phí") || name.includes("fee") || catType === "FEE_INTEREST") {
     return "FEE";
   }
-  if (name.includes("thanh toán dư nợ") || name.includes("nạp tiền") || catType === "TRANSFER") {
+  if (name.includes("thanh toán dư nợ") || name.includes("thanh toán thẻ") || name.includes("nạp tiền")) {
     return "REPAYMENT";
   }
-  if (name.includes("hoàn tiền cashback") || name.includes("hoàn tiền")) {
+  if (name.includes("chuyển khoản") || name.includes("chuyển tiền") || catType === "TRANSFER") {
+    return "TRANSFER";
+  }
+  if (name.includes("hoàn tiền cashback") || name.includes("hoàn tiền") || name.includes("cashback")) {
     return "CASHBACK_CREDIT";
   }
-  if (name.includes("hủy giao dịch")) {
+  if (name.includes("hủy giao dịch") || name.includes("hoàn đơn") || name.includes("refund")) {
     return "REFUND";
   }
-  if (name.includes("chuyển đổi sang trả góp")) {
+  if (name.includes("chuyển đổi sang trả góp") || name.includes("chuyển đổi trả góp")) {
     return "INSTALLMENT_PRINCIPAL";
   }
-  if (name === "trả góp" || name === "tất toán trả góp") {
+  if (name.includes("trả góp") || name.includes("tất toán trả góp")) {
     return "INSTALLMENT_MONTHLY";
+  }
+  if (name.includes("ứng tiền") || name.includes("rút tiền mặt")) {
+    return "CASH_ADVANCE";
+  }
+  if (catType === "INCOME" || name.includes("lương") || name.includes("thu nhập") || name.includes("thưởng")) {
+    return "INCOME";
+  }
+  if (catType === "ADJUSTMENT") {
+    return "ADJUSTMENT";
   }
   if (catType === "EXPENSE") {
     return "PURCHASE";
   }
 
-  return null;
+  return "PURCHASE";
+}
+
+/**
+ * Resolve parent category ID and subcategory ID given any category ID.
+ */
+export function resolveCategoryHierarchy(
+  categoryId: string | undefined,
+  categories: Category[],
+  categoryTree: CategoryTreeNode[]
+): { parentId: string; subId: string } {
+  if (!categoryId) return { parentId: "", subId: "" };
+
+  const found = categories.find((c) => c.id === categoryId);
+  if (!found) {
+    const parentInTree = categoryTree.find((p) => p.id === categoryId);
+    if (parentInTree) return { parentId: parentInTree.id, subId: "" };
+    return { parentId: "", subId: "" };
+  }
+
+  if (found.parent_id) {
+    return { parentId: found.parent_id, subId: found.id };
+  } else {
+    return { parentId: found.id, subId: "" };
+  }
 }
 
 /**

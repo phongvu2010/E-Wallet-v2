@@ -101,3 +101,39 @@ async def test_toggle_and_patch_account_status(client: AsyncClient):
 
     # Restore
     await client.patch(f"/api/v1/accounts/{acc_id}/enable")
+
+
+@pytest.mark.asyncio
+async def test_update_account_note_empty_sets_null(client: AsyncClient):
+    acc_res = await client.get("/api/v1/accounts")
+    assert acc_res.status_code == 200
+    accounts = acc_res.json()
+    assert len(accounts) >= 1
+    acc_id = accounts[0]["id"]
+    orig_note = accounts[0].get("note")
+
+    # 1. Update with non-empty note
+    patch1 = await client.patch(
+        f"/api/v1/accounts/{acc_id}", json={"note": "Test note content"}
+    )
+    assert patch1.status_code == 200
+    assert patch1.json()["note"] == "Test note content"
+
+    # 2. Update with empty string "" -> should become None/null
+    patch2 = await client.patch(
+        f"/api/v1/accounts/{acc_id}", json={"note": ""}
+    )
+    assert patch2.status_code == 200
+    assert patch2.json()["note"] is None
+
+    # 3. Update with whitespace only "   " -> should also become None/null
+    patch3 = await client.patch(
+        f"/api/v1/accounts/{acc_id}", json={"note": "   "}
+    )
+    assert patch3.status_code == 200
+    assert patch3.json()["note"] is None
+
+    # 4. Restore original note
+    await client.patch(
+        f"/api/v1/accounts/{acc_id}", json={"note": orig_note}
+    )

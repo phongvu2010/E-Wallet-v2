@@ -99,7 +99,7 @@ export const AccountsPage: React.FC = () => {
           account_name: editAccountName.trim(),
           credit_limit: editAccountType === "CREDIT_CARD" ? parsedLimit : 0,
           initial_balance: editAccountType !== "CREDIT_CARD" ? parsedInitial : 0,
-          note: editNote.trim(),
+          note: editNote.trim() ? editNote.trim() : null,
           status: editStatus,
         },
       });

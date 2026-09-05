@@ -152,3 +152,23 @@ export function getTransactionTypeLabel(type: string): { label: string; color: s
       return { label: type, color: "text-slate-400 bg-slate-500/10 border-slate-500/20" };
   }
 }
+
+/**
+ * Maps category type enum to Vietnamese display label.
+ */
+export function getCategoryTypeLabel(type: string): string {
+  switch (type) {
+    case "EXPENSE":
+      return "Chi tiêu";
+    case "INCOME":
+      return "Thu nhập";
+    case "TRANSFER":
+      return "Chuyển tiền";
+    case "FEE_INTEREST":
+      return "Phí & Lãi";
+    case "ADJUSTMENT":
+      return "Điều chỉnh";
+    default:
+      return type;
+  }
+}
