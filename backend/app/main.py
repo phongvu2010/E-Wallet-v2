@@ -9,6 +9,7 @@ from app.api.v1.api import api_router
 from app.core.config import settings
 from app.core.database import async_engine
 from app.services.scheduler_service import AlertSchedulerService
+from app.services.telegram_bot_service import TelegramBotService
 
 
 @asynccontextmanager
@@ -24,7 +25,13 @@ async def lifespan(app: FastAPI):
     # Startup: Initialize background monitoring alert scheduler
     AlertSchedulerService.start()
 
+    # Startup: Initialize 2-way Telegram Bot background polling service
+    TelegramBotService.start()
+
     yield
+
+    # Shutdown: Stop Telegram Bot service
+    await TelegramBotService.stop()
 
     # Shutdown: Stop background monitoring scheduler
     await AlertSchedulerService.stop()

@@ -4,9 +4,12 @@ import {
   Activity,
   AlertCircle,
   Bell,
+  Bot,
+  Check,
   CheckCircle2,
   Clock,
   CloudDownload,
+  Copy,
   Database,
   Edit3,
   ExternalLink,
@@ -23,6 +26,7 @@ import {
   Send,
   Settings,
   ShieldCheck,
+  Sparkles,
   Tag,
   Terminal,
   Trash2,
@@ -46,9 +50,11 @@ import {
   useCategoryTree,
   useNotificationSettings,
   useSchedulerStatus,
+  useTelegramBotStatus,
 } from "../hooks/useFinanceQueries";
 import { etlService } from "../services/etlService";
 import { notificationService } from "../services/notificationService";
+import { telegramService } from "../services/telegramService";
 import { Category, CategoryTreeNode, CategoryType } from "../types/category";
 import { getCategoryTypeLabel } from "../utils/formatters";
 
@@ -56,6 +62,7 @@ export const SettingsPage: React.FC = () => {
   const { data: categories = [], isLoading: catLoading } = useCategoryTree();
   const { data: notifSettings } = useNotificationSettings();
   const { data: schedulerStatus } = useSchedulerStatus();
+  const { data: telegramBotStatus, refetch: refetchTelegramStatus } = useTelegramBotStatus();
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
@@ -200,6 +207,8 @@ export const SettingsPage: React.FC = () => {
   const [remindDays, setRemindDays] = useState(3);
   const [utilThreshold, setUtilThreshold] = useState(80);
   const [isScanningNow, setIsScanningNow] = useState(false);
+  const [isReloadingBot, setIsReloadingBot] = useState(false);
+  const [copiedPrompt, setCopiedPrompt] = useState<string | null>(null);
 
   // Mutations
   const updateNotifMutation = useUpdateNotificationSettings();
@@ -227,6 +236,7 @@ export const SettingsPage: React.FC = () => {
         remind_utilization_threshold: Number(utilThreshold),
       });
       toast.success("Lưu cấu hình thông báo thành công!");
+      refetchTelegramStatus();
     } catch (err: any) {
       toast.error(`Lỗi lưu cài đặt: ${err.message}`);
     }
@@ -250,6 +260,28 @@ export const SettingsPage: React.FC = () => {
     } catch (err: any) {
       toast.error(`Lỗi kết nối: ${err.message}`);
     }
+  };
+
+  const handleReloadTelegramBot = async () => {
+    setIsReloadingBot(true);
+    try {
+      const res = await telegramService.reload();
+      if (res.success) {
+        toast.success("Đã làm mới và khởi động lại dịch vụ Telegram Bot!");
+        refetchTelegramStatus();
+      }
+    } catch (err: any) {
+      toast.error(`Lỗi làm mới Bot: ${err.message}`);
+    } finally {
+      setIsReloadingBot(false);
+    }
+  };
+
+  const handleCopyPrompt = (text: string) => {
+    navigator.clipboard.writeText(text);
+    setCopiedPrompt(text);
+    toast.success(`Đã sao chép: "${text}"`);
+    setTimeout(() => setCopiedPrompt(null), 2000);
   };
 
   const handleTriggerManualScan = async () => {
@@ -455,21 +487,27 @@ export const SettingsPage: React.FC = () => {
         </div>
       </Card>
 
-      {/* 3. Smart Notification & Telegram Bot Settings */}
+      {/* 3. Smart Notification & Telegram Bot 2-Way Assistant Settings */}
       <Card className="space-y-5">
-        <div className="flex items-center justify-between border-b border-slate-800 pb-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800 pb-4">
           <div>
             <h3 className="text-base font-bold text-slate-100 flex items-center gap-2">
-              <Bell className="w-4 h-4 text-emerald-400" />
-              <span>Cấu Hình Thông Báo Tự Động & Telegram Push Alerts</span>
+              <Bot className="w-5 h-5 text-emerald-400" />
+              <span>Cấu Hình Trợ Lý Telegram Bot & Thông Báo Tự Động</span>
             </h3>
             <p className="text-xs text-slate-400 mt-0.5">
-              Đẩy thông báo tự động về Telegram khi sắp đến hạn thanh toán hoặc vượt ngưỡng hạn mức
+              Ra lệnh ghi chép giao dịch, tra cứu dư nợ thẻ, Net worth và nhận cảnh báo hạn thanh toán tức thời trên Telegram
             </p>
           </div>
-          <Badge variant={isTelegramEnabled ? "success" : "neutral"}>
-            {isTelegramEnabled ? "TELEGRAM ACTIVE" : "TELEGRAM DISABLED"}
-          </Badge>
+          <div className="flex items-center gap-2">
+            <Badge variant={telegramBotStatus?.polling_active ? "success" : isTelegramEnabled ? "warning" : "neutral"}>
+              {telegramBotStatus?.polling_active
+                ? "BOT 2-WAY ACTIVE"
+                : isTelegramEnabled
+                ? "CHỜ KẾT NỐI"
+                : "TELEGRAM DISABLED"}
+            </Badge>
+          </div>
         </div>
 
         <form onSubmit={handleSaveNotifSettings} className="space-y-4">
@@ -481,8 +519,8 @@ export const SettingsPage: React.FC = () => {
               onChange={(e) => setTelegramToken(e.target.value)}
             />
             <Input
-              label="Telegram Chat ID"
-              placeholder="VD: 987654321 hoặc @your_channel"
+              label="Telegram Chat ID (Chủ Tài Khoản)"
+              placeholder="VD: 987654321"
               value={telegramChatId}
               onChange={(e) => setTelegramChatId(e.target.value)}
             />
@@ -521,7 +559,7 @@ export const SettingsPage: React.FC = () => {
 
             <div className="flex flex-col justify-center">
               <label className="text-xs font-semibold text-slate-300 mb-1.5">
-                Kích hoạt gửi tin Telegram
+                Kích hoạt Telegram Bot & Thông báo
               </label>
               <label className="relative inline-flex items-center cursor-pointer">
                 <input
@@ -532,23 +570,116 @@ export const SettingsPage: React.FC = () => {
                 />
                 <div className="w-11 h-6 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-500"></div>
                 <span className="ml-3 text-xs font-medium text-slate-300">
-                  {isTelegramEnabled ? "Bật" : "Tắt"}
+                  {isTelegramEnabled ? "Đang bật" : "Đang tắt"}
                 </span>
               </label>
             </div>
           </div>
 
+          {/* Telegram Bot 2-Way Commands Cheatsheet */}
+          <div className="p-4 rounded-2xl bg-gradient-to-br from-emerald-950/30 via-slate-950 to-slate-900 border border-emerald-500/20 space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Sparkles className="w-4 h-4 text-emerald-400" />
+                <span className="text-xs font-bold text-emerald-300 uppercase tracking-wide">
+                  Hướng Dẫn Ra Lệnh & Tra Cứu Qua Bot Telegram
+                </span>
+              </div>
+              <span className="text-[11px] text-slate-400">Nhấn vào câu lệnh để sao chép nhanh</span>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
+              {/* Box 1: Natural Language Transaction Commands */}
+              <div className="p-3 bg-slate-950/80 rounded-xl border border-slate-800 space-y-2">
+                <p className="font-semibold text-slate-200 flex items-center gap-1.5 text-[11px]">
+                  <span>✍️ Thêm Giao Dịch Tự Nhiên (1-Click Ghi Sổ):</span>
+                </p>
+                <div className="space-y-1.5">
+                  {[
+                    "Ăn trưa 45k tiền mặt",
+                    "Cafe Highland 50k thẻ Techcombank",
+                    "Chuyển 2tr từ VCB sang MoMo phí 1k",
+                    "Nhận lương 25tr vào Vietcombank",
+                    "Trả nợ thẻ TPBank 5 triệu",
+                    "Đổ xăng 80k tiền mặt hôm qua",
+                  ].map((cmd) => (
+                    <button
+                      key={cmd}
+                      type="button"
+                      onClick={() => handleCopyPrompt(cmd)}
+                      className="w-full flex items-center justify-between p-1.5 px-2.5 rounded-lg bg-slate-900 hover:bg-emerald-950/40 border border-slate-800 hover:border-emerald-500/30 text-left font-mono text-[11px] text-slate-300 group transition-all"
+                    >
+                      <span className="text-emerald-300 group-hover:text-emerald-200">{cmd}</span>
+                      {copiedPrompt === cmd ? (
+                        <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                      ) : (
+                        <Copy className="w-3.5 h-3.5 text-slate-500 group-hover:text-slate-300 shrink-0" />
+                      )}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Box 2: Quick Lookup Commands */}
+              <div className="p-3 bg-slate-950/80 rounded-xl border border-slate-800 space-y-2">
+                <p className="font-semibold text-slate-200 flex items-center gap-1.5 text-[11px]">
+                  <span>💳 Lệnh Tra Cứu Tài Chính Tức Thời:</span>
+                </p>
+                <div className="space-y-1.5">
+                  {[
+                    { cmd: "/du_no", desc: "Dư nợ, hạn mức & tỷ lệ sử dụng thẻ" },
+                    { cmd: "/tai_san", desc: "Tổng tài sản ròng Net Worth & các ví" },
+                    { cmd: "/sap_den_han", desc: "Nghĩa vụ sao kê/trả góp trong 30 ngày" },
+                    { cmd: "/chi_tieu", desc: "Top hạng mục chi tiêu tháng này" },
+                    { cmd: "/start", desc: "Xem menu hướng dẫn tương tác" },
+                  ].map((item) => (
+                    <button
+                      key={item.cmd}
+                      type="button"
+                      onClick={() => handleCopyPrompt(item.cmd)}
+                      className="w-full flex items-center justify-between p-1.5 px-2.5 rounded-lg bg-slate-900 hover:bg-sky-950/40 border border-slate-800 hover:border-sky-500/30 text-left text-[11px] text-slate-300 group transition-all"
+                    >
+                      <div className="flex items-center gap-2 font-mono">
+                        <span className="text-sky-300 font-bold group-hover:text-sky-200">{item.cmd}</span>
+                        <span className="text-slate-400 font-sans text-[10px]">({item.desc})</span>
+                      </div>
+                      {copiedPrompt === item.cmd ? (
+                        <Check className="w-3.5 h-3.5 text-sky-400 shrink-0" />
+                      ) : (
+                        <Copy className="w-3.5 h-3.5 text-slate-500 group-hover:text-slate-300 shrink-0" />
+                      )}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+
           <div className="flex flex-wrap items-center justify-between gap-3 pt-3 border-t border-slate-800">
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={handleTestTelegram}
-              isLoading={testTelegramMutation.isPending}
-              leftIcon={<Send className="w-3.5 h-3.5 text-sky-400" />}
-            >
-              Gửi Thử Tin Nhắn Telegram
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={handleTestTelegram}
+                isLoading={testTelegramMutation.isPending}
+                leftIcon={<Send className="w-3.5 h-3.5 text-sky-400" />}
+              >
+                Gửi Thử Tin Nhắn Telegram
+              </Button>
+
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={handleReloadTelegramBot}
+                isLoading={isReloadingBot}
+                leftIcon={<RefreshCw className="w-3.5 h-3.5 text-amber-400" />}
+                title="Khởi động lại vòng lặp Telegram Polling"
+              >
+                Tải Lại Bot Service
+              </Button>
+            </div>
 
             <Button
               type="submit"
@@ -556,7 +687,7 @@ export const SettingsPage: React.FC = () => {
               size="sm"
               isLoading={updateNotifMutation.isPending}
             >
-              Lưu Cấu Hình Thông Báo
+              Lưu Cấu Hình Thông Báo & Bot
             </Button>
           </div>
         </form>

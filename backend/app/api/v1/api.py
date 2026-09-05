@@ -13,6 +13,7 @@ from app.api.v1.endpoints import (
     recommendations,
     rewards,
     statements,
+    telegram,
     transactions,
 )
 
@@ -49,5 +50,8 @@ api_router.include_router(
 )
 api_router.include_router(
     ai.router, prefix="/ai", tags=["AI Copilot & Document Extraction"]
+)
+api_router.include_router(
+    telegram.router, prefix="/telegram", tags=["Telegram Bot"]
 )
 api_router.include_router(etl.router, prefix="/etl", tags=["ETL & Sync"])

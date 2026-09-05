@@ -48,7 +48,9 @@ interface SmartCreateTransactionModalProps {
   isOpen: boolean;
   onClose: () => void;
   defaultAccountId?: string;
+  initialData?: Partial<TransactionCreatePayload>;
 }
+
 
 // Preset Quick Chips
 interface PresetChip {
@@ -165,7 +167,8 @@ const TRANSACTION_TYPES: { value: TransactionType; label: string }[] = [
 
 export const SmartCreateTransactionModal: React.FC<
   SmartCreateTransactionModalProps
-> = ({ isOpen, onClose, defaultAccountId }) => {
+> = ({ isOpen, onClose, defaultAccountId, initialData }) => {
+
   const { toast } = useToast();
 
   // Queries
@@ -262,6 +265,28 @@ export const SmartCreateTransactionModal: React.FC<
       setSelectedAccountId(activeAccounts[0].id);
     }
   }, [defaultAccountId, activeAccounts, selectedAccountId]);
+
+  // Synchronize initialData when provided (e.g. from AI Copilot bot chat)
+  useEffect(() => {
+    if (isOpen && initialData) {
+      if (initialData.account_id) setSelectedAccountId(initialData.account_id);
+      if (initialData.transaction_date) setTransactionDate(initialData.transaction_date);
+      if (initialData.amount) setAmountVND(String(initialData.amount));
+      if (initialData.fee !== undefined) setFeeVND(String(initialData.fee));
+      if (initialData.raw_description) setRawDescription(initialData.raw_description);
+      if (initialData.merchant_name) setSelectedMerchantName(initialData.merchant_name);
+      if (initialData.transaction_type) setTransactionType(initialData.transaction_type);
+      if (initialData.transfer_to_account_id) setTransferToAccountId(initialData.transfer_to_account_id);
+      if (initialData.note) setNote(initialData.note);
+      if (initialData.category_id && categories.length > 0) {
+        const { parentId, subId } = resolveCategoryHierarchy(initialData.category_id, categories, categoryTree);
+        if (parentId) setParentCategoryId(parentId);
+        if (subId) setSubCategoryId(subId);
+      }
+    }
+  }, [isOpen, initialData, categories, categoryTree]);
+
+
 
   // Click outside to close merchant autocomplete
   useEffect(() => {

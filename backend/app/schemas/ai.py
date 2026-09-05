@@ -6,6 +6,9 @@ from uuid import UUID
 from pydantic import BaseModel, Field
 
 
+from app.models.transaction import TransactionTypeEnum
+
+
 class AIChatMessage(BaseModel):
     role: str = Field(..., description="'user' or 'assistant' or 'system'")
     content: str
@@ -22,10 +25,35 @@ class AIChatRequest(BaseModel):
     )
 
 
+class AITransactionDraft(BaseModel):
+    action_type: str = "CREATE_TRANSACTION"
+    account_id: Optional[UUID] = None
+    account_name: Optional[str] = None
+    account_bank_name: Optional[str] = None
+    transaction_type: TransactionTypeEnum = TransactionTypeEnum.PURCHASE
+    amount: Decimal
+    fee: Decimal = Decimal("0.00")
+    total_amount: Optional[Decimal] = None
+    transaction_date: date
+    post_date: Optional[date] = None
+    category_id: Optional[UUID] = None
+    category_name: Optional[str] = None
+    parent_category_name: Optional[str] = None
+    merchant_name: Optional[str] = None
+    raw_description: Optional[str] = None
+    note: Optional[str] = None
+    transfer_to_account_id: Optional[UUID] = None
+    transfer_to_account_name: Optional[str] = None
+    confidence_score: Optional[float] = 1.0
+
+
 class AIChatResponse(BaseModel):
     reply: str
     suggested_followups: List[str] = []
     insights: Optional[Dict[str, Any]] = None
+    action: Optional[str] = None  # e.g., "PREPARE_TRANSACTION"
+    transaction_draft: Optional[AITransactionDraft] = None
+
 
 
 class AIParsedTransactionItem(BaseModel):

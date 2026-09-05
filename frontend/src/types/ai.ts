@@ -1,6 +1,33 @@
+import { TransactionType } from "./transaction";
+
+export interface AITransactionDraft {
+  action_type?: string;
+  account_id?: string;
+  account_name?: string;
+  account_bank_name?: string;
+  transaction_type: TransactionType;
+  amount: number;
+  fee?: number;
+  total_amount?: number;
+  transaction_date: string;
+  post_date?: string;
+  category_id?: string;
+  category_name?: string;
+  parent_category_name?: string;
+  merchant_name?: string;
+  raw_description?: string;
+  note?: string;
+  transfer_to_account_id?: string;
+  transfer_to_account_name?: string;
+  confidence_score?: number;
+}
+
 export interface AIChatMessage {
   role: "user" | "assistant" | "system";
   content: string;
+  action?: string;
+  transaction_draft?: AITransactionDraft;
+  draft_status?: "pending" | "confirmed" | "cancelled";
 }
 
 export interface AIChatRequest {
@@ -13,7 +40,10 @@ export interface AIChatResponse {
   reply: string;
   suggested_followups?: string[];
   insights?: Record<string, any>;
+  action?: string;
+  transaction_draft?: AITransactionDraft;
 }
+
 
 export interface AIParsedTransaction {
   transaction_date: string;

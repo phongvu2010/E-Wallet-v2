@@ -7,6 +7,7 @@ import { rewardService } from "../services/rewardService";
 import { analyticsService } from "../services/analyticsService";
 import { categoryService } from "../services/categoryService";
 import { notificationService } from "../services/notificationService";
+import { telegramService } from "../services/telegramService";
 import { recommendationService } from "../services/recommendationService";
 import { merchantService } from "../services/merchantService";
 import { institutionService } from "../services/institutionService";
@@ -314,3 +315,16 @@ export function useSchedulerStatus() {
     staleTime: 15 * 1000,
   });
 }
+
+/**
+ * Query hook to fetch Telegram Bot 2-way polling status & diagnostic metrics.
+ */
+export function useTelegramBotStatus() {
+  return useQuery({
+    queryKey: ["telegram-bot-status"],
+    queryFn: () => telegramService.getStatus(),
+    refetchInterval: 15000,
+    staleTime: 10 * 1000,
+  });
+}
+

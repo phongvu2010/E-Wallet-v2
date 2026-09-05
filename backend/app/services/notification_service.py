@@ -160,6 +160,14 @@ class NotificationService:
         record.updated_at = func.now()
         await db.commit()
         await db.refresh(record)
+
+        # Signal TelegramBotService to reload configuration immediately
+        try:
+            from app.services.telegram_bot_service import TelegramBotService
+            TelegramBotService.reload()
+        except Exception:
+            pass
+
         return record
 
     @staticmethod
@@ -167,8 +175,10 @@ class NotificationService:
         bot_token: Optional[str],
         chat_id: Optional[str],
         message_text: str,
+        reply_markup: Optional[Dict[str, Any]] = None,
+        parse_mode: str = "Markdown",
     ) -> Dict[str, Any]:
-        """Send message to Telegram via Bot API asynchronously."""
+        """Send message to Telegram via Bot API asynchronously with optional inline keyboard."""
         if not bot_token or not chat_id:
             return {
                 "success": False,
@@ -176,11 +186,13 @@ class NotificationService:
             }
 
         url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
-        payload = {
+        payload: Dict[str, Any] = {
             "chat_id": chat_id,
             "text": message_text,
-            "parse_mode": "Markdown",
+            "parse_mode": parse_mode,
         }
+        if reply_markup:
+            payload["reply_markup"] = reply_markup
 
         try:
             async with httpx.AsyncClient(timeout=10.0) as client:
@@ -190,6 +202,7 @@ class NotificationService:
                     return {
                         "success": True,
                         "message": "Gửi tin nhắn Telegram thành công!",
+                        "result": data.get("result"),
                     }
                 else:
                     return {
@@ -199,6 +212,81 @@ class NotificationService:
                     }
         except Exception as e:
             return {"success": False, "message": f"Lỗi kết nối Telegram: {str(e)}"}
+
+    @staticmethod
+    async def edit_telegram_message(
+        bot_token: Optional[str],
+        chat_id: Optional[str],
+        message_id: int,
+        message_text: str,
+        reply_markup: Optional[Dict[str, Any]] = None,
+        parse_mode: str = "Markdown",
+    ) -> Dict[str, Any]:
+        """Edit an existing Telegram message text and remove or update inline keyboard."""
+        if not bot_token or not chat_id:
+            return {
+                "success": False,
+                "message": "Thiếu Telegram Bot Token hoặc Chat ID.",
+            }
+
+        url = f"https://api.telegram.org/bot{bot_token}/editMessageText"
+        payload: Dict[str, Any] = {
+            "chat_id": chat_id,
+            "message_id": message_id,
+            "text": message_text,
+            "parse_mode": parse_mode,
+        }
+        if reply_markup is not None:
+            payload["reply_markup"] = reply_markup
+
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                response = await client.post(url, json=payload)
+                data = response.json()
+                if response.status_code == 200 and data.get("ok"):
+                    return {
+                        "success": True,
+                        "message": "Cập nhật tin nhắn Telegram thành công!",
+                        "result": data.get("result"),
+                    }
+                else:
+                    return {
+                        "success": False,
+                        "message": f"Telegram API error: {data.get('description', 'Unknown error')}",
+                        "detail": str(data),
+                    }
+        except Exception as e:
+            return {"success": False, "message": f"Lỗi kết nối Telegram: {str(e)}"}
+
+    @staticmethod
+    async def answer_telegram_callback_query(
+        bot_token: Optional[str],
+        callback_query_id: str,
+        text: Optional[str] = None,
+        show_alert: bool = False,
+    ) -> Dict[str, Any]:
+        """Acknowledge Telegram callback query from inline buttons."""
+        if not bot_token or not callback_query_id:
+            return {"success": False, "message": "Thiếu Bot Token hoặc Callback Query ID."}
+
+        url = f"https://api.telegram.org/bot{bot_token}/answerCallbackQuery"
+        payload: Dict[str, Any] = {
+            "callback_query_id": callback_query_id,
+            "show_alert": show_alert,
+        }
+        if text:
+            payload["text"] = text
+
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                response = await client.post(url, json=payload)
+                data = response.json()
+                return {
+                    "success": response.status_code == 200 and data.get("ok", False),
+                    "detail": str(data),
+                }
+        except Exception as e:
+            return {"success": False, "message": f"Lỗi answerCallbackQuery: {str(e)}"}
 
     @staticmethod
     async def test_telegram(
