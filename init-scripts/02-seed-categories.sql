@@ -1,7 +1,6 @@
 -- ====================================================================
 -- SEED CATEGORIES
 -- ====================================================================
-
 -- 1. Parent Categories (Cấp 1)
 INSERT INTO categories (id, name, category_type, icon, is_system) VALUES
 ('0666944e-3e4a-4be6-9333-18ebaf270e2e', 'Chi tiêu', 'EXPENSE', 'shopping-bag', TRUE),

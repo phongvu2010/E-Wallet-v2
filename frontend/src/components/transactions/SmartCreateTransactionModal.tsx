@@ -490,6 +490,7 @@ export const SmartCreateTransactionModal: React.FC<
     const payload: TransactionCreatePayload = {
       account_id: selectedAccountId,
       transaction_date: transactionDate,
+      post_date: transactionDate,
       raw_description: rawDescription.trim() || undefined,
       merchant_id: selectedMerchantId || undefined,
       merchant_name: selectedMerchantName || undefined,

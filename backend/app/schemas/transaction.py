@@ -3,7 +3,7 @@ from decimal import Decimal
 from typing import Optional
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.models.transaction import TransactionTypeEnum
 from app.schemas.category import CategoryRead
@@ -35,6 +35,12 @@ class TransactionBase(BaseModel):
 
     note: Optional[str] = None
     is_installment: bool = False
+
+    @model_validator(mode="after")
+    def default_post_date(self) -> "TransactionBase":
+        if self.post_date is None and self.transaction_date is not None:
+            self.post_date = self.transaction_date
+        return self
 
 
 class InstallmentInlineCreate(BaseModel):

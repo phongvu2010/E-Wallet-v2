@@ -125,9 +125,11 @@ async def test_create_transaction_without_raw_description_fallback(client: Async
     created_tx = create_res.json()
     tx_id = created_tx["id"]
 
-    # Must have auto-fallback from note
+    # Must have auto-fallback from note and default post_date = transaction_date
     assert created_tx["raw_description"] == "Cafe vỉa hè với bạn"
     assert created_tx["note"] == "Cafe vỉa hè với bạn"
+    assert created_tx["transaction_date"] == "2026-09-04"
+    assert created_tx["post_date"] == "2026-09-04"
 
     # 3. Clean up
     del_res = await client.delete(f"/api/v1/transactions/{tx_id}")

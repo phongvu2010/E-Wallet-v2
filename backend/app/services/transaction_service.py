@@ -257,6 +257,10 @@ class TransactionService:
         convert_installment = tx_data.pop("convert_to_installment", None)
         merchant_name = tx_data.pop("merchant_name", None)
 
+        # Default post_date to transaction_date if omitted or None (for manual transactions)
+        if not tx_data.get("post_date") and tx_data.get("transaction_date"):
+            tx_data["post_date"] = tx_data["transaction_date"]
+
         # Auto-resolve category if missing
         tx_data["category_id"] = await TransactionService._resolve_default_category_for_type(
             db, tx_data.get("transaction_type", TransactionTypeEnum.PURCHASE), tx_data.get("category_id")
@@ -423,6 +427,9 @@ class TransactionService:
                 )
                 db.add(new_m)
                 await db.flush()
+        # 2. Enforce sign conventions based on transaction_type
+        tx_type = update_data.get("transaction_type", tx.transaction_type)
+
         # Handle raw_description fallback if updated to empty
         if "raw_description" in update_data:
             if update_data["raw_description"] and update_data["raw_description"].strip():
@@ -437,8 +444,11 @@ class TransactionService:
                     tx_type,
                 )
 
-        # 2. Enforce sign conventions based on transaction_type
-        tx_type = update_data.get("transaction_type", tx.transaction_type)
+        # If transaction_date is updated and post_date is omitted, sync post_date for unbilled transactions
+        if "transaction_date" in update_data and update_data["transaction_date"]:
+            if "post_date" not in update_data or update_data["post_date"] is None:
+                if tx.statement_id is None or tx.post_date == tx.transaction_date:
+                    update_data["post_date"] = update_data["transaction_date"]
         credit_types = {
             TransactionTypeEnum.REPAYMENT,
             TransactionTypeEnum.REFUND,

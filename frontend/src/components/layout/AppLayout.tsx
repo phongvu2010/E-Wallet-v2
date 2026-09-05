@@ -32,6 +32,19 @@ const mobileBottomTabs = [
 
 export const AppLayout: React.FC = () => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [isCollapsed, setIsCollapsed] = useState<boolean>(() => {
+    const saved = localStorage.getItem("desktop_sidebar_collapsed");
+    return saved !== null ? saved === "true" : true; // Mặc định gom sidebar trên Desktop
+  });
+
+  const toggleDesktopSidebar = () => {
+    setIsCollapsed((prev) => {
+      const next = !prev;
+      localStorage.setItem("desktop_sidebar_collapsed", String(next));
+      return next;
+    });
+  };
+
   const location = useLocation();
   const currentMeta = routeTitles[location.pathname] || {
     title: "Credit Wallet 2.0",
@@ -41,12 +54,24 @@ export const AppLayout: React.FC = () => {
   return (
     <div className="min-h-screen bg-slate-950 flex flex-col lg:flex-row">
       {/* Sidebar Drawer */}
-      <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+      <Sidebar
+        isOpen={sidebarOpen}
+        onClose={() => setSidebarOpen(false)}
+        isCollapsed={isCollapsed}
+        onToggleCollapse={toggleDesktopSidebar}
+      />
 
       {/* Main Content Area */}
-      <div className="flex-1 flex flex-col min-w-0 lg:pl-64 pb-20 lg:pb-0">
+      <div
+        className={clsx(
+          "flex-1 flex flex-col min-w-0 pb-20 lg:pb-0 transition-all duration-300 ease-in-out",
+          isCollapsed ? "lg:pl-20" : "lg:pl-64"
+        )}
+      >
         <Navbar
           onMenuClick={() => setSidebarOpen(true)}
+          onToggleDesktopSidebar={toggleDesktopSidebar}
+          isDesktopCollapsed={isCollapsed}
           title={currentMeta.title}
           subtitle={currentMeta.subtitle}
         />

@@ -597,7 +597,13 @@ export const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({
                   label="Ngày Giao Dịch"
                   type="date"
                   value={transactionDate}
-                  onChange={(e) => setTransactionDate(e.target.value)}
+                  onChange={(e) => {
+                    const newDate = e.target.value;
+                    setTransactionDate(newDate);
+                    if (!postDate || postDate === transactionDate) {
+                      setPostDate(newDate);
+                    }
+                  }}
                   required
                 />
                 <Input

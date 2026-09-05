@@ -5,6 +5,8 @@ import { NotificationBell } from "../common/NotificationBell";
 
 interface NavbarProps {
   onMenuClick: () => void;
+  onToggleDesktopSidebar?: () => void;
+  isDesktopCollapsed?: boolean;
   title: string;
   subtitle?: string;
   onRefresh?: () => void;
@@ -13,6 +15,8 @@ interface NavbarProps {
 
 export const Navbar: React.FC<NavbarProps> = ({
   onMenuClick,
+  onToggleDesktopSidebar,
+  isDesktopCollapsed = true,
   title,
   subtitle,
   onRefresh,
@@ -21,12 +25,23 @@ export const Navbar: React.FC<NavbarProps> = ({
   return (
     <header className="sticky top-0 z-30 flex items-center justify-between h-16 sm:h-20 px-4 sm:px-8 bg-slate-950/85 backdrop-blur-md border-b border-slate-800/80">
       <div className="flex items-center gap-2 sm:gap-4 min-w-0">
+        {/* Mobile Hamburger Button */}
         <button
           onClick={onMenuClick}
           aria-label="Open Menu"
           className="p-2 -ml-1 text-slate-400 rounded-xl hover:text-white hover:bg-slate-800 lg:hidden focus:outline-none"
         >
           <Menu className="w-5 h-5 sm:w-6 sm:h-6" />
+        </button>
+
+        {/* Desktop Hamburger / Toggle Button */}
+        <button
+          onClick={onToggleDesktopSidebar}
+          aria-label={isDesktopCollapsed ? "Mở rộng thanh điều hướng" : "Thu gọn thanh điều hướng"}
+          title={isDesktopCollapsed ? "Mở rộng thanh điều hướng" : "Thu gọn thanh điều hướng"}
+          className="hidden lg:flex items-center justify-center p-2 -ml-2 text-slate-400 rounded-xl hover:text-white hover:bg-slate-800 transition-colors focus:outline-none"
+        >
+          <Menu className="w-5 h-5" />
         </button>
         <div className="min-w-0">
           <h2 className="text-base sm:text-xl font-bold text-slate-100 tracking-tight truncate">
