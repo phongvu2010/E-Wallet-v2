@@ -1,129 +1,50 @@
 import { Category, CategoryTreeNode } from "../types/category";
 import { TransactionType } from "../types/transaction";
 
+export type TransactionFlow = "EXPENSE" | "INCOME" | "TRANSFER" | "REPAYMENT";
+
 /**
- * Filter categories tree based on current transaction type.
- *
- * Rules:
- * - PURCHASE: Show only pure consumer spending (EXPENSE), excluding technical items (Trả góp, Tất toán, Thanh toán, Phí...).
- * - FEE: Show only Fee items (FEE_INTEREST, excluding Lãi suất).
- * - INTEREST: Show only Interest items (Lãi suất).
- * - REPAYMENT: Show Payment & Income settlement categories (Thanh toán dư nợ, Nạp tiền).
- * - INSTALLMENT_MONTHLY: Show Installment categories (Trả góp, Tất toán trả góp).
- * - INSTALLMENT_PRINCIPAL: Show Installment principal conversion (Chuyển đổi sang trả góp).
- * - REFUND: Show Adjustment / Refund (Hủy giao dịch) plus consumer categories for original expense refunding.
- * - CASHBACK_CREDIT: Show Cashback categories (Hoàn tiền Cashback).
- * - CASH_ADVANCE: Show Cash advance / Other expenses.
- * - ADJUSTMENT / TRANSFER: Show respective adjustment/transfer categories.
+ * Filter categories tree based on high-level transaction flow.
  */
-export function filterCategoryTreeByTransactionType(
+export function filterCategoryTreeByFlow(
   tree: CategoryTreeNode[],
-  txType: TransactionType
+  flow: TransactionFlow
 ): CategoryTreeNode[] {
   if (!tree || tree.length === 0) return [];
 
-  const cleanText = (s?: string) => (s || "").toLowerCase().trim();
+  switch (flow) {
+    case "EXPENSE":
+      return tree.filter(
+        (parent) =>
+          parent.category_type === "EXPENSE" ||
+          parent.category_type === "FEE_INTEREST" ||
+          parent.name.includes("Ăn uống") ||
+          parent.name.includes("Mua sắm") ||
+          parent.name.includes("Di chuyển") ||
+          parent.name.includes("Hóa đơn") ||
+          parent.name.includes("Sức khỏe") ||
+          parent.name.includes("Giải trí") ||
+          parent.name.includes("Phí & Lãi") ||
+          parent.name.includes("Chi tiêu")
+      );
 
-  switch (txType) {
-    case "PURCHASE":
-      return tree
-        .filter((parent) => parent.category_type === "EXPENSE" || cleanText(parent.name).includes("chi tiêu"))
-        .map((parent) => ({
-          ...parent,
-          children: (parent.children || []).filter((child) => {
-            const name = cleanText(child.name);
-            // Exclude technical installment or payment items from normal purchases
-            return (
-              !name.includes("trả góp") &&
-              !name.includes("tất toán") &&
-              !name.includes("thanh toán") &&
-              !name.includes("phí") &&
-              !name.includes("lãi")
-            );
-          }),
-        }))
-        .filter((parent) => (parent.children && parent.children.length > 0) || !parent.parent_id);
+    case "INCOME":
+      return tree.filter(
+        (parent) =>
+          parent.category_type === "INCOME" ||
+          parent.name.includes("Lương") ||
+          parent.name.includes("Thu nhập") ||
+          parent.name.includes("Hoàn tiền")
+      );
 
-    case "FEE":
-      return tree
-        .filter((parent) => parent.category_type === "FEE_INTEREST" || cleanText(parent.name).includes("phí"))
-        .map((parent) => ({
-          ...parent,
-          children: (parent.children || []).filter((child) => {
-            const name = cleanText(child.name);
-            return !name.includes("lãi suất");
-          }),
-        }))
-        .filter((parent) => (parent.children && parent.children.length > 0) || !parent.parent_id);
-
-    case "INTEREST":
-      return tree
-        .filter((parent) => parent.category_type === "FEE_INTEREST" || cleanText(parent.name).includes("lãi"))
-        .map((parent) => ({
-          ...parent,
-          children: (parent.children || []).filter((child) => cleanText(child.name).includes("lãi")),
-        }))
-        .filter((parent) => (parent.children && parent.children.length > 0) || !parent.parent_id);
-
+    case "TRANSFER":
     case "REPAYMENT":
-      return tree
-        .filter(
-          (parent) =>
-            parent.category_type === "TRANSFER" ||
-            parent.category_type === "INCOME" ||
-            cleanText(parent.name).includes("thanh toán") ||
-            cleanText(parent.name).includes("thu nhập")
-        )
-        .map((parent) => ({
-          ...parent,
-          children: (parent.children || []).filter((child) => {
-            const name = cleanText(child.name);
-            return name.includes("thanh toán") || name.includes("nạp tiền");
-          }),
-        }))
-        .filter((parent) => (parent.children && parent.children.length > 0) || !parent.parent_id);
-
-    case "INSTALLMENT_MONTHLY":
-      return tree
-        .filter((parent) => parent.category_type === "EXPENSE" || cleanText(parent.name).includes("chi tiêu"))
-        .map((parent) => ({
-          ...parent,
-          children: (parent.children || []).filter((child) => {
-            const name = cleanText(child.name);
-            return name.includes("trả góp") || name.includes("tất toán");
-          }),
-        }))
-        .filter((parent) => (parent.children && parent.children.length > 0) || !parent.parent_id);
-
-    case "INSTALLMENT_PRINCIPAL":
-      return tree
-        .filter((parent) => parent.category_type === "ADJUSTMENT" || cleanText(parent.name).includes("điều chỉnh"))
-        .map((parent) => ({
-          ...parent,
-          children: (parent.children || []).filter((child) => cleanText(child.name).includes("chuyển đổi sang trả góp")),
-        }))
-        .filter((parent) => (parent.children && parent.children.length > 0) || !parent.parent_id);
-
-    case "REFUND":
-      return tree
-        .map((parent) => ({
-          ...parent,
-          children: (parent.children || []).filter((child) => {
-            const name = cleanText(child.name);
-            // Allow "Hủy giao dịch" or original purchase categories
-            return !name.includes("thanh toán") && !name.includes("phí") && !name.includes("lãi");
-          }),
-        }))
-        .filter((parent) => (parent.children && parent.children.length > 0) || !parent.parent_id);
-
-    case "CASHBACK_CREDIT":
-      return tree
-        .filter((parent) => parent.category_type === "INCOME" || cleanText(parent.name).includes("hoàn tiền"))
-        .map((parent) => ({
-          ...parent,
-          children: (parent.children || []).filter((child) => cleanText(child.name).includes("hoàn tiền")),
-        }))
-        .filter((parent) => (parent.children && parent.children.length > 0) || !parent.parent_id);
+      return tree.filter(
+        (parent) =>
+          parent.category_type === "TRANSFER" ||
+          parent.name.includes("Chuyển tiền") ||
+          parent.name.includes("Thanh toán")
+      );
 
     default:
       return tree;
@@ -131,11 +52,47 @@ export function filterCategoryTreeByTransactionType(
 }
 
 /**
- * Find default Category ID for a given transaction type.
+ * Infer High-Level Transaction Flow from a technical TransactionType.
  */
-export function getDefaultCategoryForTransactionType(
-  categories: Category[],
+export function inferFlowFromTransactionType(txType: TransactionType): TransactionFlow {
+  switch (txType) {
+    case "INCOME":
+    case "CASHBACK_CREDIT":
+      return "INCOME";
+    case "TRANSFER":
+      return "TRANSFER";
+    case "REPAYMENT":
+      return "REPAYMENT";
+    case "PURCHASE":
+    case "FEE":
+    case "INTEREST":
+    case "INSTALLMENT_MONTHLY":
+    case "INSTALLMENT_PRINCIPAL":
+    case "CASH_ADVANCE":
+    case "REFUND":
+    case "ADJUSTMENT":
+    default:
+      return "EXPENSE";
+  }
+}
+
+/**
+ * Filter categories tree based on technical transaction type (backward compatibility).
+ */
+export function filterCategoryTreeByTransactionType(
+  tree: CategoryTreeNode[],
   txType: TransactionType
+): CategoryTreeNode[] {
+  const flow = inferFlowFromTransactionType(txType);
+  return filterCategoryTreeByFlow(tree, flow);
+}
+
+/**
+ * Find default Category ID for a given high-level flow or transaction type.
+ */
+export function getDefaultCategoryForFlow(
+  categories: Category[],
+  flow: TransactionFlow
 ): string {
   if (!categories || categories.length === 0) return "";
 
@@ -143,35 +100,18 @@ export function getDefaultCategoryForTransactionType(
 
   let targetKeywords: string[] = [];
 
-  switch (txType) {
+  switch (flow) {
+    case "EXPENSE":
+      targetKeywords = ["nhà hàng", "cà phê", "siêu thị", "ăn uống", "chi tiêu khác"];
+      break;
+    case "INCOME":
+      targetKeywords = ["tiền lương hàng tháng", "tiền lương", "lương & thu nhập", "lương"];
+      break;
+    case "TRANSFER":
+      targetKeywords = ["chuyển khoản nội bộ", "chuyển khoản", "chuyển tiền"];
+      break;
     case "REPAYMENT":
-      targetKeywords = ["thanh toán dư nợ", "thanh toán"];
-      break;
-    case "INSTALLMENT_MONTHLY":
-      targetKeywords = ["trả góp"];
-      break;
-    case "INSTALLMENT_PRINCIPAL":
-      targetKeywords = ["chuyển đổi sang trả góp"];
-      break;
-    case "INTEREST":
-      targetKeywords = ["lãi suất"];
-      break;
-    case "FEE":
-      targetKeywords = ["phí thường niên", "phí sms", "phí chuyển đổi"];
-      break;
-    case "CASHBACK_CREDIT":
-      targetKeywords = ["hoàn tiền cashback", "hoàn tiền"];
-      break;
-    case "REFUND":
-      targetKeywords = ["hủy giao dịch"];
-      break;
-    case "CASH_ADVANCE":
-      targetKeywords = ["rút tiền", "chi tiêu khác"];
-      break;
-    case "PURCHASE":
-      targetKeywords = ["nhà hàng", "siêu thị", "chi tiêu khác"];
-      break;
-    default:
+      targetKeywords = ["thanh toán dư nợ thẻ", "thanh toán dư nợ", "thanh toán"];
       break;
   }
 
@@ -180,55 +120,68 @@ export function getDefaultCategoryForTransactionType(
     if (found) return found.id;
   }
 
-  return "";
+  // Fallback to first available category
+  return categories[0]?.id || "";
+}
+
+export function getDefaultCategoryForTransactionType(
+  categories: Category[],
+  txType: TransactionType
+): string {
+  const flow = inferFlowFromTransactionType(txType);
+  return getDefaultCategoryForFlow(categories, flow);
 }
 
 /**
- * Infer the appropriate Transaction Type from a selected Category.
+ * Infer the appropriate Transaction Type from a selected Category and current Flow.
  */
 export function inferTransactionTypeFromCategory(
-  category: Category | undefined
+  category: Category | undefined,
+  currentFlow?: TransactionFlow
 ): TransactionType {
-  if (!category) return "PURCHASE";
+  if (currentFlow === "TRANSFER") return "TRANSFER";
+  if (currentFlow === "REPAYMENT") return "REPAYMENT";
+
+  if (!category) {
+    return currentFlow === "INCOME" ? "INCOME" : "PURCHASE";
+  }
 
   const name = (category.name || "").toLowerCase().trim();
   const catType = category.category_type;
 
+  // Specific keyword detections
   if (name.includes("lãi suất") || name.includes("tiền lãi")) {
     return "INTEREST";
   }
-  if (name.includes("phí") || name.includes("fee") || catType === "FEE_INTEREST") {
+  if (name.includes("phí thường niên") || name.includes("phí sms") || name.includes("phí dịch vụ") || name.includes("phí & lãi") || catType === "FEE_INTEREST") {
     return "FEE";
   }
-  if (name.includes("thanh toán dư nợ") || name.includes("thanh toán thẻ") || name.includes("nạp tiền")) {
+  if (name.includes("thanh toán dư nợ") || name.includes("thanh toán thẻ")) {
     return "REPAYMENT";
   }
   if (name.includes("chuyển khoản") || name.includes("chuyển tiền") || catType === "TRANSFER") {
     return "TRANSFER";
   }
-  if (name.includes("hoàn tiền cashback") || name.includes("hoàn tiền") || name.includes("cashback")) {
+  if (name.includes("cashback") || name.includes("hoàn tiền cashback") || name.includes("điểm thưởng")) {
     return "CASHBACK_CREDIT";
   }
-  if (name.includes("hủy giao dịch") || name.includes("hoàn đơn") || name.includes("refund")) {
+  if (name.includes("hủy đơn") || name.includes("hoàn đơn") || name.includes("refund")) {
     return "REFUND";
   }
-  if (name.includes("chuyển đổi sang trả góp") || name.includes("chuyển đổi trả góp")) {
+  if (name.includes("chuyển đổi sang trả góp")) {
     return "INSTALLMENT_PRINCIPAL";
   }
-  if (name.includes("trả góp") || name.includes("tất toán trả góp")) {
+  if (name.includes("trả góp định kỳ") || name.includes("trả góp")) {
     return "INSTALLMENT_MONTHLY";
   }
   if (name.includes("ứng tiền") || name.includes("rút tiền mặt")) {
     return "CASH_ADVANCE";
   }
-  if (catType === "INCOME" || name.includes("lương") || name.includes("thu nhập") || name.includes("thưởng")) {
+  if (catType === "INCOME" || name.includes("lương") || name.includes("thu nhập") || name.includes("thưởng") || currentFlow === "INCOME") {
     return "INCOME";
   }
   if (catType === "ADJUSTMENT") {
     return "ADJUSTMENT";
-  }
-  if (catType === "EXPENSE") {
-    return "PURCHASE";
   }
 
   return "PURCHASE";
@@ -254,6 +207,7 @@ export function resolveCategoryHierarchy(
   if (found.parent_id) {
     return { parentId: found.parent_id, subId: found.id };
   } else {
+    // It's a parent category
     return { parentId: found.id, subId: "" };
   }
 }

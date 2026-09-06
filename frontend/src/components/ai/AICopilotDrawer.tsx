@@ -218,7 +218,7 @@ export const AICopilotDrawer: React.FC = () => {
         >
           <Sparkles className="w-5 h-5 text-slate-950 animate-pulse" />
           <span className="text-xs font-extrabold tracking-wide hidden sm:inline">
-            AI Copilot (Thêm GD)
+            AI Copilot
           </span>
         </button>
       )}
@@ -479,4 +479,3 @@ export const AICopilotDrawer: React.FC = () => {
     </>
   );
 };
-

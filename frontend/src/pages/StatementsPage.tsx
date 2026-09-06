@@ -21,7 +21,7 @@ import {
   StatementPaymentStatus,
   StatementReconciliation,
 } from "../types/statement";
-import { formatCurrency, formatDate } from "../utils/formatters";
+import { formatAccountLabel, formatCurrency, formatDate } from "../utils/formatters";
 
 export const StatementsPage: React.FC = () => {
   const [activeTab, setActiveTab] = useState<"payment" | "reconciliation">("payment");
@@ -64,7 +64,7 @@ export const StatementsPage: React.FC = () => {
               { value: "", label: "Tất cả các thẻ" },
               ...accounts.map((a: Account) => ({
                 value: a.id,
-                label: `${a.account_name} (${a.card_number_last4})`,
+                label: formatAccountLabel(a),
               })),
             ]}
           />

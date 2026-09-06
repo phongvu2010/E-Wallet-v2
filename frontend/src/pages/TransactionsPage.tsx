@@ -36,6 +36,7 @@ import {
   TransactionType,
 } from "../types/transaction";
 import {
+  formatAccountLabel,
   formatCurrency,
   formatDate,
   getTransactionTypeLabel,
@@ -277,7 +278,7 @@ export const TransactionsPage: React.FC = () => {
                   { value: "", label: "Tất cả các tài khoản / thẻ" },
                   ...accounts.map((a: Account) => ({
                     value: a.id,
-                    label: `${a.account_name} (${a.card_number_last4 || a.account_type})`,
+                    label: formatAccountLabel(a),
                   })),
                 ]}
               />

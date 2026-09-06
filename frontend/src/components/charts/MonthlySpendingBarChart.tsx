@@ -22,10 +22,12 @@ interface MonthlySpendingBarChartProps {
 export const MonthlySpendingBarChart: React.FC<MonthlySpendingBarChartProps> = ({
   data,
 }) => {
-  const chartData = [...data].reverse().map((item) => ({
-    ...item,
-    formattedMonth: formatDate(item.month, "MM/yyyy"),
-  }));
+  const chartData = [...data]
+    .sort((a, b) => new Date(a.month).getTime() - new Date(b.month).getTime())
+    .map((item) => ({
+      ...item,
+      formattedMonth: formatDate(item.month, "MM/yyyy"),
+    }));
 
   if (chartData.length === 0) {
     return (

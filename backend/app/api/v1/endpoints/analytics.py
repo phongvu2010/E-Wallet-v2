@@ -56,7 +56,7 @@ async def get_monthly_cash_flow(
     summary="Get monthly spending grouped by category",
 )
 async def get_monthly_spending(
-    limit: int = Query(default=50, ge=1, le=500),
+    limit: int = Query(default=200, ge=1, le=1000),
     db: AsyncSession = Depends(get_db),
 ):
     """Retrieve historical category spending trends with refund and fee adjustments applied."""

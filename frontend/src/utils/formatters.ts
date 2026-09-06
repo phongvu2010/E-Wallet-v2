@@ -172,3 +172,72 @@ export function getCategoryTypeLabel(type: string): string {
       return type;
   }
 }
+
+/**
+ * Formats an account display label to include the issuer / bank name prefix,
+ * account name, and masked number / last 4 digits.
+ *
+ * Example:
+ * - "Shinhan Bank: S-PayRoll Account - VND (•••• 1294)"
+ * - "HSBC: VISA CASH BACK (•••• 0702)"
+ * - "ZaloPay: TK Tra Sau (•••• 0535)"
+ * - "MoMo: Túi Thần Tài (•••• 0535)"
+ * - "Tiền mặt: Tiền Mặt Cá Nhân (•••• CASH)"
+ */
+export function formatAccountLabel(
+  account: {
+    account_name?: string;
+    bank_name?: string;
+    institution?: { short_name?: string; name?: string; code?: string } | null;
+    card_number_masked?: string;
+    card_number_last4?: string;
+    account_type?: string;
+  } | null | undefined
+): string {
+  if (!account || !account.account_name) return "";
+
+  // 1. Determine the Issuer / Bank prefix
+  let instName =
+    account.institution?.short_name ||
+    account.institution?.name ||
+    account.bank_name ||
+    "";
+
+  if (!instName && account.account_type) {
+    switch (account.account_type) {
+      case "CASH":
+        instName = "Tiền mặt";
+        break;
+      case "E_WALLET":
+        instName = "Ví điện tử";
+        break;
+      case "SAVINGS":
+        instName = "Tiết kiệm";
+        break;
+      case "BANK_ACCOUNT":
+        instName = "Ngân hàng";
+        break;
+      case "CREDIT_CARD":
+        instName = "Thẻ tín dụng";
+        break;
+      case "DEBIT_CARD":
+        instName = "Thẻ ghi nợ";
+        break;
+      default:
+        instName = "";
+    }
+  }
+
+  // 2. Determine masked number / last 4 suffix
+  let numPart = "";
+  if (account.card_number_last4 && account.card_number_last4.trim()) {
+    const raw4 = account.card_number_last4.trim();
+    numPart = raw4.startsWith("••••") || raw4.startsWith("****") ? raw4 : `•••• ${raw4}`;
+  } else if (account.card_number_masked && account.card_number_masked.trim()) {
+    numPart = account.card_number_masked.trim();
+  }
+
+  const nameWithNum = numPart ? `${account.account_name} (${numPart})` : account.account_name;
+
+  return instName ? `${instName}: ${nameWithNum}` : nameWithNum;
+}

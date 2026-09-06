@@ -269,7 +269,8 @@ class AIAssistantService:
         # 3. REPAYMENT
         if any(w in lower for w in [
             "trả nợ thẻ", "thanh toán nợ", "thanh toán thẻ", "trả nợ", "trả thẻ",
-            "repayment", "nạp tiền vào thẻ", "thanh toán sao kê"
+            "repayment", "nạp tiền vào thẻ", "thanh toán sao kê", "thanh toán dư nợ",
+            "thanh toán dư nợ thẻ", "thanh toán khoản nợ"
         ]):
             return TransactionTypeEnum.REPAYMENT
 
@@ -400,43 +401,72 @@ class AIAssistantService:
         lower = text_input.lower()
 
         cat_keywords = [
-            (["cafe", "cà phê", "highland", "starbucks", "trà sữa", "phúc long", "katinat", "ăn", "uống", "cơm", "phở", "bún", "lẩu", "nhà hàng", "f&b", "ăn trưa", "ăn sáng", "ăn tối", "pizza", "kfc", "lotteria", "mcdonald", "trà"], "Nhà hàng & F&B"),
-            (["siêu thị", "winmart", "coopmart", "bách hóa", "lotte", "aeon", "chợ", "tiện lợi", "circle k", "ministop", "familymart", "gs25", "7-eleven", "tạp hóa"], "Siêu thị & Tiện lợi"),
-            (["shopee", "lazada", "tiki", "tiktok", "mua sắm", "quần áo", "giày", "thời trang", "uniqlo", "zara", "váy", "áo", "quần"], "Thương mại điện tử"),
-            (["công nghệ", "máy tính", "điện thoại", "iphone", "laptop", "tai nghe", "bàn phím", "chuột", "ipad", "macbook"], "Cửa hàng công nghệ"),
-            (["xăng", "đổ xăng", "petrolimex", "grab", "be", "taxi", "giao hàng", "vé xe", "vé máy bay", "di chuyển", "gửi xe", "vé tàu"], "Di chuyển & Vận tải"),
-            (["điện", "nước", "internet", "viettel", "fpt", "netflix", "spotify", "icloud", "youtube", "phần mềm", "app store", "google play"], "Dịch vụ số & Ứng dụng"),
-            (["thuốc", "bệnh viện", "khám", "nha khoa", "y tế", "pharmacity", "long châu", "tiệm thuốc", "nước muối", "khẩu trang"], "Y tế & Sức khỏe"),
-            (["cắt tóc", "spa", "mỹ phẩm", "skincare", "gội đầu", "làm móng", "nail", "massage"], "Chăm sóc cá nhân"),
-            (["du lịch", "khách sạn", "resort", "agoda", "booking", "homestay", "tour"], "Du lịch"),
-            (["lương", "thưởng", "thu nhập", "tiền lương", "hoa hồng"], "Lương & Thu nhập"),
-            (["thanh toán dư nợ", "trả nợ", "thanh toán thẻ"], "Thanh toán dư nợ"),
-            (["phí sms", "sms"], "Phí SMS"),
-            (["phí thường niên"], "Phí thường niên"),
-            (["lãi", "lãi suất"], "Lãi suất"),
-            (["cashback", "hoàn tiền"], "Hoàn tiền Cashback"),
+            (["shopeefood", "grabfood", "baemin", "giao đồ ăn", "food delivery", "be food", "order món"], "Giao đồ ăn (Food Delivery)"),
+            (["cafe", "cà phê", "highland", "starbucks", "trà sữa", "phúc long", "katinat", "đồ uống", "sinh tố", "nước mía", "trà"], "Cà phê & Đồ uống"),
+            (["ăn", "uống", "cơm", "phở", "bún", "lẩu", "nhà hàng", "f&b", "ăn trưa", "ăn sáng", "ăn tối", "pizza", "kfc", "lotteria", "mcdonald", "tiệc", "buffet"], "Nhà hàng & Ăn uống"),
+            (["siêu thị", "winmart", "coopmart", "bách hóa", "lotte", "aeon", "chợ", "bách hóa xanh", "big c", "go!", "tops market"], "Siêu thị & Bách hóa"),
+            (["circle k", "ministop", "familymart", "gs25", "7-eleven", "tạp hóa", "tiện lợi"], "Cửa hàng tiện lợi & Tạp hóa"),
+            (["shopee", "lazada", "tiki", "tiktok shop", "mua sắm online", "amazon", "taobao"], "Thương mại điện tử & Mua sắm online"),
+            (["quần áo", "giày", "thời trang", "uniqlo", "zara", "váy", "áo", "quần", "túi xách", "đồng hồ"], "Thời trang & Phụ kiện"),
+            (["công nghệ", "máy tính", "điện thoại", "iphone", "laptop", "tai nghe", "bàn phím", "chuột", "ipad", "macbook", "thiết bị điện tử", "phụ kiện"], "Thiết bị & Đồ điện tử"),
+            (["xăng", "đổ xăng", "petrolimex", "pvoil", "nhiên liệu", "dầu xe"], "Xăng xe & Nhiên liệu"),
+            (["grab", "be", "taxi", "gọi xe", "gojek", "xanh sm", "mai linh", "vinasun"], "Dịch vụ gọi xe (Grab / Be)"),
+            (["vé xe", "vé máy bay", "vé tàu", "vietjet", "vietnam airlines", "bamboo", "phương trang", "xe khách"], "Vé tàu xe & Máy bay"),
+            (["gửi xe", "vé xe", "phí giữ xe", "phí cầu đường", "bot", "epass", "vetc"], "Gửi xe & Phí cầu đường"),
+            (["điện thoại", "nạp thẻ", "4g", "5g", "viettel", "mobifone", "vinaphone", "cước di động"], "Điện thoại & 4G/5G"),
+            (["tiền điện", "tiền nước", "evn", "sawaco", "nước sinh hoạt", "điện sinh hoạt"], "Điện & Nước sinh hoạt"),
+            (["internet", "wifi", "truyền hình", "fpt telecom", "vnpt", "k+"], "Internet & Truyền hình"),
+            (["netflix", "spotify", "icloud", "youtube premium", "chatgpt", "openai", "app store", "google play", "phần mềm", "thuê bao"], "Dịch vụ số & Thuê bao (Netflix, Spotify...)"),
+            (["thuốc", "pharmacity", "long châu", "an khang", "nhà thuốc", "tiệm thuốc", "khẩu trang", "nước muối", "panadol", "efferalgan"], "Thuốc & Nhà thuốc"),
+            (["bệnh viện", "khám bệnh", "nha khoa", "y tế", "xét nghiệm", "bác sĩ", "phòng khám", "tiêm vắc xin"], "Khám chữa bệnh & Y tế"),
+            (["cắt tóc", "spa", "mỹ phẩm", "skincare", "gội đầu", "làm móng", "nail", "massage", "salon"], "Spa & Làm đẹp"),
+            (["gym", "fitness", "yoga", "bơi", "cầu lông", "pickleball", "đá bóng", "thể thao"], "Thể thao & Fitness"),
+            (["du lịch", "khách sạn", "resort", "agoda", "booking", "homestay", "tour", "vé tham quan", "travel"], "Du lịch & Khách sạn"),
+            (["vé xem phim", "cgv", "lotte cinema", "bhd", "cinema", "sự kiện", "concert", "ca nhạc"], "Vé xem phim & Sự kiện"),
+            (["nạp game", "steam", "garena", "playstation", "nintendo", "game"], "Game & Giải trí số"),
+            (["phí thường niên"], "Phí thường niên thẻ"),
+            (["phí sms", "sms banking", "ngân hàng điện tử", "digibank"], "Phí SMS & Ngân hàng điện tử"),
+            (["phí giao dịch", "phí rút tiền", "phí thẻ", "phí dịch vụ"], "Phí giao dịch & Dịch vụ thẻ"),
+            (["lãi", "lãi suất", "tiền lãi", "interest"], "Lãi suất phát sinh"),
+            (["phí chuyển đổi trả góp", "chuyển đổi trả góp", "trả góp"], "Phí chuyển đổi trả góp"),
+            (["lương", "nhận lương", "tiền lương", "chuyển lương"], "Tiền lương hàng tháng"),
+            (["thưởng", "hoa hồng", "tiền thưởng", "bonus", "commission"], "Thưởng & Hoa hồng"),
+            (["cashback", "hoàn tiền", "khuyến mãi", "voucher"], "Hoàn tiền & Khuyến mãi"),
+            (["chuyển khoản", "chuyển tiền", "chuyển sang", "bắn tiền", "chuyển cho"], "Chuyển khoản nội bộ"),
+            (["thanh toán dư nợ", "trả nợ thẻ", "thanh toán thẻ", "trả thẻ", "nạp thẻ tín dụng"], "Thanh toán dư nợ thẻ tín dụng"),
+            (["rút tiền mặt", "rút atm", "nạp ví", "rút tiền"], "Rút tiền ATM / Nạp ví"),
+            (["từ thiện", "quyên góp", "hiếu hỷ", "mừng cưới", "đám cưới", "phong bì"], "Quyên góp & Hiếu hỷ"),
+            (["học phí", "khóa học", "sách", "giáo trình", "tiếng anh", "ielts", "toiec"], "Giáo dục & Khóa học"),
         ]
 
+        def match_keyword(kw: str, text: str) -> bool:
+            if len(kw.split()) == 1 and len(kw) <= 4:
+                return bool(re.search(r"(?:\b|^|\s)" + re.escape(kw) + r"(?:\b|$|\s)", text, re.IGNORECASE))
+            return kw in text
+
         for keywords, target_name in cat_keywords:
-            if any(kw in lower for kw in keywords):
+            if any(match_keyword(kw, lower) for kw in keywords):
                 for cat in categories:
-                    if (cat.get("name") or "").lower() == target_name.lower():
+                    cat_name = (cat.get("name") or "").lower()
+                    if cat_name == target_name.lower() or target_name.lower() in cat_name:
                         return cat
 
         type_default_names = {
-            TransactionTypeEnum.INCOME: ["Lương & Thu nhập", "Thu nhập", "Lương"],
-            TransactionTypeEnum.TRANSFER: ["Chuyển khoản", "Chuyển tiền", "Thanh toán"],
-            TransactionTypeEnum.REPAYMENT: ["Thanh toán dư nợ", "Thanh toán"],
-            TransactionTypeEnum.FEE: ["Phí SMS", "Phí thường niên", "Phí & Lãi"],
-            TransactionTypeEnum.INTEREST: ["Lãi suất", "Phí & Lãi"],
-            TransactionTypeEnum.CASHBACK_CREDIT: ["Hoàn tiền Cashback", "Hoàn tiền"],
-            TransactionTypeEnum.REFUND: ["Hủy giao dịch", "Điều chỉnh / Hủy"],
-            TransactionTypeEnum.PURCHASE: ["Chi tiêu khác", "Chi tiêu"],
+            TransactionTypeEnum.INCOME: ["Tiền lương hàng tháng", "Lương & Thu nhập", "Thu nhập khác", "Thu nhập"],
+            TransactionTypeEnum.TRANSFER: ["Chuyển khoản nội bộ", "Chuyển tiền & Trả nợ", "Chuyển khoản"],
+            TransactionTypeEnum.REPAYMENT: ["Thanh toán dư nợ thẻ tín dụng", "Chuyển tiền & Trả nợ", "Thanh toán dư nợ"],
+            TransactionTypeEnum.FEE: ["Phí thường niên thẻ", "Phí SMS & Ngân hàng điện tử", "Phí & Lãi ngân hàng"],
+            TransactionTypeEnum.INTEREST: ["Lãi suất phát sinh", "Phí & Lãi ngân hàng", "Lãi suất"],
+            TransactionTypeEnum.CASHBACK_CREDIT: ["Hoàn tiền & Khuyến mãi", "Lương & Thu nhập", "Hoàn tiền"],
+            TransactionTypeEnum.REFUND: ["Thương mại điện tử & Mua sắm online", "Mua sắm & Tiêu dùng", "Hủy giao dịch"],
+            TransactionTypeEnum.CASH_ADVANCE: ["Rút tiền ATM / Nạp ví", "Chuyển tiền & Trả nợ"],
+            TransactionTypeEnum.PURCHASE: ["Chi tiêu khác", "Mua sắm & Tiêu dùng", "Nhà hàng & Ăn uống", "Ăn uống & F&B"],
         }
         targets = type_default_names.get(tx_type, ["Chi tiêu khác", "Chi tiêu"])
         for t_name in targets:
             for cat in categories:
-                if (cat.get("name") or "").lower() == t_name.lower():
+                cat_name = (cat.get("name") or "").lower()
+                if cat_name == t_name.lower() or t_name.lower() in cat_name:
                     return cat
         return categories[0] if categories else None
 

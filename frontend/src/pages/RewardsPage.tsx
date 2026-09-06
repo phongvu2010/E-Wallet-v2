@@ -7,7 +7,7 @@ import { Spinner } from "../components/common/Spinner";
 import { useAccounts, useRewards } from "../hooks/useFinanceQueries";
 import { Account } from "../types/account";
 import { RewardLedger } from "../types/reward";
-import { formatCurrency, formatDate } from "../utils/formatters";
+import { formatAccountLabel, formatCurrency, formatDate } from "../utils/formatters";
 
 export const RewardsPage: React.FC = () => {
   const [selectedAccountId, setSelectedAccountId] = useState<string>("");
@@ -58,7 +58,7 @@ export const RewardsPage: React.FC = () => {
               { value: "", label: "Tất cả các thẻ" },
               ...accounts.map((a: Account) => ({
                 value: a.id,
-                label: `${a.account_name} (${a.card_number_last4})`,
+                label: formatAccountLabel(a),
               })),
             ]}
           />

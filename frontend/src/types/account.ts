@@ -8,6 +8,7 @@ export interface Account {
   institution_id?: string;
   account_name: string;
   account_type: AccountType;
+  is_asset?: boolean;
   card_number_masked: string;
   card_number_last4: string;
   initial_balance?: number;

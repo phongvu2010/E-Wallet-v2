@@ -41,6 +41,10 @@ import {
   getTransactionTypeLabel,
 } from "../../utils/formatters";
 import {
+  TransactionFlow,
+  filterCategoryTreeByFlow,
+  getDefaultCategoryForFlow,
+  inferFlowFromTransactionType,
   inferTransactionTypeFromCategory,
   resolveCategoryHierarchy,
 } from "../../utils/categoryHelpers";
@@ -86,6 +90,7 @@ export const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({
   const [isConfirmDelete, setIsConfirmDelete] = useState(false);
 
   // Form State for Edit Mode
+  const [flow, setFlow] = useState<TransactionFlow>("EXPENSE");
   const [rawDescription, setRawDescription] = useState("");
   const [transactionDate, setTransactionDate] = useState("");
   const [postDate, setPostDate] = useState("");
@@ -112,6 +117,10 @@ export const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({
   const [isSearchingMerchant, setIsSearchingMerchant] = useState(false);
   const merchantDropdownRef = useRef<HTMLDivElement>(null);
 
+  const filteredCategoryTree = useMemo(() => {
+    return filterCategoryTreeByFlow(categoryTree, flow);
+  }, [categoryTree, flow]);
+
   const effectiveCategoryId = useMemo(() => {
     return subCategoryId || parentCategoryId || "";
   }, [subCategoryId, parentCategoryId]);
@@ -130,6 +139,10 @@ export const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({
     if (transaction) {
       setIsEditing(false);
       setIsConfirmDelete(false);
+      const initialFlow = inferFlowFromTransactionType(
+        transaction.transaction_type || "PURCHASE"
+      );
+      setFlow(initialFlow);
       setRawDescription(transaction.raw_description || "");
       setTransactionDate(transaction.transaction_date || "");
       setPostDate(transaction.post_date || "");
@@ -195,6 +208,31 @@ export const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
+  // Flow change handler (Tab switches: Expense, Income, Transfer, Repayment)
+  const handleFlowChange = (newFlow: TransactionFlow) => {
+    setFlow(newFlow);
+    if (newFlow === "EXPENSE") {
+      setTransactionType("PURCHASE");
+    } else if (newFlow === "INCOME") {
+      setTransactionType("INCOME");
+    } else if (newFlow === "TRANSFER") {
+      setTransactionType("TRANSFER");
+    } else if (newFlow === "REPAYMENT") {
+      setTransactionType("REPAYMENT");
+    }
+
+    const defaultCatId = getDefaultCategoryForFlow(categories, newFlow);
+    if (defaultCatId) {
+      const hierarchy = resolveCategoryHierarchy(
+        defaultCatId,
+        categories,
+        categoryTree
+      );
+      setParentCategoryId(hierarchy.parentId);
+      setSubCategoryId(hierarchy.subId);
+    }
+  };
+
   // Parent Category Change Handler (Cấp 1)
   const handleParentCategoryChange = (newParentId: string) => {
     setParentCategoryId(newParentId);
@@ -206,7 +244,7 @@ export const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({
       (p: CategoryTreeNode) => p.id === newParentId
     );
     if (parentNode) {
-      const inferred = inferTransactionTypeFromCategory(parentNode);
+      const inferred = inferTransactionTypeFromCategory(parentNode, flow);
       setTransactionType(inferred);
     }
   };
@@ -220,7 +258,7 @@ export const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({
 
     const targetCat = categories.find((c: Category) => c.id === targetId);
     if (targetCat) {
-      const inferred = inferTransactionTypeFromCategory(targetCat);
+      const inferred = inferTransactionTypeFromCategory(targetCat, flow);
       setTransactionType(inferred);
     }
   };
@@ -610,6 +648,54 @@ export const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({
       ) : (
         /* ================= EDIT MODE ================= */
         <form onSubmit={handleSave} className="space-y-5">
+          {/* Top 4-Flow Tabs */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 p-1.5 bg-slate-950 rounded-2xl border border-slate-800">
+            <button
+              type="button"
+              onClick={() => handleFlowChange("EXPENSE")}
+              className={`py-2 px-3 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${
+                flow === "EXPENSE"
+                  ? "bg-rose-500/20 text-rose-300 border border-rose-500/40 shadow-sm"
+                  : "text-slate-400 hover:text-slate-200 hover:bg-slate-900"
+              }`}
+            >
+              <span>💸 Chi tiêu</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => handleFlowChange("INCOME")}
+              className={`py-2 px-3 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${
+                flow === "INCOME"
+                  ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 shadow-sm"
+                  : "text-slate-400 hover:text-slate-200 hover:bg-slate-900"
+              }`}
+            >
+              <span>💰 Thu nhập</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => handleFlowChange("TRANSFER")}
+              className={`py-2 px-3 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${
+                flow === "TRANSFER"
+                  ? "bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 shadow-sm"
+                  : "text-slate-400 hover:text-slate-200 hover:bg-slate-900"
+              }`}
+            >
+              <span>🔄 Chuyển tiền</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => handleFlowChange("REPAYMENT")}
+              className={`py-2 px-3 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${
+                flow === "REPAYMENT"
+                  ? "bg-teal-500/20 text-teal-300 border border-teal-500/40 shadow-sm"
+                  : "text-slate-400 hover:text-slate-200 hover:bg-slate-900"
+              }`}
+            >
+              <span>💳 Trả nợ thẻ</span>
+            </button>
+          </div>
+
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
             {/* Left Column (7 Cols) */}
             <div className="lg:col-span-7 space-y-4">
@@ -673,7 +759,7 @@ export const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({
                               (c: Category) => c.id === m.default_category_id
                             );
                             if (targetCat) {
-                              const inferred = inferTransactionTypeFromCategory(targetCat);
+                              const inferred = inferTransactionTypeFromCategory(targetCat, flow);
                               setTransactionType(inferred);
                             }
                           }
@@ -705,7 +791,7 @@ export const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({
                       onChange={(e) => handleParentCategoryChange(e.target.value)}
                       options={[
                         { value: "", label: "-- Chọn Nhóm Danh Mục Cha --" },
-                        ...categoryTree.map((p: CategoryTreeNode) => ({
+                        ...filteredCategoryTree.map((p: CategoryTreeNode) => ({
                           value: p.id,
                           label: p.name,
                         })),

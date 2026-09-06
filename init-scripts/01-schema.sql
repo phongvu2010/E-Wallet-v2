@@ -637,13 +637,8 @@ SELECT
     a.credit_limit,
     COALESCE(latest_s.statement_balance, 0.00) AS current_balance,
     GREATEST(0.00, a.credit_limit - COALESCE(latest_s.statement_balance, 0.00)) AS available_limit,
+    ROUND((COALESCE(latest_s.statement_balance, 0.00) / a.credit_limit) * 100.0, 2) AS utilization_percentage,
     CASE
-        WHEN a.credit_limit > 0 THEN
-            ROUND((COALESCE(latest_s.statement_balance, 0.00) / a.credit_limit) * 100.0, 2)
-        ELSE 0.00
-    END AS utilization_percentage,
-    CASE
-        WHEN a.credit_limit = 0 THEN 'NO_LIMIT'
         WHEN (COALESCE(latest_s.statement_balance, 0.00) / a.credit_limit) > 0.70 THEN 'CRITICAL (>70%)'
         WHEN (COALESCE(latest_s.statement_balance, 0.00) / a.credit_limit) > 0.50 THEN 'HIGH (>50%)'
         WHEN (COALESCE(latest_s.statement_balance, 0.00) / a.credit_limit) > 0.30 THEN 'MODERATE (>30%)'
@@ -658,7 +653,8 @@ LEFT JOIN LATERAL (
     ORDER BY s.statement_date DESC
     LIMIT 1
 ) latest_s ON TRUE
-WHERE a.status = 'ACTIVE';
+WHERE a.status = 'ACTIVE'
+  AND a.credit_limit > 0;
 
 -- View 6: Lịch Nhắc Thanh toán & Dòng tiền Sắp Đến Hạn (Upcoming Obligations)
 CREATE OR REPLACE VIEW v_upcoming_payment_obligations AS

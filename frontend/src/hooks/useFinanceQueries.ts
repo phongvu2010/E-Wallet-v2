@@ -170,7 +170,7 @@ export function useNetWorth() {
 /**
  * Query hook to fetch monthly cash flow (Income vs Expense vs Savings).
  */
-export function useCashFlow(limit = 12) {
+export function useCashFlow(limit = 24) {
   return useQuery({
     queryKey: ["cash-flow", limit],
     queryFn: () => analyticsService.getCashFlow(limit),
@@ -181,7 +181,7 @@ export function useCashFlow(limit = 12) {
 /**
  * Query hook to fetch monthly spending by category (cached 2 mins).
  */
-export function useMonthlySpending(limit = 20) {
+export function useMonthlySpending(limit = 200) {
   return useQuery({
     queryKey: ["monthly-spending", limit],
     queryFn: () => analyticsService.getMonthlySpending(limit),

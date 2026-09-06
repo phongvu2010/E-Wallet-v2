@@ -62,7 +62,7 @@ class AnalyticsService:
     @staticmethod
     async def get_monthly_spending(
         db: AsyncSession,
-        limit: int = 50,
+        limit: int = 200,
     ) -> List[MonthlyCategorySpendingRead]:
         """Query historical monthly spending aggregated by transaction category."""
         sql = """

@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import {
   AlertTriangle,
@@ -42,7 +42,7 @@ export const DashboardPage: React.FC = () => {
   const { data: overview, isLoading: overviewLoading } = useDashboardOverview();
   const { data: accounts = [] } = useAccountLiveBalances();
   const { data: obligations = [] } = useUpcomingObligations(30);
-  const { data: monthlySpending = [] } = useMonthlySpending(20);
+  const { data: monthlySpending = [] } = useMonthlySpending(200);
 
   const [isCreateAccountOpen, setIsCreateAccountOpen] = useState(false);
   const [isCreateTxOpen, setIsCreateTxOpen] = useState(false);
@@ -69,7 +69,9 @@ export const DashboardPage: React.FC = () => {
   );
 
   // Group latest month category spending for donut chart
+  const latestMonth = monthlySpending.length > 0 ? monthlySpending[0].month : null;
   const currentMonthCategories = monthlySpending
+    .filter((item: MonthlyCategorySpending) => !latestMonth || item.month === latestMonth)
     .slice(0, 7)
     .map((item: MonthlyCategorySpending) => ({
       name: item.category_name,
@@ -81,6 +83,56 @@ export const DashboardPage: React.FC = () => {
     (acc: number, curr: { value: number }) => acc + curr.value,
     0
   );
+
+  // Generate full monthly spending data for the latest year (year-to-date)
+  const annualSpendingData = useMemo(() => {
+    if (monthlySpending.length === 0) return [];
+
+    // Map month string (YYYY-MM) -> total spending
+    const monthlyTotalsMap: Record<string, number> = {};
+    monthlySpending.forEach((item: MonthlyCategorySpending) => {
+      if (!item.month) return;
+      const mStr = item.month.substring(0, 7); // "YYYY-MM"
+      monthlyTotalsMap[mStr] = (monthlyTotalsMap[mStr] || 0) + Number(item.total_spending);
+    });
+
+    // Determine latest year from data (or fallback to current year)
+    const recordedYears = Object.keys(monthlyTotalsMap)
+      .map((mStr) => parseInt(mStr.substring(0, 4), 10))
+      .filter((y) => !isNaN(y));
+    const latestYear =
+      recordedYears.length > 0
+        ? Math.max(...recordedYears)
+        : new Date().getFullYear();
+
+    // Determine max month in that latest year
+    const monthsInLatestYear = Object.keys(monthlyTotalsMap)
+      .filter((mStr) => mStr.startsWith(`${latestYear}-`))
+      .map((mStr) => parseInt(mStr.substring(5, 7), 10))
+      .filter((m) => !isNaN(m));
+
+    const currentCalendarMonth = new Date().getMonth() + 1;
+    const maxMonth =
+      monthsInLatestYear.length > 0
+        ? Math.max(
+            Math.max(...monthsInLatestYear),
+            latestYear === new Date().getFullYear() ? currentCalendarMonth : 1
+          )
+        : latestYear === new Date().getFullYear()
+        ? currentCalendarMonth
+        : 12;
+
+    // Generate timeline for all months from Month 1 to maxMonth in latestYear
+    const result: { month: string; total_spending: number }[] = [];
+    for (let m = 1; m <= maxMonth; m++) {
+      const monthKey = `${latestYear}-${String(m).padStart(2, "0")}`;
+      result.push({
+        month: `${monthKey}-01`,
+        total_spending: Math.max(0, monthlyTotalsMap[monthKey] ?? 0),
+      });
+    }
+    return result;
+  }, [monthlySpending]);
 
   return (
     <div className="space-y-8">
@@ -332,20 +384,7 @@ export const DashboardPage: React.FC = () => {
           </Link>
         </div>
 
-        <MonthlySpendingBarChart
-          data={monthlySpending.reduce((acc: any[], curr: MonthlyCategorySpending) => {
-            const existing = acc.find((a) => a.month === curr.month);
-            if (existing) {
-              existing.total_spending += Number(curr.total_spending);
-            } else {
-              acc.push({
-                month: curr.month,
-                total_spending: Number(curr.total_spending),
-              });
-            }
-            return acc;
-          }, [])}
-        />
+        <MonthlySpendingBarChart data={annualSpendingData} />
       </Card>
 
       {/* Modals */}

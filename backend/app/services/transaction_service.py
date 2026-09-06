@@ -167,29 +167,31 @@ class TransactionService:
 
         target_names = []
         if tx_type == TransactionTypeEnum.INCOME:
-            target_names = ["Lương & Thu nhập", "Thu nhập", "Lương", "Thưởng", "Thu nhập khác"]
+            target_names = ["Tiền lương hàng tháng", "Lương & Thu nhập", "Thu nhập khác", "Thu nhập", "Lương", "Thưởng"]
         elif tx_type == TransactionTypeEnum.TRANSFER:
-            target_names = ["Chuyển khoản", "Chuyển tiền", "Thanh toán"]
+            target_names = ["Chuyển khoản nội bộ", "Chuyển tiền & Trả nợ", "Chuyển khoản", "Chuyển tiền"]
         elif tx_type == TransactionTypeEnum.REPAYMENT:
-            target_names = ["Thanh toán dư nợ", "Thanh toán"]
+            target_names = ["Thanh toán dư nợ thẻ tín dụng", "Chuyển tiền & Trả nợ", "Thanh toán dư nợ", "Thanh toán"]
         elif tx_type == TransactionTypeEnum.INSTALLMENT_MONTHLY:
-            target_names = ["Trả góp"]
+            target_names = ["Phí chuyển đổi trả góp", "Phí & Lãi ngân hàng", "Trả góp"]
         elif tx_type == TransactionTypeEnum.INSTALLMENT_PRINCIPAL:
-            target_names = ["Chuyển đổi sang trả góp"]
+            target_names = ["Chuyển khoản nội bộ", "Chuyển tiền & Trả nợ", "Trả góp"]
         elif tx_type == TransactionTypeEnum.INTEREST:
-            target_names = ["Lãi suất"]
+            target_names = ["Lãi suất phát sinh", "Phí & Lãi ngân hàng", "Lãi suất"]
         elif tx_type == TransactionTypeEnum.FEE:
-            target_names = ["Phí thường niên", "Phí SMS", "Phí & Lãi"]
+            target_names = ["Phí thường niên thẻ", "Phí SMS & Ngân hàng điện tử", "Phí giao dịch & Dịch vụ thẻ", "Phí & Lãi ngân hàng"]
         elif tx_type == TransactionTypeEnum.CASHBACK_CREDIT:
-            target_names = ["Hoàn tiền Cashback", "Hoàn tiền"]
+            target_names = ["Hoàn tiền & Khuyến mãi", "Lương & Thu nhập", "Hoàn tiền"]
         elif tx_type == TransactionTypeEnum.REFUND:
-            target_names = ["Hủy giao dịch"]
+            target_names = ["Thương mại điện tử & Mua sắm online", "Mua sắm & Tiêu dùng", "Hủy giao dịch"]
+        elif tx_type == TransactionTypeEnum.CASH_ADVANCE:
+            target_names = ["Rút tiền ATM / Nạp ví", "Chuyển tiền & Trả nợ", "Chi tiêu khác"]
         elif tx_type == TransactionTypeEnum.PURCHASE:
-            target_names = ["Chi tiêu khác", "Chi tiêu"]
+            target_names = ["Chi tiêu khác", "Mua sắm & Tiêu dùng", "Nhà hàng & Ăn uống", "Ăn uống & F&B"]
 
         for name in target_names:
             cat_res = await db.execute(
-                select(Category.id).where(Category.name == name).limit(1)
+                select(Category.id).where(Category.name.ilike(f"%{name}%")).limit(1)
             )
             found_id = cat_res.scalar_one_or_none()
             if found_id:
