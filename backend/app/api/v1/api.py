@@ -8,6 +8,7 @@ from app.api.v1.endpoints import (
     etl,
     installments,
     institutions,
+    loans,
     merchants,
     notifications,
     recommendations,
@@ -37,6 +38,9 @@ api_router.include_router(
 )
 api_router.include_router(
     installments.router, prefix="/installments", tags=["Installment Plans & Forecast"]
+)
+api_router.include_router(
+    loans.router, prefix="/loans", tags=["Financial Loans & Floating Interest"]
 )
 api_router.include_router(rewards.router, prefix="/rewards", tags=["Reward Ledgers"])
 api_router.include_router(

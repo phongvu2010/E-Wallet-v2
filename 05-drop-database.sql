@@ -9,6 +9,8 @@
 -- ====================================================================
 
 -- 1. XOÁ CÁC ANALYTIC VIEWS
+DROP VIEW IF EXISTS v_monthly_cash_flow CASCADE;
+DROP VIEW IF EXISTS v_net_worth_overview CASCADE;
 DROP VIEW IF EXISTS v_account_live_balance CASCADE;
 DROP VIEW IF EXISTS v_installment_monthly_forecast CASCADE;
 DROP VIEW IF EXISTS v_upcoming_payment_obligations CASCADE;
@@ -23,6 +25,9 @@ DROP TABLE IF EXISTS card_benefits CASCADE;
 DROP TABLE IF EXISTS notification_settings CASCADE;
 DROP TABLE IF EXISTS notifications CASCADE;
 DROP TABLE IF EXISTS reward_ledgers CASCADE;
+DROP TABLE IF EXISTS loan_rate_histories CASCADE;
+DROP TABLE IF EXISTS loan_schedules CASCADE;
+DROP TABLE IF EXISTS loans CASCADE;
 DROP TABLE IF EXISTS installment_schedules CASCADE;
 DROP TABLE IF EXISTS installment_plans CASCADE;
 DROP TABLE IF EXISTS transactions CASCADE;
@@ -44,6 +49,10 @@ DROP FUNCTION IF EXISTS fn_generate_tx_fingerprint CASCADE;
 -- 4. XOÁ CÁC ENUM TYPES
 DROP TYPE IF EXISTS notification_severity_enum CASCADE;
 DROP TYPE IF EXISTS notification_type_enum CASCADE;
+DROP TYPE IF EXISTS loan_schedule_status_enum CASCADE;
+DROP TYPE IF EXISTS loan_status_enum CASCADE;
+DROP TYPE IF EXISTS interest_method_enum CASCADE;
+DROP TYPE IF EXISTS loan_type_enum CASCADE;
 DROP TYPE IF EXISTS reward_type_enum CASCADE;
 DROP TYPE IF EXISTS installment_status_enum CASCADE;
 DROP TYPE IF EXISTS transaction_type_enum CASCADE;

@@ -11,6 +11,7 @@ import { telegramService } from "../services/telegramService";
 import { recommendationService } from "../services/recommendationService";
 import { merchantService } from "../services/merchantService";
 import { institutionService } from "../services/institutionService";
+import { loanService } from "../services/loanService";
 import { TransactionFilterParams } from "../types/transaction";
 import { InstallmentStatus } from "../types/installment";
 
@@ -325,6 +326,44 @@ export function useTelegramBotStatus() {
     queryFn: () => telegramService.getStatus(),
     refetchInterval: 15000,
     staleTime: 10 * 1000,
+  });
+}
+
+// ====================================================================
+// 7. FINANCIAL LOANS & FLOATING INTEREST RATE
+// ====================================================================
+
+/**
+ * Query hook to fetch all financial loans.
+ */
+export function useLoans(status?: string, institutionId?: string) {
+  return useQuery({
+    queryKey: ["loans", status, institutionId],
+    queryFn: () => loanService.getAll(status, institutionId),
+    staleTime: 60 * 1000,
+  });
+}
+
+/**
+ * Query hook to fetch overall high-level loans KPIs.
+ */
+export function useLoanKPIs() {
+  return useQuery({
+    queryKey: ["loans-kpis"],
+    queryFn: () => loanService.getSummaryKPIs(),
+    staleTime: 30 * 1000,
+  });
+}
+
+/**
+ * Query hook to fetch single loan details with amortization schedule and rate history.
+ */
+export function useLoan(id?: string) {
+  return useQuery({
+    queryKey: ["loan", id],
+    queryFn: () => (id ? loanService.getById(id) : null),
+    enabled: !!id,
+    staleTime: 30 * 1000,
   });
 }
 

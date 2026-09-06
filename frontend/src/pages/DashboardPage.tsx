@@ -47,43 +47,6 @@ export const DashboardPage: React.FC = () => {
   const [isCreateAccountOpen, setIsCreateAccountOpen] = useState(false);
   const [isCreateTxOpen, setIsCreateTxOpen] = useState(false);
 
-  if ((overviewLoading && !overview) || !overview) {
-    return (
-      <div className="h-[60vh] flex flex-col items-center justify-center gap-3">
-        <Spinner size="lg" />
-        <p className="text-sm text-slate-400 font-medium">Đang tải dữ liệu tài chính...</p>
-      </div>
-    );
-  }
-
-  const riskColor = getRiskLevelColor(overview.overall_risk_level);
-
-  // Group asset accounts (bank, cash, e-wallet, savings) vs credit cards
-  const assetAccounts = accounts.filter(
-    (acc: AccountLiveBalance) =>
-      acc.is_asset || acc.account_type !== "CREDIT_CARD"
-  );
-  const creditCards = accounts.filter(
-    (acc: AccountLiveBalance) =>
-      !acc.is_asset && (acc.account_type === "CREDIT_CARD" || !acc.account_type)
-  );
-
-  // Group latest month category spending for donut chart
-  const latestMonth = monthlySpending.length > 0 ? monthlySpending[0].month : null;
-  const currentMonthCategories = monthlySpending
-    .filter((item: MonthlyCategorySpending) => !latestMonth || item.month === latestMonth)
-    .slice(0, 7)
-    .map((item: MonthlyCategorySpending) => ({
-      name: item.category_name,
-      value: Number(item.total_spending),
-      color: "",
-    }));
-
-  const currentMonthTotal = currentMonthCategories.reduce(
-    (acc: number, curr: { value: number }) => acc + curr.value,
-    0
-  );
-
   // Generate full monthly spending data for the latest year (year-to-date)
   const annualSpendingData = useMemo(() => {
     if (monthlySpending.length === 0) return [];
@@ -133,6 +96,43 @@ export const DashboardPage: React.FC = () => {
     }
     return result;
   }, [monthlySpending]);
+
+  if ((overviewLoading && !overview) || !overview) {
+    return (
+      <div className="h-[60vh] flex flex-col items-center justify-center gap-3">
+        <Spinner size="lg" />
+        <p className="text-sm text-slate-400 font-medium">Đang tải dữ liệu tài chính...</p>
+      </div>
+    );
+  }
+
+  const riskColor = getRiskLevelColor(overview.overall_risk_level);
+
+  // Group asset accounts (bank, cash, e-wallet, savings) vs credit cards
+  const assetAccounts = accounts.filter(
+    (acc: AccountLiveBalance) =>
+      acc.is_asset || acc.account_type !== "CREDIT_CARD"
+  );
+  const creditCards = accounts.filter(
+    (acc: AccountLiveBalance) =>
+      !acc.is_asset && (acc.account_type === "CREDIT_CARD" || !acc.account_type)
+  );
+
+  // Group latest month category spending for donut chart
+  const latestMonth = monthlySpending.length > 0 ? monthlySpending[0].month : null;
+  const currentMonthCategories = monthlySpending
+    .filter((item: MonthlyCategorySpending) => !latestMonth || item.month === latestMonth)
+    .slice(0, 7)
+    .map((item: MonthlyCategorySpending) => ({
+      name: item.category_name,
+      value: Number(item.total_spending),
+      color: "",
+    }));
+
+  const currentMonthTotal = currentMonthCategories.reduce(
+    (acc: number, curr: { value: number }) => acc + curr.value,
+    0
+  );
 
   return (
     <div className="space-y-8">

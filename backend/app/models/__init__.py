@@ -8,6 +8,15 @@ from app.models.installment import (
 from app.models.institution import Institution
 from app.models.merchant import Merchant, MerchantAlias
 from app.models.card_benefit import CardBenefit
+from app.models.loan import (
+    InterestMethodEnum,
+    Loan,
+    LoanRateHistory,
+    LoanSchedule,
+    LoanScheduleStatusEnum,
+    LoanStatusEnum,
+    LoanTypeEnum,
+)
 from app.models.notification import (
     Notification,
     NotificationSeverityEnum,
@@ -34,6 +43,13 @@ __all__ = [
     "InstallmentPlan",
     "InstallmentSchedule",
     "InstallmentStatusEnum",
+    "Loan",
+    "LoanSchedule",
+    "LoanRateHistory",
+    "LoanTypeEnum",
+    "InterestMethodEnum",
+    "LoanStatusEnum",
+    "LoanScheduleStatusEnum",
     "RewardLedger",
     "RewardTypeEnum",
     "Notification",

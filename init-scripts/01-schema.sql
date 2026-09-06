@@ -31,6 +31,10 @@ CREATE TYPE transaction_type_enum AS ENUM (
 );
 CREATE TYPE installment_status_enum AS ENUM ('ACTIVE', 'COMPLETED', 'CANCELLED', 'EARLY_SETTLED');
 CREATE TYPE reward_type_enum AS ENUM ('POINT', 'CASHBACK', 'MILE');
+CREATE TYPE loan_type_enum AS ENUM ('MORTGAGE', 'CONSUMER', 'AUTO', 'BUSINESS', 'OVERDRAFT', 'OTHER');
+CREATE TYPE interest_method_enum AS ENUM ('REDUCING_BALANCE', 'EQUAL_INSTALLMENT', 'FLAT');
+CREATE TYPE loan_status_enum AS ENUM ('ACTIVE', 'PAID_OFF', 'OVERDUE', 'CANCELLED');
+CREATE TYPE loan_schedule_status_enum AS ENUM ('UNPAID', 'PAID', 'OVERDUE');
 
 -- ====================================================================
 -- 1. INSTITUTIONS (TỔ CHỨC TÀI CHÍNH / NGÂN HÀNG)
@@ -423,6 +427,77 @@ BEGIN
     SELECT p_plan_id, v_product_name, v_remaining_balance, v_fee_amount, 'EARLY_SETTLED'::installment_status_enum;
 END;
 $$ LANGUAGE plpgsql;
+
+-- ====================================================================
+-- 7.1. LOANS, LOAN SCHEDULES & RATE HISTORIES (GÓI VAY TÀI CHÍNH LÃI SUẤT THẢ NỔI)
+-- ====================================================================
+CREATE TABLE loans (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID,
+    account_id UUID REFERENCES accounts(id) ON DELETE SET NULL,
+    institution_id UUID REFERENCES institutions(id) ON DELETE SET NULL,
+    loan_name VARCHAR(150) NOT NULL,
+    loan_code VARCHAR(50),
+    loan_type loan_type_enum NOT NULL DEFAULT 'MORTGAGE',
+    interest_method interest_method_enum NOT NULL DEFAULT 'EQUAL_INSTALLMENT',
+    principal_amount DECIMAL(15, 2) NOT NULL CONSTRAINT chk_loan_principal CHECK (principal_amount > 0),
+    term_months INT NOT NULL CONSTRAINT chk_loan_term CHECK (term_months > 0),
+    start_date DATE NOT NULL,
+    billing_day_of_month INT DEFAULT 15 CONSTRAINT chk_loan_billing_day CHECK (billing_day_of_month BETWEEN 1 AND 31),
+    current_interest_rate DECIMAL(5, 2) NOT NULL CONSTRAINT chk_loan_rate CHECK (current_interest_rate >= 0),
+    base_rate DECIMAL(5, 2) DEFAULT 0.00,
+    floating_margin DECIMAL(5, 2) DEFAULT 0.00,
+    monthly_fee DECIMAL(15, 2) DEFAULT 0.00,
+    remaining_principal DECIMAL(15, 2) NOT NULL,
+    total_paid_principal DECIMAL(15, 2) DEFAULT 0.00,
+    total_paid_interest DECIMAL(15, 2) DEFAULT 0.00,
+    total_projected_interest DECIMAL(15, 2) DEFAULT 0.00,
+    status loan_status_enum NOT NULL DEFAULT 'ACTIVE',
+    note TEXT,
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE loan_schedules (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    loan_id UUID NOT NULL REFERENCES loans(id) ON DELETE CASCADE,
+    period_index INT NOT NULL,
+    total_periods INT NOT NULL,
+    due_date DATE NOT NULL,
+    applied_interest_rate DECIMAL(5, 2) NOT NULL,
+    beginning_balance DECIMAL(15, 2) NOT NULL,
+    principal_amount DECIMAL(15, 2) NOT NULL,
+    interest_amount DECIMAL(15, 2) DEFAULT 0.00 NOT NULL,
+    monthly_fee DECIMAL(15, 2) DEFAULT 0.00,
+    total_payment DECIMAL(15, 2) NOT NULL,
+    ending_balance DECIMAL(15, 2) NOT NULL,
+    status loan_schedule_status_enum NOT NULL DEFAULT 'UNPAID',
+    paid_date DATE,
+    paid_amount DECIMAL(15, 2),
+    transaction_id UUID REFERENCES transactions(id) ON DELETE SET NULL,
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT uq_loan_period UNIQUE (loan_id, period_index)
+);
+
+CREATE TABLE loan_rate_histories (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    loan_id UUID NOT NULL REFERENCES loans(id) ON DELETE CASCADE,
+    old_rate DECIMAL(5, 2) NOT NULL,
+    new_rate DECIMAL(5, 2) NOT NULL,
+    old_monthly_fee DECIMAL(15, 2) DEFAULT 0.00,
+    new_monthly_fee DECIMAL(15, 2) DEFAULT 0.00,
+    effective_from_period INT NOT NULL,
+    effective_date DATE NOT NULL,
+    reason VARCHAR(255),
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_loans_status ON loans(status);
+CREATE INDEX idx_loans_institution ON loans(institution_id);
+CREATE INDEX idx_loan_schedules_loan_id ON loan_schedules(loan_id);
+CREATE INDEX idx_loan_schedules_due_date ON loan_schedules(due_date);
+CREATE INDEX idx_loan_rate_histories_loan_id ON loan_rate_histories(loan_id);
 
 -- ====================================================================
 -- 8. REWARD LEDGERS (ĐIỂM THƯỞNG, HOÀN TIỀN)
@@ -932,6 +1007,9 @@ ALTER TABLE transactions
 ALTER TABLE installment_plans
     ADD CONSTRAINT fk_installment_plans_user FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE;
 
+ALTER TABLE loans
+    ADD CONSTRAINT fk_loans_user FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE;
+
 ALTER TABLE reward_ledgers
     ADD CONSTRAINT fk_reward_ledgers_user FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE;
 
@@ -942,6 +1020,9 @@ ALTER TABLE statements ENABLE ROW LEVEL SECURITY;
 ALTER TABLE transactions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE installment_plans ENABLE ROW LEVEL SECURITY;
 ALTER TABLE installment_schedules ENABLE ROW LEVEL SECURITY;
+ALTER TABLE loans ENABLE ROW LEVEL SECURITY;
+ALTER TABLE loan_schedules ENABLE ROW LEVEL SECURITY;
+ALTER TABLE loan_rate_histories ENABLE ROW LEVEL SECURITY;
 ALTER TABLE reward_ledgers ENABLE ROW LEVEL SECURITY;
 ALTER TABLE institutions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE merchants ENABLE ROW LEVEL SECURITY;
