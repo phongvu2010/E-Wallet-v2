@@ -102,6 +102,20 @@ class AIAssistantService:
         res_cats = await db.execute(text(sql_cats))
         categories = [dict(r) for r in res_cats.mappings().all()]
 
+        # 6. Active Personal Debts
+        personal_debts = []
+        try:
+            sql_debts = """
+            SELECT counterparty_name, debt_type, principal_amount, remaining_amount, due_date
+            FROM debts
+            WHERE status = 'ACTIVE'
+            ORDER BY start_date DESC;
+            """
+            res_debts = await db.execute(text(sql_debts))
+            personal_debts = [dict(r) for r in res_debts.mappings().all()]
+        except Exception:
+            pass
+
         # Convert Decimals, UUIDs, and dates to strings
         def sanitize(obj):
             if isinstance(obj, Decimal):
@@ -126,6 +140,9 @@ class AIAssistantService:
             ],
             "available_categories": [
                 {k: sanitize(v) for k, v in cat.items()} for cat in categories
+            ],
+            "active_personal_debts": [
+                {k: sanitize(v) for k, v in d.items()} for d in personal_debts
             ],
         }
 

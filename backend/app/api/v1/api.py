@@ -5,6 +5,7 @@ from app.api.v1.endpoints import (
     ai,
     analytics,
     categories,
+    debts,
     etl,
     installments,
     institutions,
@@ -19,6 +20,10 @@ from app.api.v1.endpoints import (
 )
 
 api_router = APIRouter()
+
+api_router.include_router(
+    debts.router, prefix="/debts", tags=["Personal Debts & P2P Lending"]
+)
 
 api_router.include_router(
     institutions.router, prefix="/institutions", tags=["Institutions"]

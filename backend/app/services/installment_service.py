@@ -144,8 +144,8 @@ class InstallmentService:
             )
 
         tot_amt = payload.total_amount
-        base_monthly = round(tot_amt / term, 2)
-        accumulated_principal = Decimal("0.00")
+        base_monthly = round(tot_amt / Decimal(term), 2)
+        first_period_principal = tot_amt - (Decimal(term - 1) * base_monthly)
 
         # Get account billing_day_of_month
         acc_stmt = select(Account.billing_day_of_month).where(
@@ -173,12 +173,7 @@ class InstallmentService:
         await db.flush()
 
         for i in range(1, term + 1):
-            if i == term:
-                period_principal = round(tot_amt - accumulated_principal, 2)
-            else:
-                period_principal = base_monthly
-                accumulated_principal += period_principal
-
+            period_principal = first_period_principal if i == 1 else base_monthly
             due_date = add_months_to_date(payload.start_date, i, billing_day)
 
             sched = InstallmentSchedule(

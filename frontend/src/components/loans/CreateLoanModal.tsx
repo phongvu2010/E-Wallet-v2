@@ -67,6 +67,7 @@ export const CreateLoanModal: React.FC<CreateLoanModalProps> = ({ isOpen, onClos
     const fee = Number(monthlyFee) || 0;
     const rMonthly = rate / 1200;
     const basePrincipal = Math.round(p0 / term);
+    const firstPeriodPrincipal = p0 - (term - 1) * basePrincipal;
 
     if (p0 <= 0 || term <= 0) return { firstPayment: 0, totalInterest: 0, totalFee: 0, schedules: [] };
 
@@ -77,8 +78,23 @@ export const CreateLoanModal: React.FC<CreateLoanModalProps> = ({ isOpen, onClos
       pmt = Math.round(p0 * (rMonthly * factor) / (factor - 1));
     }
 
+    // Pass 1 for EQUAL_INSTALLMENT to find delta to shift to Period 1
+    let pmtDeltaFirstPeriod = 0;
+    if (interestMethod === "EQUAL_INSTALLMENT" && term > 1) {
+      let simBal = p0;
+      for (let i = 1; i <= term; i++) {
+        const simInt = Math.round(simBal * rMonthly);
+        if (i < term) {
+          const simP = Math.min(simBal, Math.max(0, pmt - simInt));
+          simBal = Math.max(0, simBal - simP);
+        } else {
+          const stdFinalP = Math.min(simBal, Math.max(0, pmt - simInt));
+          pmtDeltaFirstPeriod = simBal - stdFinalP;
+        }
+      }
+    }
+
     let curBal = p0;
-    let accumPrin = 0;
     let totInt = 0;
     const scheds = [];
 
@@ -88,15 +104,19 @@ export const CreateLoanModal: React.FC<CreateLoanModalProps> = ({ isOpen, onClos
 
       if (interestMethod === "EQUAL_INSTALLMENT") {
         int = Math.round(curBal * rMonthly);
-        p = i === term ? curBal : Math.min(curBal, Math.max(0, pmt - int));
+        if (i === 1) {
+          p = Math.min(curBal, Math.max(0, pmt - int + pmtDeltaFirstPeriod));
+        } else if (i === term) {
+          p = curBal;
+        } else {
+          p = Math.min(curBal, Math.max(0, pmt - int));
+        }
       } else if (interestMethod === "FLAT") {
-        p = i === term ? p0 - accumPrin : basePrincipal;
-        accumPrin += p;
+        p = i === 1 ? firstPeriodPrincipal : basePrincipal;
         int = Math.round(p0 * rMonthly);
       } else {
         // REDUCING_BALANCE (Equal Principal)
-        p = i === term ? p0 - accumPrin : basePrincipal;
-        accumPrin += p;
+        p = i === 1 ? firstPeriodPrincipal : basePrincipal;
         int = Math.round(curBal * rMonthly);
       }
 

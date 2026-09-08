@@ -148,6 +148,14 @@ export function getTransactionTypeLabel(type: string): { label: string; color: s
       return { label: "Ứng tiền mặt", color: "text-purple-400 bg-purple-500/10 border-purple-500/20" };
     case "TRANSFER":
       return { label: "Chuyển khoản", color: "text-cyan-400 bg-cyan-500/10 border-cyan-500/20" };
+    case "DEBT_BORROW":
+      return { label: "Nhận tiền vay", color: "text-blue-300 bg-blue-500/15 border-blue-500/30" };
+    case "DEBT_REPAY":
+      return { label: "Trả nợ gốc", color: "text-amber-300 bg-amber-500/15 border-amber-500/30" };
+    case "DEBT_LEND":
+      return { label: "Cho mượn tiền", color: "text-indigo-300 bg-indigo-500/15 border-indigo-500/30" };
+    case "DEBT_COLLECT":
+      return { label: "Thu hồi nợ", color: "text-emerald-300 bg-emerald-500/15 border-emerald-500/30" };
     default:
       return { label: type, color: "text-slate-400 bg-slate-500/10 border-slate-500/20" };
   }

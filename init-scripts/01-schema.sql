@@ -27,7 +27,11 @@ CREATE TYPE transaction_type_enum AS ENUM (
     'CASHBACK_CREDIT',       -- Tiền hoàn Cashback ghi có vào thẻ
     'CASH_ADVANCE',          -- Ứng tiền mặt
     'ADJUSTMENT',            -- Điều chỉnh giao dịch
-    'TRANSFER'               -- Chuyển tiền nội bộ giữa các tài khoản
+    'TRANSFER',              -- Chuyển tiền nội bộ giữa các tài khoản
+    'DEBT_BORROW',           -- Nhận tiền đi vay bạn bè/người thân (+Asset Inflow)
+    'DEBT_REPAY',            -- Trả nợ gốc cho bạn bè/người thân (-Asset Outflow)
+    'DEBT_LEND',             -- Xuất tiền cho bạn bè mượn (-Asset Outflow)
+    'DEBT_COLLECT'           -- Thu hồi nợ gốc đã cho mượn (+Asset Inflow)
 );
 CREATE TYPE installment_status_enum AS ENUM ('ACTIVE', 'COMPLETED', 'CANCELLED', 'EARLY_SETTLED');
 CREATE TYPE reward_type_enum AS ENUM ('POINT', 'CASHBACK', 'MILE');
@@ -186,9 +190,9 @@ CREATE TABLE transactions (
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT chk_transactions_sign_convention CHECK (
-        (transaction_type IN ('REPAYMENT', 'REFUND', 'CASHBACK_CREDIT', 'INSTALLMENT_PRINCIPAL') AND total_amount <= 0)
+        (transaction_type IN ('REPAYMENT', 'REFUND', 'CASHBACK_CREDIT', 'INSTALLMENT_PRINCIPAL', 'DEBT_COLLECT') AND total_amount <= 0)
         OR
-        (transaction_type IN ('PURCHASE', 'INSTALLMENT_MONTHLY', 'INTEREST', 'CASH_ADVANCE', 'TRANSFER', 'INCOME') AND total_amount >= 0)
+        (transaction_type IN ('PURCHASE', 'INSTALLMENT_MONTHLY', 'INTEREST', 'CASH_ADVANCE', 'TRANSFER', 'INCOME', 'DEBT_BORROW', 'DEBT_REPAY', 'DEBT_LEND') AND total_amount >= 0)
         OR
         (transaction_type IN ('ADJUSTMENT', 'FEE')) -- Cho phép FEE mang dấu âm khi hoàn phí
     )

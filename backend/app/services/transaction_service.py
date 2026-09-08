@@ -340,6 +340,8 @@ class TransactionService:
             )
             acc_res = await db.execute(acc_stmt)
             billing_day = acc_res.scalar_one_or_none()
+            base_monthly = round(plan_tot / Decimal(term), 2)
+            first_period_principal = plan_tot - (Decimal(term - 1) * base_monthly)
 
             plan = InstallmentPlan(
                 account_id=tx.account_id,
@@ -359,14 +361,9 @@ class TransactionService:
             db.add(plan)
             await db.flush()
 
-            # Generate monthly schedules with odd-cents balancing in the final period
+            # Generate monthly schedules with odd-cents balancing in the first period
             for i in range(1, term + 1):
-                if i == term:
-                    period_principal = round(plan_tot - accumulated_principal, 2)
-                else:
-                    period_principal = base_monthly
-                    accumulated_principal += period_principal
-
+                period_principal = first_period_principal if i == 1 else base_monthly
                 due_date = add_months_to_date(tx.transaction_date, i, billing_day)
 
                 sched = InstallmentSchedule(

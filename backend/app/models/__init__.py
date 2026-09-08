@@ -17,6 +17,7 @@ from app.models.loan import (
     LoanStatusEnum,
     LoanTypeEnum,
 )
+from app.models.debt import Debt, DebtRepayment, DebtStatusEnum, DebtTypeEnum
 from app.models.notification import (
     Notification,
     NotificationSeverityEnum,
@@ -50,6 +51,10 @@ __all__ = [
     "InterestMethodEnum",
     "LoanStatusEnum",
     "LoanScheduleStatusEnum",
+    "Debt",
+    "DebtRepayment",
+    "DebtTypeEnum",
+    "DebtStatusEnum",
     "RewardLedger",
     "RewardTypeEnum",
     "Notification",

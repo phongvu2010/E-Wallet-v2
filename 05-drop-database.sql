@@ -21,6 +21,8 @@ DROP VIEW IF EXISTS v_account_overview CASCADE;
 DROP VIEW IF EXISTS v_monthly_category_spending CASCADE;
 
 -- 2. XOÁ CÁC BẢNG (CASCADE tự động dọn sạch Constraints, Triggers, Policies & Indexes)
+DROP TABLE IF EXISTS debt_repayments CASCADE;
+DROP TABLE IF EXISTS debts CASCADE;
 DROP TABLE IF EXISTS card_benefits CASCADE;
 DROP TABLE IF EXISTS notification_settings CASCADE;
 DROP TABLE IF EXISTS notifications CASCADE;
@@ -47,6 +49,8 @@ DROP FUNCTION IF EXISTS fn_generate_tx_fingerprint() CASCADE;
 DROP FUNCTION IF EXISTS fn_generate_tx_fingerprint CASCADE;
 
 -- 4. XOÁ CÁC ENUM TYPES
+DROP TYPE IF EXISTS debt_status_enum CASCADE;
+DROP TYPE IF EXISTS debt_type_enum CASCADE;
 DROP TYPE IF EXISTS notification_severity_enum CASCADE;
 DROP TYPE IF EXISTS notification_type_enum CASCADE;
 DROP TYPE IF EXISTS loan_schedule_status_enum CASCADE;

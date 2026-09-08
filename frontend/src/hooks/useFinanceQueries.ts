@@ -367,3 +367,49 @@ export function useLoan(id?: string) {
   });
 }
 
+// ====================================================================
+// 8. PERSONAL DEBTS & P2P LENDING
+// ====================================================================
+
+import { debtService } from "../services/debtService";
+import { DebtType, DebtStatus } from "../types/debt";
+
+/**
+ * Query hook to fetch all personal debts.
+ */
+export function useDebts(params?: {
+  debt_type?: DebtType;
+  status?: DebtStatus;
+  search?: string;
+}) {
+  return useQuery({
+    queryKey: ["debts", params],
+    queryFn: () => debtService.getAll(params),
+    staleTime: 30 * 1000,
+  });
+}
+
+/**
+ * Query hook to fetch summary KPIs for personal borrowing and lending.
+ */
+export function useDebtKPIs() {
+  return useQuery({
+    queryKey: ["debts-kpis"],
+    queryFn: () => debtService.getKPIs(),
+    staleTime: 30 * 1000,
+  });
+}
+
+/**
+ * Query hook to fetch single debt detail with all repayments.
+ */
+export function useDebt(id?: string) {
+  return useQuery({
+    queryKey: ["debt", id],
+    queryFn: () => (id ? debtService.getById(id) : null),
+    enabled: !!id,
+    staleTime: 30 * 1000,
+  });
+}
+
+

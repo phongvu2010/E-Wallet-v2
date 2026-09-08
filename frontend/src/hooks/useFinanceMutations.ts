@@ -324,3 +324,70 @@ export function useDeleteLoan() {
     },
   });
 }
+
+// ====================================================================
+// PERSONAL DEBTS & P2P LENDING MUTATIONS
+// ====================================================================
+
+import { debtService } from "../services/debtService";
+import { DebtCreatePayload, DebtRepaymentPayload, DebtUpdatePayload } from "../types/debt";
+
+export function useCreateDebt() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: DebtCreatePayload) => debtService.create(payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["debts"] });
+      queryClient.invalidateQueries({ queryKey: ["debts-kpis"] });
+      queryClient.invalidateQueries({ queryKey: ["transactions"] });
+      queryClient.invalidateQueries({ queryKey: ["accounts-live"] });
+      queryClient.invalidateQueries({ queryKey: ["net-worth"] });
+      queryClient.invalidateQueries({ queryKey: ["dashboard-overview"] });
+    },
+  });
+}
+
+export function useUpdateDebt() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, payload }: { id: string; payload: DebtUpdatePayload }) =>
+      debtService.update(id, payload),
+    onSuccess: (_, { id }) => {
+      queryClient.invalidateQueries({ queryKey: ["debts"] });
+      queryClient.invalidateQueries({ queryKey: ["debt", id] });
+      queryClient.invalidateQueries({ queryKey: ["debts-kpis"] });
+    },
+  });
+}
+
+export function useRepayDebt() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, payload }: { id: string; payload: DebtRepaymentPayload }) =>
+      debtService.repay(id, payload),
+    onSuccess: (_, { id }) => {
+      queryClient.invalidateQueries({ queryKey: ["debts"] });
+      queryClient.invalidateQueries({ queryKey: ["debt", id] });
+      queryClient.invalidateQueries({ queryKey: ["debts-kpis"] });
+      queryClient.invalidateQueries({ queryKey: ["transactions"] });
+      queryClient.invalidateQueries({ queryKey: ["accounts-live"] });
+      queryClient.invalidateQueries({ queryKey: ["net-worth"] });
+      queryClient.invalidateQueries({ queryKey: ["cash-flow"] });
+      queryClient.invalidateQueries({ queryKey: ["monthly-spending"] });
+      queryClient.invalidateQueries({ queryKey: ["dashboard-overview"] });
+    },
+  });
+}
+
+export function useDeleteDebt() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => debtService.delete(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["debts"] });
+      queryClient.invalidateQueries({ queryKey: ["debts-kpis"] });
+      queryClient.invalidateQueries({ queryKey: ["net-worth"] });
+    },
+  });
+}
+

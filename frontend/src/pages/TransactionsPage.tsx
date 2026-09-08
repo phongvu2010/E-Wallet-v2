@@ -55,6 +55,10 @@ const TRANSACTION_TYPES: { value: TransactionType; label: string; defaultKeyword
   { value: "REFUND", label: "Hoàn tiền đơn hàng hủy", defaultKeywords: ["Hủy giao dịch", "Điều chỉnh / Hủy"] },
   { value: "CASH_ADVANCE", label: "Ứng tiền mặt qua thẻ", defaultKeywords: ["Chi tiêu khác", "Chi tiêu"] },
   { value: "ADJUSTMENT", label: "Điều chỉnh giao dịch", defaultKeywords: ["Điều chỉnh / Hủy", "Chi tiêu khác"] },
+  { value: "DEBT_BORROW", label: "Nhận tiền vay bạn bè / người thân", defaultKeywords: ["Vay tiền", "Mượn tiền"] },
+  { value: "DEBT_REPAY", label: "Trả nợ gốc cho bạn bè / người thân", defaultKeywords: ["Trả nợ", "Thanh toán nợ"] },
+  { value: "DEBT_LEND", label: "Xuất tiền cho bạn bè mượn", defaultKeywords: ["Cho vay", "Cho mượn"] },
+  { value: "DEBT_COLLECT", label: "Thu hồi nợ gốc đã cho mượn", defaultKeywords: ["Thu nợ", "Nhận tiền trả"] },
 ];
 
 export const TransactionsPage: React.FC = () => {

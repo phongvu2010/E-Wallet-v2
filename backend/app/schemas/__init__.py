@@ -79,6 +79,16 @@ from app.schemas.reward import (
     RewardLedgerCreate,
     RewardLedgerRead,
 )
+from app.schemas.debt import (
+    DebtBase,
+    DebtCreate,
+    DebtRead,
+    DebtRepaymentBase,
+    DebtRepaymentCreate,
+    DebtRepaymentRead,
+    DebtSummaryKPIs,
+    DebtUpdate,
+)
 from app.schemas.statement import (
     StatementBase,
     StatementCreate,
@@ -138,6 +148,14 @@ __all__ = [
     "EarlySettleRequest",
     "EarlySettleResponse",
     "InstallmentForecastRead",
+    "DebtBase",
+    "DebtCreate",
+    "DebtUpdate",
+    "DebtRead",
+    "DebtSummaryKPIs",
+    "DebtRepaymentBase",
+    "DebtRepaymentCreate",
+    "DebtRepaymentRead",
     "RewardLedgerBase",
     "RewardLedgerCreate",
     "RewardLedgerRead",

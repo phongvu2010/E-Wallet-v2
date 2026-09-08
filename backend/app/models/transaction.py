@@ -32,6 +32,10 @@ class TransactionTypeEnum(str, enum.Enum):
     CASH_ADVANCE = "CASH_ADVANCE"
     ADJUSTMENT = "ADJUSTMENT"
     TRANSFER = "TRANSFER"
+    DEBT_BORROW = "DEBT_BORROW"
+    DEBT_REPAY = "DEBT_REPAY"
+    DEBT_LEND = "DEBT_LEND"
+    DEBT_COLLECT = "DEBT_COLLECT"
 
 
 class Transaction(Base):

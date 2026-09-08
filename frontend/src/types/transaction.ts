@@ -14,7 +14,11 @@ export type TransactionType =
   | "CASHBACK_CREDIT"
   | "CASH_ADVANCE"
   | "ADJUSTMENT"
-  | "TRANSFER";
+  | "TRANSFER"
+  | "DEBT_BORROW"
+  | "DEBT_REPAY"
+  | "DEBT_LEND"
+  | "DEBT_COLLECT";
 
 export interface Transaction {
   id: string;
