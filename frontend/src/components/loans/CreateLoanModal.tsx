@@ -311,10 +311,10 @@ export const CreateLoanModal: React.FC<CreateLoanModalProps> = ({ isOpen, onClos
               <Input
                 label="Lãi Suất Ban Đầu (% / Năm)"
                 type="number"
-                step="0.01"
+                step="any"
                 min="0"
                 max="100"
-                placeholder="VD: 8.5"
+                placeholder="VD: 8.5 hoặc 8.525"
                 value={interestRate}
                 onChange={(e) => {
                   setInterestRate(e.target.value);

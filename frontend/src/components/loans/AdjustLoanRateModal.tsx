@@ -148,7 +148,7 @@ export const AdjustLoanRateModal: React.FC<AdjustLoanRateModalProps> = ({
             <Input
               label="Lãi suất mới (%/năm)"
               type="number"
-              step="0.01"
+              step="any"
               min="0"
               max="100"
               required
@@ -157,7 +157,7 @@ export const AdjustLoanRateModal: React.FC<AdjustLoanRateModalProps> = ({
                 setNewRate(e.target.value);
                 setError(null);
               }}
-              placeholder="VD: 9.5"
+              placeholder="VD: 9.5 hoặc 8.525"
             />
 
             <div>
@@ -222,11 +222,11 @@ export const AdjustLoanRateModal: React.FC<AdjustLoanRateModalProps> = ({
               >
                 {rateDiff > 0 ? (
                   <>
-                    <TrendingUp className="w-3.5 h-3.5" /> +{rateDiff.toFixed(2)}%
+                    <TrendingUp className="w-3.5 h-3.5" /> +{parseFloat(rateDiff.toFixed(6))}%
                   </>
                 ) : rateDiff < 0 ? (
                   <>
-                    <TrendingDown className="w-3.5 h-3.5" /> {rateDiff.toFixed(2)}%
+                    <TrendingDown className="w-3.5 h-3.5" /> {parseFloat(rateDiff.toFixed(6))}%
                   </>
                 ) : (
                   <span>Lãi suất không đổi</span>

@@ -205,7 +205,7 @@ export const AccountsPage: React.FC = () => {
           className="px-4 py-2.5 rounded-xl bg-emerald-500 text-slate-950 font-bold text-xs hover:bg-emerald-400 transition-colors shadow-lg shadow-emerald-950/40 flex items-center gap-1.5 self-start sm:self-auto"
         >
           <Plus className="w-4 h-4" />
-          <span>+ Thêm Tài Khoản / Ví Mới</span>
+          <span>Thêm Tài Khoản / Ví Mới</span>
         </button>
       </div>
 

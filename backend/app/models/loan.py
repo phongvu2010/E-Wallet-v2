@@ -80,9 +80,9 @@ class Loan(Base):
     start_date = Column(Date, nullable=False)
     billing_day_of_month = Column(Integer, default=15, nullable=False)
 
-    current_interest_rate = Column(Numeric(5, 2), nullable=False)  # %/năm (vd: 8.50%)
-    base_rate = Column(Numeric(5, 2), default=0.00)                 # Lãi suất cơ sở tham chiếu (%/năm)
-    floating_margin = Column(Numeric(5, 2), default=0.00)           # Biên độ thả nổi (%/năm)
+    current_interest_rate = Column(Numeric(10, 6), nullable=False)  # %/năm (vd: 8.50%, 8.525%)
+    base_rate = Column(Numeric(10, 6), default=0.00)                 # Lãi suất cơ sở tham chiếu (%/năm)
+    floating_margin = Column(Numeric(10, 6), default=0.00)           # Biên độ thả nổi (%/năm)
     monthly_fee = Column(Numeric(15, 2), default=0.00)              # Phí dịch vụ / quản lý hàng tháng (VNĐ)
 
     remaining_principal = Column(Numeric(15, 2), nullable=False)
@@ -136,7 +136,7 @@ class LoanSchedule(Base):
     total_periods = Column(Integer, nullable=False)
     due_date = Column(Date, nullable=False)
 
-    applied_interest_rate = Column(Numeric(5, 2), nullable=False)
+    applied_interest_rate = Column(Numeric(10, 6), nullable=False)
     beginning_balance = Column(Numeric(15, 2), nullable=False)
     principal_amount = Column(Numeric(15, 2), nullable=False)
     interest_amount = Column(Numeric(15, 2), default=0.00, nullable=False)
@@ -177,8 +177,8 @@ class LoanRateHistory(Base):
         ForeignKey("loans.id", ondelete="CASCADE"),
         nullable=False,
     )
-    old_rate = Column(Numeric(5, 2), nullable=False)
-    new_rate = Column(Numeric(5, 2), nullable=False)
+    old_rate = Column(Numeric(10, 6), nullable=False)
+    new_rate = Column(Numeric(10, 6), nullable=False)
     old_monthly_fee = Column(Numeric(15, 2), default=0.00, nullable=False)
     new_monthly_fee = Column(Numeric(15, 2), default=0.00, nullable=False)
     effective_from_period = Column(Integer, nullable=False)

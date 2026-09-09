@@ -32,8 +32,8 @@ ON CONFLICT (id) DO UPDATE SET
 INSERT INTO categories (id, parent_id, name, category_type, icon, color, is_system) VALUES
 -- Ăn uống & F&B
 ('11111111-3e4a-4be6-9333-18ebaf270001', '0666944e-3e4a-4be6-9333-18ebaf270e2e', 'Nhà hàng & Quán ăn', 'EXPENSE', 'Utensils', '#f59e0b', TRUE),
-('11111111-3e4a-4be6-9333-18ebaf270002', '0666944e-3e4a-4be6-9333-18ebaf270e2e', 'Cà phê', 'EXPENSE', 'Coffee', '#f59e0b', TRUE),
 ('11111111-3e4a-4be6-9333-18ebaf270003', '0666944e-3e4a-4be6-9333-18ebaf270e2e', 'Siêu thị & Đi chợ', 'EXPENSE', 'ShoppingCart', '#f59e0b', TRUE),
+('11111111-3e4a-4be6-9333-18ebaf270002', '0666944e-3e4a-4be6-9333-18ebaf270e2e', 'Cà phê', 'EXPENSE', 'Coffee', '#f59e0b', TRUE),
 
 -- Mua sắm & Tiêu dùng
 ('22222222-3e4a-4be6-9333-18ebaf270001', '22222222-3e4a-4be6-9333-18ebaf270e2e', 'Mua sắm Online / TMĐT', 'EXPENSE', 'Globe', '#ec4899', TRUE),

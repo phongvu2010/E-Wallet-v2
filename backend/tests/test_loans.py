@@ -100,3 +100,37 @@ async def test_loan_equal_installment_sum_exact(db_session: AsyncSession):
     total_principals = sum(s.principal_amount for s in loan.schedules)
     assert total_principals == Decimal("100000000.00")
     assert loan.schedules[-1].ending_balance == Decimal("0.00")
+
+
+@pytest.mark.asyncio
+async def test_loan_adjust_floating_rate_multi_decimal_precision(db_session: AsyncSession):
+    """Test creating and adjusting floating loan interest rate with arbitrary decimal precision (e.g. 8.525%, 7.1234%)."""
+    from app.schemas.loan import AdjustLoanRateRequest
+
+    payload = LoanCreate(
+        loan_name="Vay mua nhà lãi thả nổi đa chữ số thập phân",
+        loan_type=LoanTypeEnum.MORTGAGE,
+        interest_method=InterestMethodEnum.REDUCING_BALANCE,
+        principal_amount=Decimal("50000000.00"),
+        term_months=6,
+        start_date=datetime.date(2026, 1, 1),
+        billing_day_of_month=15,
+        current_interest_rate=Decimal("8.5255"),
+    )
+    loan = await LoanService.create(db_session, payload)
+    assert loan is not None
+    assert loan.current_interest_rate == Decimal("8.5255")
+
+    # Adjust floating rate to 7.123456% from period 2
+    adjust_payload = AdjustLoanRateRequest(
+        new_interest_rate=Decimal("7.123456"),
+        effective_from_period=2,
+        reason="Ngân hàng điều chỉnh biên độ lãi suất kỳ mới",
+    )
+    updated_loan = await LoanService.adjust_floating_rate(db_session, loan.id, adjust_payload)
+    assert updated_loan.current_interest_rate == Decimal("7.123456")
+    assert updated_loan.schedules[0].applied_interest_rate == Decimal("8.5255")
+    assert updated_loan.schedules[1].applied_interest_rate == Decimal("7.123456")
+    assert len(updated_loan.rate_histories) == 2
+    assert updated_loan.rate_histories[0].new_rate == Decimal("7.123456")
+

@@ -384,7 +384,7 @@ export const LoanDetailModal: React.FC<LoanDetailModalProps> = ({
                                   : "bg-slate-800 text-slate-300"
                               }`}
                             >
-                              {diff > 0 ? `+${diff.toFixed(2)}%` : `${diff.toFixed(2)}%`}
+                              {diff > 0 ? `+${parseFloat(diff.toFixed(6))}%` : `${parseFloat(diff.toFixed(6))}%`}
                             </span>
                             {(hist.old_monthly_fee !== undefined || hist.new_monthly_fee !== undefined) && (
                               <span className="text-slate-400 font-mono text-[11px]">

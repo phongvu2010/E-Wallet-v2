@@ -13,5 +13,6 @@ INSERT INTO institutions (code, name, short_name, hotline, website) VALUES
 ('BIDV', 'Ngân hàng TMCP Đầu tư và Phát triển Việt Nam', 'BIDV', '1900 9247', 'https://bidv.com.vn'),
 ('TPB', 'Ngân hàng TMCP Tiên Phong', 'TPBank', '1900 5858 85', 'https://tpb.vn'),
 ('MOMO', 'Ví điện tử MoMo', 'MoMo', '1900 5454 41', 'https://momo.vn'),
-('ZALOPAY', 'Ví điện tử ZaloPay', 'ZaloPay', '1900 5454 36', 'https://zalopay.vn')
+('ZALOPAY', 'Ví điện tử ZaloPay', 'ZaloPay', '1900 5454 36', 'https://zalopay.vn'),
+('JACCS', 'Công ty Tài chính Nhật Bản', 'JACCS', '028 38 668 470', 'https://jaccs.com.vn')
 ON CONFLICT (code) DO NOTHING;
