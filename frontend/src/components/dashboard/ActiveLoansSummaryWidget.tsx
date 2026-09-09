@@ -13,7 +13,7 @@ import {
 } from "lucide-react";
 import { useDebtKPIs, useLoanKPIs, useLoans } from "../../hooks/useFinanceQueries";
 import { Loan } from "../../types/loan";
-import { formatCurrency } from "../../utils/formatters";
+import { formatCurrency, formatRate } from "../../utils/formatters";
 import { Card } from "../common/Card";
 import { Spinner } from "../common/Spinner";
 
@@ -155,7 +155,7 @@ export const ActiveLoansSummaryWidget: React.FC = () => {
                   <span>{loan.institution?.short_name || loan.institution?.name || "Ngân hàng"}</span>
                   <span>•</span>
                   <span className="text-indigo-400 font-mono">
-                    Lãi suất {Number(loan.current_interest_rate).toFixed(2)}%/năm
+                    Lãi suất {formatRate(loan.current_interest_rate)}/năm
                   </span>
                 </p>
               </div>

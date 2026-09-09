@@ -138,7 +138,6 @@ class LoanService:
         r_annual = payload.current_interest_rate
         monthly_fee = payload.monthly_fee or Decimal("0.00")
         base_monthly_principal = round(p0 / Decimal(term), 0)
-        first_period_principal = p0 - (Decimal(term - 1) * base_monthly_principal)
         pmt = calculate_equal_installment_pmt(p0, r_annual, term)
 
         loan = Loan(
@@ -167,45 +166,21 @@ class LoanService:
         await db.flush()
 
         # Generate Amortization Schedule
-        # Calculate rounding delta for EQUAL_INSTALLMENT if applicable
-        pmt_delta_for_first_period = Decimal("0.00")
-        if payload.interest_method == InterestMethodEnum.EQUAL_INSTALLMENT and term > 1:
-            sim_bal = p0
-            sim_prev_d = payload.start_date
-            for i in range(1, term + 1):
-                sim_due_d = add_months_to_date(
-                    payload.start_date, i, payload.billing_day_of_month
-                )
-                sim_days = max(1, (sim_due_d - sim_prev_d).days)
-                sim_prev_d = sim_due_d
-                sim_int = round((sim_bal * r_annual * Decimal(sim_days)) / Decimal("36500.00"), 0)
-                if i < term:
-                    sim_p = min(sim_bal, max(Decimal("0.00"), round(pmt - sim_int, 0)))
-                    sim_bal = max(Decimal("0.00"), round(sim_bal - sim_p, 0))
-                else:
-                    std_final_p = min(sim_bal, max(Decimal("0.00"), round(pmt - sim_int, 0)))
-                    pmt_delta_for_first_period = sim_bal - std_final_p
-
         current_balance = p0
         total_projected_interest = Decimal("0.00")
-        prev_due_date = payload.start_date
 
         for i in range(1, term + 1):
             beginning_bal = current_balance
             due_date = add_months_to_date(
                 payload.start_date, i, payload.billing_day_of_month
             )
-            days_in_period = max(1, (due_date - prev_due_date).days)
-            prev_due_date = due_date
 
             if payload.interest_method == InterestMethodEnum.EQUAL_INSTALLMENT:
                 # Phương thức Trả góp đều (Niên kim cố định / PMT / EMI)
-                # Tính lãi theo số ngày thực tế trong kỳ (Actual/365)
-                period_interest = round((beginning_bal * r_annual * Decimal(days_in_period)) / Decimal("36500.00"), 0)
-                if i == 1:
-                    # Dồn toàn bộ phần lệch lẻ làm tròn thập phân vào kỳ đầu tiên
-                    period_principal = min(beginning_bal, max(Decimal("0.00"), round(pmt - period_interest, 0) + pmt_delta_for_first_period))
-                elif i == term:
+                # Tiền lãi mỗi tháng theo chuẩn ngân hàng: Dư nợ đầu * (r / 1200)
+                period_interest = round(beginning_bal * (r_annual / Decimal("1200.00")), 0)
+                if i == term:
+                    # Kỳ cuối cùng hấp thụ toàn bộ số dư gốc còn lại để dư nợ về 0 đ
                     period_principal = beginning_bal
                 else:
                     period_principal = min(beginning_bal, max(Decimal("0.00"), round(pmt - period_interest, 0)))
@@ -213,16 +188,14 @@ class LoanService:
                 ending_bal = max(Decimal("0.00"), round(beginning_bal - period_principal, 0))
             elif payload.interest_method == InterestMethodEnum.FLAT:
                 # Phương thức Lãi phẳng cố định trên gốc ban đầu
-                # Kỳ đầu tiên nhận phần làm tròn số dư lẻ, các kỳ sau chia đều
-                period_principal = first_period_principal if i == 1 else min(beginning_bal, base_monthly_principal)
+                period_principal = beginning_bal if i == term else min(beginning_bal, base_monthly_principal)
                 period_interest = round(p0 * (r_annual / Decimal("1200.00")), 0)
                 total_payment = period_principal + period_interest + monthly_fee
                 ending_bal = max(Decimal("0.00"), round(beginning_bal - period_principal, 0))
             else:
                 # Phương thức Dư nợ giảm dần - Gốc chia đều hàng tháng (REDUCING_BALANCE)
-                # Kỳ đầu tiên nhận phần làm tròn số dư lẻ, các kỳ sau chia đều
-                period_principal = first_period_principal if i == 1 else min(beginning_bal, base_monthly_principal)
-                period_interest = round((beginning_bal * r_annual * Decimal(days_in_period)) / Decimal("36500.00"), 0)
+                period_principal = beginning_bal if i == term else min(beginning_bal, base_monthly_principal)
+                period_interest = round(beginning_bal * (r_annual / Decimal("1200.00")), 0)
                 total_payment = period_principal + period_interest + monthly_fee
                 ending_bal = max(Decimal("0.00"), round(beginning_bal - period_principal, 0))
 
@@ -342,37 +315,18 @@ class LoanService:
                 rem_term = len(unpaid_to_recalc)
                 new_pmt = calculate_equal_installment_pmt(rem_bal, new_rate, rem_term)
 
-                # Tính phần chênh lệch lẻ làm tròn để dồn vào kỳ đầu tiên được tính lại
-                pmt_delta_for_first_unpaid = Decimal("0.00")
-                if rem_term > 1:
-                    sim_b = rem_bal
-                    for idx, s in enumerate(unpaid_to_recalc):
-                        prev_d = all_schedules[s.period_index - 2].due_date if s.period_index > 1 else loan.start_date
-                        sim_days = max(1, (s.due_date - prev_d).days)
-                        sim_int = round((sim_b * new_rate * Decimal(sim_days)) / Decimal("36500.00"), 0)
-                        if idx < rem_term - 1:
-                            sim_p = min(sim_b, max(Decimal("0.00"), round(new_pmt - sim_int, 0)))
-                            sim_b = max(Decimal("0.00"), round(sim_b - sim_p, 0))
-                        else:
-                            std_final_p = min(sim_b, max(Decimal("0.00"), round(new_pmt - sim_int, 0)))
-                            pmt_delta_for_first_unpaid = sim_b - std_final_p
-
                 cur_b = rem_bal
                 for idx, s in enumerate(unpaid_to_recalc):
                     s.applied_interest_rate = new_rate
                     s.monthly_fee = new_monthly_fee
                     s.beginning_balance = cur_b
 
-                    # Days in period
-                    prev_d = all_schedules[s.period_index - 2].due_date if s.period_index > 1 else loan.start_date
-                    days_in_period = max(1, (s.due_date - prev_d).days)
-
-                    period_interest = round((cur_b * new_rate * Decimal(days_in_period)) / Decimal("36500.00"), 0)
+                    # Standard monthly interest: cur_b * (new_rate / 1200)
+                    period_interest = round(cur_b * (new_rate / Decimal("1200.00")), 0)
                     s.interest_amount = period_interest
 
-                    if idx == 0:
-                        s.principal_amount = min(cur_b, max(Decimal("0.00"), round(new_pmt - period_interest, 0) + pmt_delta_for_first_unpaid))
-                    elif idx == len(unpaid_to_recalc) - 1:
+                    if idx == len(unpaid_to_recalc) - 1:
+                        # Final unpaid period absorbs remaining balance
                         s.principal_amount = cur_b
                     else:
                         s.principal_amount = min(cur_b, max(Decimal("0.00"), round(new_pmt - period_interest, 0)))
@@ -390,9 +344,7 @@ class LoanService:
                 for s in unpaid_to_recalc:
                     s.applied_interest_rate = new_rate
                     s.monthly_fee = new_monthly_fee
-                    prev_d = all_schedules[s.period_index - 2].due_date if s.period_index > 1 else loan.start_date
-                    days_in_period = max(1, (s.due_date - prev_d).days)
-                    s.interest_amount = round((s.beginning_balance * new_rate * Decimal(days_in_period)) / Decimal("36500.00"), 0)
+                    s.interest_amount = round(s.beginning_balance * (new_rate / Decimal("1200.00")), 0)
                     s.total_payment = s.principal_amount + s.interest_amount + new_monthly_fee
 
         # Recalculate loan total projected interest

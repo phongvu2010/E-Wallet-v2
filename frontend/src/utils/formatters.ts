@@ -30,6 +30,25 @@ export function formatCurrency(amount: number | string | undefined | null, curre
 }
 
 /**
+ * Formats an interest rate number or string, removing redundant trailing zeros.
+ * 
+ * @param rate - The interest rate value (e.g. 13.894000, 7.650000, "8.500000").
+ * @param suffix - Suffix string (default: '%').
+ * @returns Formatted clean rate string (e.g. '13.894%', '7.65%', '8%').
+ */
+export function formatRate(
+  rate: number | string | undefined | null,
+  suffix: string = "%"
+): string {
+  if (rate === undefined || rate === null) return `0${suffix}`;
+  const num = typeof rate === "number" ? rate : parseFloat(String(rate));
+  if (isNaN(num)) return `0${suffix}`;
+  // Trim redundant zeros while maintaining up to 4 decimal precision
+  const cleanNum = parseFloat(num.toFixed(4));
+  return `${cleanNum}${suffix}`;
+}
+
+/**
  * Formats an ISO date string into a user-friendly Vietnamese date format.
  *
  * @param dateString - The raw ISO date string (YYYY-MM-DD or ISO timestamp).

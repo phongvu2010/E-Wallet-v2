@@ -7,7 +7,7 @@ import { Modal } from "../common/Modal";
 import { useToast } from "../../context/ToastContext";
 import { useAdjustLoanRate } from "../../hooks/useFinanceMutations";
 import { Loan } from "../../types/loan";
-import { formatCurrency, formatDate } from "../../utils/formatters";
+import { formatCurrency, formatDate, formatRate } from "../../utils/formatters";
 
 interface AdjustLoanRateModalProps {
   isOpen: boolean;
@@ -133,7 +133,7 @@ export const AdjustLoanRateModal: React.FC<AdjustLoanRateModalProps> = ({
           <div className="bg-slate-950/60 p-3.5 rounded-xl border border-slate-800 space-y-1">
             <span className="text-xs text-slate-400">Lãi suất & Phí hiện tại</span>
             <div className="text-lg font-bold font-mono text-slate-100 flex items-center gap-1.5">
-              <span>{currentRate}%</span>
+              <span>{formatRate(currentRate)}</span>
               <span className="text-xs font-normal text-slate-400">/ năm</span>
             </div>
             <p className="text-[11px] text-slate-400">
@@ -222,11 +222,11 @@ export const AdjustLoanRateModal: React.FC<AdjustLoanRateModalProps> = ({
               >
                 {rateDiff > 0 ? (
                   <>
-                    <TrendingUp className="w-3.5 h-3.5" /> +{parseFloat(rateDiff.toFixed(6))}%
+                    <TrendingUp className="w-3.5 h-3.5" /> +{formatRate(rateDiff)}
                   </>
                 ) : rateDiff < 0 ? (
                   <>
-                    <TrendingDown className="w-3.5 h-3.5" /> {parseFloat(rateDiff.toFixed(6))}%
+                    <TrendingDown className="w-3.5 h-3.5" /> {formatRate(rateDiff)}
                   </>
                 ) : (
                   <span>Lãi suất không đổi</span>

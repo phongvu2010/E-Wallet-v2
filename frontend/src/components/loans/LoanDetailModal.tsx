@@ -24,7 +24,7 @@ import { useToast } from "../../context/ToastContext";
 import { useEarlySettleLoan, usePayLoanPeriod } from "../../hooks/useFinanceMutations";
 import { useAccounts, useLoan } from "../../hooks/useFinanceQueries";
 import { Loan, LoanSchedule } from "../../types/loan";
-import { formatCurrency, formatDate } from "../../utils/formatters";
+import { formatCurrency, formatDate, formatRate } from "../../utils/formatters";
 
 interface LoanDetailModalProps {
   isOpen: boolean;
@@ -226,7 +226,7 @@ export const LoanDetailModal: React.FC<LoanDetailModalProps> = ({
               <div className="bg-slate-900/60 p-2.5 rounded-xl border border-slate-800">
                 <span className="text-slate-400 block mb-0.5">Lãi suất hiện hành</span>
                 <span className="font-bold text-amber-400 font-mono text-sm">
-                  {loan.current_interest_rate}% / năm
+                  {formatRate(loan.current_interest_rate)} / năm
                 </span>
               </div>
               <div className="bg-slate-900/60 p-2.5 rounded-xl border border-slate-800">
@@ -277,12 +277,9 @@ export const LoanDetailModal: React.FC<LoanDetailModalProps> = ({
                       <th className="py-2.5 px-3">Hạn thanh toán</th>
                       <th className="py-2.5 px-3 text-right">Dư nợ đầu kỳ</th>
                       <th className="py-2.5 px-3 text-right">Tiền Gốc</th>
-                      <th className="py-2.5 px-3 text-right">Lãi suất / Lãi</th>
-                      {loan.schedules?.some((s) => Number(s.monthly_fee) > 0) && (
-                        <th className="py-2.5 px-3 text-right">Phí DV</th>
-                      )}
+                      <th className="py-2.5 px-3 text-right">Lãi suất</th>
+                      <th className="py-2.5 px-3 text-right">Tiền Lãi</th>
                       <th className="py-2.5 px-3 text-right">Tổng kỳ</th>
-                      <th className="py-2.5 px-3 text-right">Dư nợ cuối kỳ</th>
                       <th className="py-2.5 px-3 text-center">Trạng thái</th>
                       <th className="py-2.5 px-3 text-center">Hành động</th>
                     </tr>
@@ -307,22 +304,14 @@ export const LoanDetailModal: React.FC<LoanDetailModalProps> = ({
                         <td className="py-2 px-3 text-right text-slate-200 font-semibold">
                           {formatCurrency(item.principal_amount)}
                         </td>
-                        <td className="py-2 px-3 text-right text-amber-400">
-                          <span className="text-[10px] text-slate-400 mr-1">
-                            ({item.applied_interest_rate}%)
-                          </span>
+                        <td className="py-2 px-3 text-right text-amber-300 font-mono">
+                          {formatRate(item.applied_interest_rate)}
+                        </td>
+                        <td className="py-2 px-3 text-right text-amber-400 font-mono font-medium">
                           {formatCurrency(item.interest_amount)}
                         </td>
-                        {loan.schedules?.some((s) => Number(s.monthly_fee) > 0) && (
-                          <td className="py-2 px-3 text-right text-slate-400">
-                            {formatCurrency(item.monthly_fee || 0)}
-                          </td>
-                        )}
                         <td className="py-2 px-3 text-right text-purple-400 font-bold">
                           {formatCurrency(item.total_payment)}
-                        </td>
-                        <td className="py-2 px-3 text-right text-slate-400">
-                          {formatCurrency(item.ending_balance)}
                         </td>
                         <td className="py-2 px-3 text-center">
                           {item.status === "PAID" ? (
@@ -373,7 +362,7 @@ export const LoanDetailModal: React.FC<LoanDetailModalProps> = ({
                         <div className="space-y-1 text-xs">
                           <div className="flex items-center gap-2 flex-wrap">
                             <span className="font-bold text-slate-200">
-                              Lãi suất: {hist.old_rate}% → {hist.new_rate}% / năm
+                              Lãi suất: {formatRate(hist.old_rate)} → {formatRate(hist.new_rate)} / năm
                             </span>
                             <span
                               className={`font-mono font-semibold px-1.5 py-0.5 rounded text-[11px] ${
@@ -384,7 +373,7 @@ export const LoanDetailModal: React.FC<LoanDetailModalProps> = ({
                                   : "bg-slate-800 text-slate-300"
                               }`}
                             >
-                              {diff > 0 ? `+${parseFloat(diff.toFixed(6))}%` : `${parseFloat(diff.toFixed(6))}%`}
+                              {diff > 0 ? `+${formatRate(diff)}` : formatRate(diff)}
                             </span>
                             {(hist.old_monthly_fee !== undefined || hist.new_monthly_fee !== undefined) && (
                               <span className="text-slate-400 font-mono text-[11px]">
@@ -439,7 +428,7 @@ export const LoanDetailModal: React.FC<LoanDetailModalProps> = ({
                 <span className="font-mono text-slate-300">{formatCurrency(payingSchedule.principal_amount)}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-slate-400">Tiền Lãi ({payingSchedule.applied_interest_rate}%):</span>
+                <span className="text-slate-400">Tiền Lãi ({formatRate(payingSchedule.applied_interest_rate)}):</span>
                 <span className="font-mono text-amber-400">{formatCurrency(payingSchedule.interest_amount)}</span>
               </div>
               {Number(payingSchedule.monthly_fee) > 0 && (

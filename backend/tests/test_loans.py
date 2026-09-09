@@ -26,8 +26,8 @@ async def test_list_loans_and_kpis(client: AsyncClient):
 
 
 @pytest.mark.asyncio
-async def test_loan_reducing_balance_rounding_adjusted_in_first_period(db_session: AsyncSession):
-    """Test that decimal fractions/remainders are adjusted into the first period for REDUCING_BALANCE."""
+async def test_loan_reducing_balance_rounding_adjusted_in_last_period(db_session: AsyncSession):
+    """Test that decimal fractions/remainders are absorbed into the final period for REDUCING_BALANCE."""
     payload = LoanCreate(
         loan_name="Vay mua xe 3 tháng",
         loan_type=LoanTypeEnum.AUTO,
@@ -43,10 +43,10 @@ async def test_loan_reducing_balance_rounding_adjusted_in_first_period(db_sessio
     assert len(loan.schedules) == 3
 
     # Total principal = 10,000,000. Divided by 3 gives 3,333,333 base.
-    # Period 1 should absorb remainder: 10,000,000 - 2 * 3,333,333 = 3,333,334
-    assert loan.schedules[0].principal_amount == Decimal("3333334.00")
+    # Periods 1 & 2 pay 3,333,333. Final period absorbs remainder: 10,000,000 - 2 * 3,333,333 = 3,333,334
+    assert loan.schedules[0].principal_amount == Decimal("3333333.00")
     assert loan.schedules[1].principal_amount == Decimal("3333333.00")
-    assert loan.schedules[2].principal_amount == Decimal("3333333.00")
+    assert loan.schedules[2].principal_amount == Decimal("3333334.00")
 
     # Sum of principals must be EXACTLY 10,000,000
     total_principals = sum(s.principal_amount for s in loan.schedules)
@@ -55,8 +55,8 @@ async def test_loan_reducing_balance_rounding_adjusted_in_first_period(db_sessio
 
 
 @pytest.mark.asyncio
-async def test_loan_flat_rate_rounding_adjusted_in_first_period(db_session: AsyncSession):
-    """Test that decimal fractions/remainders are adjusted into the first period for FLAT rate."""
+async def test_loan_flat_rate_rounding_adjusted_in_last_period(db_session: AsyncSession):
+    """Test that decimal fractions/remainders are absorbed into the final period for FLAT rate."""
     payload = LoanCreate(
         loan_name="Vay tín chấp 3 tháng",
         loan_type=LoanTypeEnum.CONSUMER,
@@ -71,9 +71,9 @@ async def test_loan_flat_rate_rounding_adjusted_in_first_period(db_session: Asyn
     assert loan is not None
     assert len(loan.schedules) == 3
 
-    assert loan.schedules[0].principal_amount == Decimal("3333334.00")
+    assert loan.schedules[0].principal_amount == Decimal("3333333.00")
     assert loan.schedules[1].principal_amount == Decimal("3333333.00")
-    assert loan.schedules[2].principal_amount == Decimal("3333333.00")
+    assert loan.schedules[2].principal_amount == Decimal("3333334.00")
 
     total_principals = sum(s.principal_amount for s in loan.schedules)
     assert total_principals == Decimal("10000000.00")

@@ -48,7 +48,7 @@ import {
 import { Debt, DebtType } from "../types/debt";
 import { InstallmentPlan } from "../types/installment";
 import { Loan } from "../types/loan";
-import { formatCurrency, formatDate } from "../utils/formatters";
+import { formatCurrency, formatDate, formatRate } from "../utils/formatters";
 
 export const InstallmentsPage: React.FC = () => {
   const [activeTab, setActiveTab] = useState<"debts" | "loans" | "installments">("debts");
@@ -648,7 +648,7 @@ export const InstallmentsPage: React.FC = () => {
                         <div className="text-right">
                           <span className="text-[11px] text-slate-400 block">Lãi suất hiện tại</span>
                           <span className="font-bold text-purple-400 text-sm mt-0.5 block">
-                            {loan.current_interest_rate}% / năm
+                            {formatRate(loan.current_interest_rate)} / năm
                           </span>
                         </div>
                       </div>

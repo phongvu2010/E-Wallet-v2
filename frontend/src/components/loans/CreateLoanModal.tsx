@@ -12,7 +12,7 @@ import { useAccounts, useInstitutions } from "../../hooks/useFinanceQueries";
 import { Account } from "../../types/account";
 import { Institution } from "../../types/institution";
 import { InterestMethod, LoanCreatePayload, LoanType } from "../../types/loan";
-import { formatAccountLabel, formatCurrency, formatDate } from "../../utils/formatters";
+import { formatAccountLabel, formatCurrency, formatDate, formatRate } from "../../utils/formatters";
 
 interface CreateLoanModalProps {
   isOpen: boolean;
@@ -67,7 +67,6 @@ export const CreateLoanModal: React.FC<CreateLoanModalProps> = ({ isOpen, onClos
     const fee = Number(monthlyFee) || 0;
     const rMonthly = rate / 1200;
     const basePrincipal = Math.round(p0 / term);
-    const firstPeriodPrincipal = p0 - (term - 1) * basePrincipal;
 
     if (p0 <= 0 || term <= 0) return { firstPayment: 0, totalInterest: 0, totalFee: 0, schedules: [] };
 
@@ -76,22 +75,6 @@ export const CreateLoanModal: React.FC<CreateLoanModalProps> = ({ isOpen, onClos
     if (interestMethod === "EQUAL_INSTALLMENT" && rate > 0) {
       const factor = Math.pow(1 + rMonthly, term);
       pmt = Math.round(p0 * (rMonthly * factor) / (factor - 1));
-    }
-
-    // Pass 1 for EQUAL_INSTALLMENT to find delta to shift to Period 1
-    let pmtDeltaFirstPeriod = 0;
-    if (interestMethod === "EQUAL_INSTALLMENT" && term > 1) {
-      let simBal = p0;
-      for (let i = 1; i <= term; i++) {
-        const simInt = Math.round(simBal * rMonthly);
-        if (i < term) {
-          const simP = Math.min(simBal, Math.max(0, pmt - simInt));
-          simBal = Math.max(0, simBal - simP);
-        } else {
-          const stdFinalP = Math.min(simBal, Math.max(0, pmt - simInt));
-          pmtDeltaFirstPeriod = simBal - stdFinalP;
-        }
-      }
     }
 
     let curBal = p0;
@@ -104,19 +87,17 @@ export const CreateLoanModal: React.FC<CreateLoanModalProps> = ({ isOpen, onClos
 
       if (interestMethod === "EQUAL_INSTALLMENT") {
         int = Math.round(curBal * rMonthly);
-        if (i === 1) {
-          p = Math.min(curBal, Math.max(0, pmt - int + pmtDeltaFirstPeriod));
-        } else if (i === term) {
+        if (i === term) {
           p = curBal;
         } else {
           p = Math.min(curBal, Math.max(0, pmt - int));
         }
       } else if (interestMethod === "FLAT") {
-        p = i === 1 ? firstPeriodPrincipal : basePrincipal;
+        p = i === term ? curBal : Math.min(curBal, basePrincipal);
         int = Math.round(p0 * rMonthly);
       } else {
         // REDUCING_BALANCE (Equal Principal)
-        p = i === 1 ? firstPeriodPrincipal : basePrincipal;
+        p = i === term ? curBal : Math.min(curBal, basePrincipal);
         int = Math.round(curBal * rMonthly);
       }
 
@@ -415,10 +396,9 @@ export const CreateLoanModal: React.FC<CreateLoanModalProps> = ({ isOpen, onClos
                   <tr>
                     <th className="py-2 px-2.5">Kỳ</th>
                     <th className="py-2 px-2.5 text-right">Tiền Gốc</th>
+                    <th className="py-2 px-2.5 text-right">Lãi Suất</th>
                     <th className="py-2 px-2.5 text-right">Tiền Lãi</th>
-                    {Number(monthlyFee) > 0 && <th className="py-2 px-2.5 text-right">Phí DV</th>}
                     <th className="py-2 px-2.5 text-right">Tổng Trả</th>
-                    <th className="py-2 px-2.5 text-right">Dư Nợ Còn</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-800/60">
@@ -426,12 +406,9 @@ export const CreateLoanModal: React.FC<CreateLoanModalProps> = ({ isOpen, onClos
                     <tr key={s.index} className="hover:bg-slate-800/40">
                       <td className="py-1.5 px-2.5 text-slate-300">Kỳ {s.index}</td>
                       <td className="py-1.5 px-2.5 text-right text-slate-200">{formatCurrency(s.principal)}</td>
-                      <td className="py-1.5 px-2.5 text-right text-amber-400/90">{formatCurrency(s.interest)}</td>
-                      {Number(monthlyFee) > 0 && (
-                        <td className="py-1.5 px-2.5 text-right text-slate-400">{formatCurrency(s.fee)}</td>
-                      )}
+                      <td className="py-1.5 px-2.5 text-right text-amber-300">{formatRate(interestRate)}</td>
+                      <td className="py-1.5 px-2.5 text-right text-amber-400 font-medium">{formatCurrency(s.interest)}</td>
                       <td className="py-1.5 px-2.5 text-right font-bold text-emerald-400">{formatCurrency(s.total)}</td>
-                      <td className="py-1.5 px-2.5 text-right text-slate-400">{formatCurrency(s.endingBalance)}</td>
                     </tr>
                   ))}
                 </tbody>
