@@ -17,12 +17,13 @@ for p in [str(backend_dir), str(root_dir)]:
         sys.path.insert(0, p)
 
 from app.core.config import settings
-from app.core.database import get_db
+from app.core.database import async_connect_args, get_db
 from app.main import app
 
 # Create a NullPool async engine for tests to prevent event loop connection leakage
 test_async_engine = create_async_engine(
     settings.async_database_url,
+    connect_args=async_connect_args,
     poolclass=NullPool,
     echo=False,
     future=True,
