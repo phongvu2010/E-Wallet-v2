@@ -5,21 +5,21 @@
 -- 1. Nhóm Danh Mục Cha (Cấp 1)
 INSERT INTO categories (id, name, category_type, icon, color, is_system) VALUES
 -- Chi tiêu (EXPENSE)
-('0666944e-3e4a-4be6-9333-18ebaf270e2e', 'Ăn uống & F&B', 'EXPENSE', 'Utensils', '#f59e0b', TRUE),
+('11111111-3e4a-4be6-9333-18ebaf270e2e', 'Ăn uống & F&B', 'EXPENSE', 'Utensils', '#f59e0b', TRUE),
 ('22222222-3e4a-4be6-9333-18ebaf270e2e', 'Mua sắm & Tiêu dùng', 'EXPENSE', 'ShoppingBag', '#ec4899', TRUE),
 ('33333333-3e4a-4be6-9333-18ebaf270e2e', 'Di chuyển & Đi lại', 'EXPENSE', 'Car', '#06b6d4', TRUE),
 ('44444444-3e4a-4be6-9333-18ebaf270e2e', 'Hóa đơn & Tiện ích', 'EXPENSE', 'Zap', '#8b5cf6', TRUE),
 ('55555555-3e4a-4be6-9333-18ebaf270e2e', 'Sức khỏe & Làm đẹp', 'EXPENSE', 'Activity', '#10b981', TRUE),
 ('66666666-3e4a-4be6-9333-18ebaf270e2e', 'Giải trí & Du lịch', 'EXPENSE', 'MapPin', '#3b82f6', TRUE),
-('c3d556ad-a77b-47c2-84eb-fbef5610c343', 'Phí & Lãi ngân hàng', 'EXPENSE', 'Percent', '#f43f5e', TRUE),
+('77777777-3e4a-4be6-9333-18ebaf270e2e', 'Phí & Lãi ngân hàng', 'EXPENSE', 'Percent', '#f43f5e', TRUE),
 ('88888888-3e4a-4be6-9333-18ebaf270e2e', 'Chi tiêu khác', 'EXPENSE', 'MoreHorizontal', '#64748b', TRUE),
 
 -- Thu nhập (INCOME)
-('f1cfacf7-b6ca-4eeb-9075-fd62700a13ef', 'Lương & Thu nhập', 'INCOME', 'Briefcase', '#10b981', TRUE),
-('bae76e5c-9e98-4a66-9d02-0edf997bc8d6', 'Thu nhập khác', 'INCOME', 'Gift', '#14b8a6', TRUE),
+('aaaaaaaa-3e4a-4be6-9333-18ebaf270e2e', 'Lương & Thu nhập', 'INCOME', 'Briefcase', '#10b981', TRUE),
+('bbbbbbbb-3e4a-4be6-9333-18ebaf270e2e', 'Thu nhập khác', 'INCOME', 'Gift', '#14b8a6', TRUE),
 
 -- Chuyển tiền & Trả nợ (TRANSFER)
-('2d3f92eb-a9f7-490e-b2bb-4498942642bd', 'Chuyển tiền & Trả nợ', 'TRANSFER', 'Repeat', '#0284c7', TRUE)
+('cccccccc-3e4a-4be6-9333-18ebaf270e2e', 'Chuyển tiền & Trả nợ', 'TRANSFER', 'Repeat', '#0284c7', TRUE)
 ON CONFLICT (id) DO UPDATE SET
     name = EXCLUDED.name,
     category_type = EXCLUDED.category_type,
@@ -31,9 +31,9 @@ ON CONFLICT (id) DO UPDATE SET
 -- 2. Danh Mục Con (Cấp 2)
 INSERT INTO categories (id, parent_id, name, category_type, icon, color, is_system) VALUES
 -- Ăn uống & F&B
-('11111111-3e4a-4be6-9333-18ebaf270001', '0666944e-3e4a-4be6-9333-18ebaf270e2e', 'Nhà hàng & Quán ăn', 'EXPENSE', 'Utensils', '#f59e0b', TRUE),
-('11111111-3e4a-4be6-9333-18ebaf270003', '0666944e-3e4a-4be6-9333-18ebaf270e2e', 'Siêu thị & Đi chợ', 'EXPENSE', 'ShoppingCart', '#f59e0b', TRUE),
-('11111111-3e4a-4be6-9333-18ebaf270002', '0666944e-3e4a-4be6-9333-18ebaf270e2e', 'Cà phê', 'EXPENSE', 'Coffee', '#f59e0b', TRUE),
+('11111111-3e4a-4be6-9333-18ebaf270001', '11111111-3e4a-4be6-9333-18ebaf270e2e', 'Nhà hàng & Quán ăn', 'EXPENSE', 'Utensils', '#f59e0b', TRUE),
+('11111111-3e4a-4be6-9333-18ebaf270003', '11111111-3e4a-4be6-9333-18ebaf270e2e', 'Siêu thị & Đi chợ', 'EXPENSE', 'ShoppingCart', '#f59e0b', TRUE),
+('11111111-3e4a-4be6-9333-18ebaf270002', '11111111-3e4a-4be6-9333-18ebaf270e2e', 'Cà phê', 'EXPENSE', 'Coffee', '#f59e0b', TRUE),
 
 -- Mua sắm & Tiêu dùng
 ('22222222-3e4a-4be6-9333-18ebaf270001', '22222222-3e4a-4be6-9333-18ebaf270e2e', 'Mua sắm Online / TMĐT', 'EXPENSE', 'Globe', '#ec4899', TRUE),
@@ -61,28 +61,28 @@ INSERT INTO categories (id, parent_id, name, category_type, icon, color, is_syst
 ('66666666-3e4a-4be6-9333-18ebaf270002', '66666666-3e4a-4be6-9333-18ebaf270e2e', 'Xem phim & Sự kiện', 'EXPENSE', 'Film', '#3b82f6', TRUE),
 
 -- Phí & Lãi ngân hàng
-('77777777-3e4a-4be6-9333-18ebaf270001', 'c3d556ad-a77b-47c2-84eb-fbef5610c343', 'Phí thường niên thẻ', 'EXPENSE', 'Calendar', '#f43f5e', TRUE),
-('77777777-3e4a-4be6-9333-18ebaf270002', 'c3d556ad-a77b-47c2-84eb-fbef5610c343', 'Phí SMS & Dịch vụ tài khoản', 'EXPENSE', 'MessageSquare', '#f43f5e', TRUE),
-('77777777-3e4a-4be6-9333-18ebaf270003', 'c3d556ad-a77b-47c2-84eb-fbef5610c343', 'Lãi suất thẻ tín dụng', 'EXPENSE', 'AlertCircle', '#f43f5e', TRUE),
+('77777777-3e4a-4be6-9333-18ebaf270001', '77777777-3e4a-4be6-9333-18ebaf270e2e', 'Phí thường niên thẻ', 'EXPENSE', 'Calendar', '#f43f5e', TRUE),
+('77777777-3e4a-4be6-9333-18ebaf270002', '77777777-3e4a-4be6-9333-18ebaf270e2e', 'Phí SMS & Dịch vụ tài khoản', 'EXPENSE', 'MessageSquare', '#f43f5e', TRUE),
+('77777777-3e4a-4be6-9333-18ebaf270003', '77777777-3e4a-4be6-9333-18ebaf270e2e', 'Lãi suất thẻ tín dụng', 'EXPENSE', 'AlertCircle', '#f43f5e', TRUE),
 
 -- Chi tiêu khác
 ('88888888-3e4a-4be6-9333-18ebaf270001', '88888888-3e4a-4be6-9333-18ebaf270e2e', 'Trả góp định kỳ thẻ', 'EXPENSE', 'Clock', '#64748b', TRUE),
 ('88888888-3e4a-4be6-9333-18ebaf270002', '88888888-3e4a-4be6-9333-18ebaf270e2e', 'Chi tiêu khác', 'EXPENSE', 'MoreHorizontal', '#64748b', TRUE),
 
 -- Lương & Thu nhập
-('99999999-3e4a-4be6-9333-18ebaf270001', 'f1cfacf7-b6ca-4eeb-9075-fd62700a13ef', 'Tiền lương hàng tháng', 'INCOME', 'DollarSign', '#10b981', TRUE),
-('99999999-3e4a-4be6-9333-18ebaf270002', 'f1cfacf7-b6ca-4eeb-9075-fd62700a13ef', 'Tiền thưởng & Hoa hồng', 'INCOME', 'Award', '#10b981', TRUE),
-('99999999-3e4a-4be6-9333-18ebaf270003', 'f1cfacf7-b6ca-4eeb-9075-fd62700a13ef', 'Thu nhập Freelance / Làm thêm', 'INCOME', 'Briefcase', '#10b981', TRUE),
+('aaaaaaaa-3e4a-4be6-9333-18ebaf270001', 'aaaaaaaa-3e4a-4be6-9333-18ebaf270e2e', 'Tiền lương hàng tháng', 'INCOME', 'DollarSign', '#10b981', TRUE),
+('aaaaaaaa-3e4a-4be6-9333-18ebaf270002', 'aaaaaaaa-3e4a-4be6-9333-18ebaf270e2e', 'Tiền thưởng & Hoa hồng', 'INCOME', 'Award', '#10b981', TRUE),
+('aaaaaaaa-3e4a-4be6-9333-18ebaf270003', 'aaaaaaaa-3e4a-4be6-9333-18ebaf270e2e', 'Thu nhập Freelance / Làm thêm', 'INCOME', 'Briefcase', '#10b981', TRUE),
 
 -- Thu nhập khác
-('aaaaaaaa-3e4a-4be6-9333-18ebaf270001', 'bae76e5c-9e98-4a66-9d02-0edf997bc8d6', 'Lãi gửi tiết kiệm & Đầu tư', 'INCOME', 'TrendingUp', '#14b8a6', TRUE),
-('aaaaaaaa-3e4a-4be6-9333-18ebaf270002', 'bae76e5c-9e98-4a66-9d02-0edf997bc8d6', 'Tiền quà tặng / Biếu', 'INCOME', 'Gift', '#14b8a6', TRUE),
-('aaaaaaaa-3e4a-4be6-9333-18ebaf270003', 'bae76e5c-9e98-4a66-9d02-0edf997bc8d6', 'Hoàn tiền Cashback & Điểm thưởng', 'INCOME', 'Coins', '#14b8a6', TRUE),
+('bbbbbbbb-3e4a-4be6-9333-18ebaf270001', 'bbbbbbbb-3e4a-4be6-9333-18ebaf270e2e', 'Lãi gửi tiết kiệm & Đầu tư', 'INCOME', 'TrendingUp', '#14b8a6', TRUE),
+('bbbbbbbb-3e4a-4be6-9333-18ebaf270002', 'bbbbbbbb-3e4a-4be6-9333-18ebaf270e2e', 'Tiền quà tặng / Biếu', 'INCOME', 'Gift', '#14b8a6', TRUE),
+('bbbbbbbb-3e4a-4be6-9333-18ebaf270003', 'bbbbbbbb-3e4a-4be6-9333-18ebaf270e2e', 'Hoàn tiền Cashback & Điểm thưởng', 'INCOME', 'Coins', '#14b8a6', TRUE),
 
 -- Chuyển tiền & Trả nợ
-('bbbbbbbb-3e4a-4be6-9333-18ebaf270001', '2d3f92eb-a9f7-490e-b2bb-4498942642bd', 'Chuyển khoản nội bộ', 'TRANSFER', 'Repeat', '#0284c7', TRUE),
-('bbbbbbbb-3e4a-4be6-9333-18ebaf270002', '2d3f92eb-a9f7-490e-b2bb-4498942642bd', 'Thanh toán dư nợ thẻ tín dụng', 'TRANSFER', 'CheckCircle2', '#0284c7', TRUE),
-('bbbbbbbb-3e4a-4be6-9333-18ebaf270003', '2d3f92eb-a9f7-490e-b2bb-4498942642bd', 'Rút tiền ATM / Nạp ví', 'TRANSFER', 'ArrowDownCircle', '#0284c7', TRUE)
+('cccccccc-3e4a-4be6-9333-18ebaf270001', 'cccccccc-3e4a-4be6-9333-18ebaf270e2e', 'Chuyển khoản nội bộ', 'TRANSFER', 'Repeat', '#0284c7', TRUE),
+('cccccccc-3e4a-4be6-9333-18ebaf270002', 'cccccccc-3e4a-4be6-9333-18ebaf270e2e', 'Thanh toán dư nợ thẻ tín dụng', 'TRANSFER', 'CheckCircle2', '#0284c7', TRUE),
+('cccccccc-3e4a-4be6-9333-18ebaf270003', 'cccccccc-3e4a-4be6-9333-18ebaf270e2e', 'Rút tiền ATM / Nạp ví', 'TRANSFER', 'ArrowDownCircle', '#0284c7', TRUE)
 ON CONFLICT (id) DO UPDATE SET
     parent_id = EXCLUDED.parent_id,
     name = EXCLUDED.name,

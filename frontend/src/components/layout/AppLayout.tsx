@@ -69,9 +69,6 @@ export const AppLayout: React.FC = () => {
         )}
       >
         <Navbar
-          onMenuClick={() => setSidebarOpen(true)}
-          onToggleDesktopSidebar={toggleDesktopSidebar}
-          isDesktopCollapsed={isCollapsed}
           title={currentMeta.title}
           subtitle={currentMeta.subtitle}
         />
