@@ -107,6 +107,8 @@ export interface TransactionCreatePayload {
 }
 
 export interface TransactionUpdatePayload {
+  account_id?: string;
+  transfer_to_account_id?: string | null;
   raw_description?: string;
   transaction_date?: string;
   post_date?: string | null;

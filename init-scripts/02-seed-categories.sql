@@ -40,7 +40,7 @@ INSERT INTO categories (id, parent_id, name, category_type, icon, color, is_syst
 ('11111111-3e4a-4be6-9333-18ebaf270007', '11111111-3e4a-4be6-9333-18ebaf270e2e', 'Nhậu', 'EXPENSE', 'Utensils', '#f59e0b', TRUE),
 
 -- Mua sắm & Tiêu dùng
-('22222222-3e4a-4be6-9333-18ebaf270001', '22222222-3e4a-4be6-9333-18ebaf270e2e', 'Siêu thị & Tiện lợi', 'EXPENSE', 'ShoppingCart', '#f59e0b', TRUE),
+('22222222-3e4a-4be6-9333-18ebaf270001', '22222222-3e4a-4be6-9333-18ebaf270e2e', 'Siêu thị & Tiện lợi', 'EXPENSE', 'ShoppingCart', '#ec4899', TRUE),
 ('22222222-3e4a-4be6-9333-18ebaf270002', '22222222-3e4a-4be6-9333-18ebaf270e2e', 'Mua sắm Online / TMĐT', 'EXPENSE', 'Globe', '#ec4899', TRUE),
 ('22222222-3e4a-4be6-9333-18ebaf270003', '22222222-3e4a-4be6-9333-18ebaf270e2e', 'Thời trang & Phụ kiện', 'EXPENSE', 'Tag', '#ec4899', TRUE),
 ('22222222-3e4a-4be6-9333-18ebaf270004', '22222222-3e4a-4be6-9333-18ebaf270e2e', 'Đồ công nghệ & Thiết bị', 'EXPENSE', 'Laptop', '#ec4899', TRUE),

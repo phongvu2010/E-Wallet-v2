@@ -231,10 +231,12 @@ export const RepayDebtModal: React.FC<RepayDebtModalProps> = ({
               className="pl-9"
               options={[
                 { value: "", label: "-- Không trích số dư (Ghi nhận sổ riêng) --" },
-                ...accounts.map((acc: Account) => ({
-                  value: acc.id,
-                  label: formatAccountLabel(acc),
-                })),
+                ...accounts
+                  .filter((acc: Account) => acc.status === "ACTIVE")
+                  .map((acc: Account) => ({
+                    value: acc.id,
+                    label: formatAccountLabel(acc),
+                  })),
               ]}
             />
           </div>

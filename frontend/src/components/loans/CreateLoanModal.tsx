@@ -235,10 +235,12 @@ export const CreateLoanModal: React.FC<CreateLoanModalProps> = ({ isOpen, onClos
               onChange={(e) => setAccountId(e.target.value)}
               options={[
                 { value: "", label: "-- Không liên kết tài khoản --" },
-                ...accounts.map((a: Account) => ({
-                  value: a.id,
-                  label: formatAccountLabel(a),
-                })),
+                ...accounts
+                  .filter((a: Account) => a.status === "ACTIVE")
+                  .map((a: Account) => ({
+                    value: a.id,
+                    label: formatAccountLabel(a),
+                  })),
               ]}
             />
           </div>

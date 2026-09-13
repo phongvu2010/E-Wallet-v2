@@ -491,6 +491,7 @@ class TransactionService:
             "installment_plan_id",
             "statement_id",
             "settles_statement_id",
+            "transfer_to_account_id",
         ]:
             if update_data.get(field) == "":
                 update_data[field] = None

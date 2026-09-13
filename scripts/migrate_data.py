@@ -441,15 +441,15 @@ try:
     STANDARD_CATEGORY_CHILDREN = [
         # Ăn uống & F&B
         ("11111111-3e4a-4be6-9333-18ebaf270001", "11111111-3e4a-4be6-9333-18ebaf270e2e", "Nhà hàng & Quán ăn", "EXPENSE", "Utensils", "#f59e0b"),
-        ("11111111-3e4a-4be6-9333-18ebaf270003", "11111111-3e4a-4be6-9333-18ebaf270e2e", "Siêu thị & Tiện lợi", "EXPENSE", "ShoppingCart", "#f59e0b"),
         ("11111111-3e4a-4be6-9333-18ebaf270002", "11111111-3e4a-4be6-9333-18ebaf270e2e", "Cà phê", "EXPENSE", "Coffee", "#f59e0b"),
         ("11111111-3e4a-4be6-9333-18ebaf270004", "11111111-3e4a-4be6-9333-18ebaf270e2e", "Ăn tối", "EXPENSE", "Utensils", "#f59e0b"),
 
         # Mua sắm & Tiêu dùng
-        ("22222222-3e4a-4be6-9333-18ebaf270001", "22222222-3e4a-4be6-9333-18ebaf270e2e", "Mua sắm Online / TMĐT", "EXPENSE", "Globe", "#ec4899"),
-        ("22222222-3e4a-4be6-9333-18ebaf270002", "22222222-3e4a-4be6-9333-18ebaf270e2e", "Thời trang & Phụ kiện", "EXPENSE", "Tag", "#ec4899"),
-        ("22222222-3e4a-4be6-9333-18ebaf270003", "22222222-3e4a-4be6-9333-18ebaf270e2e", "Đồ công nghệ & Thiết bị", "EXPENSE", "Laptop", "#ec4899"),
-        ("22222222-3e4a-4be6-9333-18ebaf270004", "22222222-3e4a-4be6-9333-18ebaf270e2e", "Đồ gia dụng & Tiện ích", "EXPENSE", "Home", "#ec4899"),
+        ("22222222-3e4a-4be6-9333-18ebaf270001", "22222222-3e4a-4be6-9333-18ebaf270e2e", "Siêu thị & Tiện lợi", "EXPENSE", "ShoppingCart", "#ec4899"),
+        ("22222222-3e4a-4be6-9333-18ebaf270002", "22222222-3e4a-4be6-9333-18ebaf270e2e", "Mua sắm Online / TMĐT", "EXPENSE", "Globe", "#ec4899"),
+        ("22222222-3e4a-4be6-9333-18ebaf270003", "22222222-3e4a-4be6-9333-18ebaf270e2e", "Thời trang & Phụ kiện", "EXPENSE", "Tag", "#ec4899"),
+        ("22222222-3e4a-4be6-9333-18ebaf270004", "22222222-3e4a-4be6-9333-18ebaf270e2e", "Đồ công nghệ & Thiết bị", "EXPENSE", "Laptop", "#ec4899"),
+        ("22222222-3e4a-4be6-9333-18ebaf270005", "22222222-3e4a-4be6-9333-18ebaf270e2e", "Đồ gia dụng & Tiện ích", "EXPENSE", "Home", "#ec4899"),
 
         # Di chuyển & Đi lại
         ("33333333-3e4a-4be6-9333-18ebaf270001", "33333333-3e4a-4be6-9333-18ebaf270e2e", "Xăng xe & Nhiên liệu", "EXPENSE", "Fuel", "#06b6d4"),
@@ -500,6 +500,35 @@ try:
     ]
 
     cur.execute("UPDATE categories SET name = 'Siêu thị & Tiện lợi' WHERE name = 'Siêu thị & Đi chợ';")
+
+    # Clean up and re-parent 'Siêu thị & Tiện lợi' to 'Mua sắm & Tiêu dùng' (remove duplicate from 'Ăn uống & F&B' if exists)
+    cur.execute("""
+        DO $$
+        DECLARE
+            v_parent_shopping_id UUID;
+            v_parent_fnb_id UUID;
+            v_target_cat_id UUID;
+            v_old_cat_id UUID;
+        BEGIN
+            SELECT id INTO v_parent_shopping_id FROM categories WHERE name = 'Mua sắm & Tiêu dùng' AND parent_id IS NULL LIMIT 1;
+            SELECT id INTO v_parent_fnb_id FROM categories WHERE name = 'Ăn uống & F&B' AND parent_id IS NULL LIMIT 1;
+
+            IF v_parent_shopping_id IS NOT NULL AND v_parent_fnb_id IS NOT NULL THEN
+                SELECT id INTO v_target_cat_id FROM categories WHERE parent_id = v_parent_shopping_id AND name = 'Siêu thị & Tiện lợi' LIMIT 1;
+                SELECT id INTO v_old_cat_id FROM categories WHERE parent_id = v_parent_fnb_id AND name IN ('Siêu thị & Tiện lợi', 'Siêu thị & Đi chợ') LIMIT 1;
+
+                IF v_old_cat_id IS NOT NULL THEN
+                    IF v_target_cat_id IS NOT NULL AND v_target_cat_id != v_old_cat_id THEN
+                        UPDATE transactions SET category_id = v_target_cat_id WHERE category_id = v_old_cat_id;
+                        UPDATE merchants SET default_category_id = v_target_cat_id WHERE default_category_id = v_old_cat_id;
+                        DELETE FROM categories WHERE id = v_old_cat_id;
+                    ELSE
+                        UPDATE categories SET parent_id = v_parent_shopping_id, name = 'Siêu thị & Tiện lợi', color = '#ec4899' WHERE id = v_old_cat_id;
+                    END IF;
+                END IF;
+            END IF;
+        END $$;
+    """)
 
     parent_id_map = {}
     for p_id, p_name, p_type, p_icon, p_color in STANDARD_CATEGORY_PARENTS:

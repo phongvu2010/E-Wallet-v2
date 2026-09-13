@@ -70,6 +70,8 @@ class InstallmentPlanSimpleRead(BaseModel):
 
 
 class TransactionUpdate(BaseModel):
+    account_id: Optional[UUID] = None
+    transfer_to_account_id: Optional[UUID] = None
     raw_description: Optional[str] = None
     transaction_date: Optional[date] = None
     post_date: Optional[date] = None

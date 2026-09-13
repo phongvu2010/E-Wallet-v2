@@ -19,12 +19,13 @@ import { Button } from "../common/Button";
 import { CurrencyInput } from "../common/CurrencyInput";
 import { Input } from "../common/Input";
 import { Modal } from "../common/Modal";
+import { Select } from "../common/Select";
 import { Spinner } from "../common/Spinner";
 import { useToast } from "../../context/ToastContext";
 import { useEarlySettleLoan, usePayLoanPeriod } from "../../hooks/useFinanceMutations";
 import { useAccounts, useLoan } from "../../hooks/useFinanceQueries";
 import { Loan, LoanSchedule } from "../../types/loan";
-import { formatCurrency, formatDate, formatRate } from "../../utils/formatters";
+import { formatAccountLabel, formatCurrency, formatDate, formatRate } from "../../utils/formatters";
 
 interface LoanDetailModalProps {
   isOpen: boolean;
@@ -69,8 +70,9 @@ export const LoanDetailModal: React.FC<LoanDetailModalProps> = ({
     setPaidAmount(schedule.total_payment);
     setPayDate(new Date().toISOString().split("T")[0]);
     setPayNote(`Thanh toán kỳ ${schedule.period_index}/${loan?.term_months} khoản vay ${loan?.loan_name}`);
-    if (accounts.length > 0 && !paymentAccountId) {
-      setPaymentAccountId(accounts[0].id);
+    const activeAccs = accounts.filter((a) => a.status === "ACTIVE");
+    if (activeAccs.length > 0 && !paymentAccountId) {
+      setPaymentAccountId(activeAccs[0].id);
     }
   };
 
@@ -197,8 +199,9 @@ export const LoanDetailModal: React.FC<LoanDetailModalProps> = ({
                     size="sm"
                     onClick={() => {
                       setIsEarlySettleOpen(true);
-                      if (accounts.length > 0 && !settleAccountId) {
-                        setSettleAccountId(accounts[0].id);
+                      const activeAccs = accounts.filter((a) => a.status === "ACTIVE");
+                      if (activeAccs.length > 0 && !settleAccountId) {
+                        setSettleAccountId(activeAccs[0].id);
                       }
                     }}
                     leftIcon={<Check className="w-3.5 h-3.5" />}
@@ -471,21 +474,20 @@ export const LoanDetailModal: React.FC<LoanDetailModalProps> = ({
             </div>
 
             <div>
-              <label className="block text-xs font-medium text-slate-400 mb-1.5">
-                Tài khoản trích tiền thanh toán
-              </label>
-              <select
+              <Select
+                label="Tài khoản trích tiền thanh toán"
                 value={paymentAccountId}
                 onChange={(e) => setPaymentAccountId(e.target.value)}
-                className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-emerald-500"
-              >
-                <option value="">-- Không trích tài khoản (chỉ đánh dấu) --</option>
-                {accounts.map((acc) => (
-                  <option key={acc.id} value={acc.id}>
-                    {acc.institution?.name ? `${acc.institution.name}: ` : ""}{acc.account_name} ({acc.card_number_masked})
-                  </option>
-                ))}
-              </select>
+                options={[
+                  { value: "", label: "-- Không trích tài khoản (chỉ đánh dấu) --" },
+                  ...accounts
+                    .filter((acc) => acc.status === "ACTIVE")
+                    .map((acc) => ({
+                      value: acc.id,
+                      label: formatAccountLabel(acc),
+                    })),
+                ]}
+              />
             </div>
 
             <Input
@@ -555,21 +557,20 @@ export const LoanDetailModal: React.FC<LoanDetailModalProps> = ({
             </div>
 
             <div>
-              <label className="block text-xs font-medium text-slate-400 mb-1.5">
-                Tài khoản trích tiền tất toán
-              </label>
-              <select
+              <Select
+                label="Tài khoản trích tiền tất toán"
                 value={settleAccountId}
                 onChange={(e) => setSettleAccountId(e.target.value)}
-                className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-emerald-500"
-              >
-                <option value="">-- Không trích tài khoản (chỉ đánh dấu) --</option>
-                {accounts.map((acc) => (
-                  <option key={acc.id} value={acc.id}>
-                    {acc.institution?.name ? `${acc.institution.name}: ` : ""}{acc.account_name} ({acc.card_number_masked})
-                  </option>
-                ))}
-              </select>
+                options={[
+                  { value: "", label: "-- Không trích tài khoản (chỉ đánh dấu) --" },
+                  ...accounts
+                    .filter((acc) => acc.status === "ACTIVE")
+                    .map((acc) => ({
+                      value: acc.id,
+                      label: formatAccountLabel(acc),
+                    })),
+                ]}
+              />
             </div>
 
             <Input

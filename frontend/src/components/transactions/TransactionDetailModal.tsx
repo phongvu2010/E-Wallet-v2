@@ -36,6 +36,7 @@ import { MerchantSuggestion } from "../../types/merchant";
 import { StatementPaymentStatus } from "../../types/statement";
 import { Transaction, TransactionType } from "../../types/transaction";
 import {
+  formatAccountLabel,
   formatCurrency,
   formatDate,
   getTransactionTypeLabel,
@@ -88,14 +89,15 @@ export const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({
   const { data: categoryTree = [] } = useCategoryTree();
   const { data: merchantSuggestions = [] } = useMerchantSuggestions();
   const { data: pendingStatements = [] } = useStatementPaymentStatus();
-  const { data: accountInstallments = [] } = useInstallments(
-    transaction?.account_id
-  );
 
   const [isEditing, setIsEditing] = useState(false);
   const [isConfirmDelete, setIsConfirmDelete] = useState(false);
 
   // Form State for Edit Mode
+  const [accountId, setAccountId] = useState(transaction?.account_id || "");
+  const [transferToAccountId, setTransferToAccountId] = useState(
+    transaction?.transfer_to_account_id || ""
+  );
   const [flow, setFlow] = useState<TransactionFlow>("EXPENSE");
   const [rawDescription, setRawDescription] = useState("");
   const [transactionDate, setTransactionDate] = useState("");
@@ -111,6 +113,10 @@ export const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({
   const [note, setNote] = useState("");
   const [settlesStatementId, setSettlesStatementId] = useState("");
   const [installmentPlanId, setInstallmentPlanId] = useState("");
+
+  const { data: accountInstallments = [] } = useInstallments(
+    accountId || transaction?.account_id
+  );
 
   // Foreign Currency FX state
   const [isForeignCurrency, setIsForeignCurrency] = useState(false);
@@ -145,6 +151,8 @@ export const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({
     if (transaction) {
       setIsEditing(false);
       setIsConfirmDelete(false);
+      setAccountId(transaction.account_id || "");
+      setTransferToAccountId(transaction.transfer_to_account_id || "");
       const initialFlow = inferFlowFromTransactionType(
         transaction.transaction_type || "PURCHASE"
       );
@@ -289,11 +297,25 @@ export const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({
       .slice(0, 8);
   }, [rawDescription, merchantSuggestions]);
 
-  // Find linked Account
+  // Find linked Account (Source)
   const linkedAccount = useMemo(() => {
     if (!transaction) return null;
-    return accounts.find((a: Account) => a.id === transaction.account_id);
-  }, [accounts, transaction]);
+    const targetAccId = isEditing ? accountId : transaction.account_id;
+    return (
+      accounts.find((a: Account) => a.id === targetAccId) ||
+      accounts.find((a: Account) => a.id === transaction.account_id) ||
+      null
+    );
+  }, [accounts, transaction, isEditing, accountId]);
+
+  // Find linked Destination Account (Transfer / Repayment Target)
+  const linkedTransferToAccount = useMemo(() => {
+    const targetId = isEditing
+      ? transferToAccountId
+      : transaction?.transfer_to_account_id;
+    if (!targetId) return null;
+    return accounts.find((a: Account) => a.id === targetId) || null;
+  }, [accounts, transaction, isEditing, transferToAccountId]);
 
   if (!isOpen || !transaction) return null;
 
@@ -306,10 +328,19 @@ export const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({
     try {
       const parsedAmt = parseFloat(amountVND) || 0;
       const parsedFee = parseFloat(feeVND) || 0;
+      const isTransferOrRepay =
+        flow === "TRANSFER" ||
+        flow === "REPAYMENT" ||
+        transactionType === "TRANSFER" ||
+        transactionType === "REPAYMENT";
 
       await updateMutation.mutateAsync({
         id: transaction.id,
         payload: {
+          account_id: accountId || undefined,
+          transfer_to_account_id: isTransferOrRepay
+            ? transferToAccountId || null
+            : null,
           raw_description: rawDescription.trim() || undefined,
           transaction_date: transactionDate,
           post_date: postDate ? postDate : null,
@@ -384,11 +415,17 @@ export const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({
                   {transaction.raw_description}
                 </div>
                 <div className="flex items-center gap-2 text-xs text-slate-400 mt-1 flex-wrap">
-                  <span>{linkedAccount?.account_name || "Thẻ tín dụng"}</span>
-                  <span>•</span>
-                  <span className="font-mono">
-                    •••• {linkedAccount?.card_number_last4 || "----"}
+                  <span className="font-semibold text-slate-200">
+                    {linkedAccount ? formatAccountLabel(linkedAccount) : "Thẻ tín dụng"}
                   </span>
+                  {linkedTransferToAccount && (
+                    <>
+                      <span className="text-cyan-400 font-bold">➔</span>
+                      <span className="font-semibold text-cyan-200">
+                        {formatAccountLabel(linkedTransferToAccount)}
+                      </span>
+                    </>
+                  )}
                   <span>•</span>
                   <Badge variant="neutral">{typeMeta.label}</Badge>
                   {transaction.is_installment && (
@@ -424,6 +461,49 @@ export const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({
               </h4>
 
               <div className="space-y-2.5 text-xs">
+                {transaction.transaction_type === "TRANSFER" || Boolean(transaction.transfer_to_account_id) ? (
+                  <>
+                    <div className="flex items-center justify-between py-1.5 border-b border-slate-800/60">
+                      <span className="text-slate-400">Từ Tài Khoản (Nguồn):</span>
+                      <strong className="text-slate-200 font-medium">
+                        {linkedAccount ? formatAccountLabel(linkedAccount) : "Không xác định"}
+                      </strong>
+                    </div>
+                    <div className="flex items-center justify-between py-1.5 border-b border-slate-800/60">
+                      <span className="text-slate-400">Đến Tài Khoản (Đích):</span>
+                      <strong className="text-cyan-300 font-medium">
+                        {linkedTransferToAccount
+                          ? formatAccountLabel(linkedTransferToAccount)
+                          : "Chưa chọn tài khoản đích"}
+                      </strong>
+                    </div>
+                  </>
+                ) : transaction.transaction_type === "REPAYMENT" ? (
+                  <>
+                    <div className="flex items-center justify-between py-1.5 border-b border-slate-800/60">
+                      <span className="text-slate-400">Nguồn Trích Tiền:</span>
+                      <strong className="text-slate-200 font-medium">
+                        {linkedAccount ? formatAccountLabel(linkedAccount) : "Không xác định"}
+                      </strong>
+                    </div>
+                    {linkedTransferToAccount && (
+                      <div className="flex items-center justify-between py-1.5 border-b border-slate-800/60">
+                        <span className="text-slate-400">Thẻ Tín Dụng Nhận:</span>
+                        <strong className="text-teal-300 font-medium">
+                          {formatAccountLabel(linkedTransferToAccount)}
+                        </strong>
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <div className="flex items-center justify-between py-1.5 border-b border-slate-800/60">
+                    <span className="text-slate-400">Tài Khoản Giao Dịch:</span>
+                    <strong className="text-slate-200 font-medium">
+                      {linkedAccount ? formatAccountLabel(linkedAccount) : "Không xác định"}
+                    </strong>
+                  </div>
+                )}
+
                 <div className="flex items-center justify-between py-1.5 border-b border-slate-800/60">
                   <span className="text-slate-400">Ngày Giao Dịch:</span>
                   <strong className="text-slate-200 font-mono">
@@ -705,6 +785,110 @@ export const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
             {/* Left Column (7 Cols) */}
             <div className="lg:col-span-7 space-y-4">
+              {/* Account Selector Section */}
+              {flow === "TRANSFER" || transactionType === "TRANSFER" ? (
+                <div className="p-3.5 rounded-2xl bg-cyan-950/20 border border-cyan-500/30 space-y-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <Select
+                      label="Từ Tài Khoản (Nguồn trích tiền)"
+                      value={accountId}
+                      onChange={(e) => setAccountId(e.target.value)}
+                      options={[
+                        { value: "", label: "-- Chọn tài khoản nguồn --" },
+                        ...accounts
+                          .filter((a: Account) => a.status === "ACTIVE" || a.id === accountId)
+                          .map((a: Account) => ({
+                            value: a.id,
+                            label: formatAccountLabel(a),
+                          })),
+                      ]}
+                      required
+                    />
+                    <Select
+                      label="Đến Tài Khoản / Ví (Đích nhận tiền)"
+                      value={transferToAccountId}
+                      onChange={(e) => setTransferToAccountId(e.target.value)}
+                      options={[
+                        { value: "", label: "-- Chọn tài khoản đích --" },
+                        ...accounts
+                          .filter(
+                            (a: Account) =>
+                              (a.status === "ACTIVE" || a.id === transferToAccountId) &&
+                              a.id !== accountId
+                          )
+                          .map((a: Account) => ({
+                            value: a.id,
+                            label: formatAccountLabel(a),
+                          })),
+                      ]}
+                    />
+                  </div>
+                  <p className="text-[11px] text-cyan-300/80">
+                    💡 Số tiền chuyển sẽ được trừ vào tài khoản nguồn và cộng nguyên vẹn vào tài khoản đích.
+                  </p>
+                </div>
+              ) : flow === "REPAYMENT" || transactionType === "REPAYMENT" ? (
+                <div className="p-3.5 rounded-2xl bg-teal-950/20 border border-teal-500/30 space-y-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <Select
+                      label="Nguồn Trích Tiền (TK Ngân hàng / Ví)"
+                      value={accountId}
+                      onChange={(e) => setAccountId(e.target.value)}
+                      options={[
+                        { value: "", label: "-- Chọn tài khoản nguồn --" },
+                        ...accounts
+                          .filter((a: Account) => a.status === "ACTIVE" || a.id === accountId)
+                          .map((a: Account) => ({
+                            value: a.id,
+                            label: formatAccountLabel(a),
+                          })),
+                      ]}
+                      required
+                    />
+                    <Select
+                      label="Thẻ Tín Dụng Cần Thanh Toán (Đích)"
+                      value={transferToAccountId}
+                      onChange={(e) => setTransferToAccountId(e.target.value)}
+                      options={[
+                        { value: "", label: "-- Chọn thẻ tín dụng đích --" },
+                        ...accounts
+                          .filter(
+                            (a: Account) =>
+                              (a.status === "ACTIVE" || a.id === transferToAccountId) &&
+                              a.id !== accountId
+                          )
+                          .map((a: Account) => ({
+                            value: a.id,
+                            label: formatAccountLabel(a),
+                          })),
+                      ]}
+                    />
+                  </div>
+                </div>
+              ) : (
+                <div>
+                  <Select
+                    label={
+                      flow === "INCOME" || transactionType === "INCOME"
+                        ? "Tài Khoản Nhận Tiền"
+                        : "Tài Khoản Giao Dịch"
+                    }
+                    value={accountId}
+                    onChange={(e) => setAccountId(e.target.value)}
+                    options={[
+                      { value: "", label: "-- Chọn tài khoản --" },
+                      ...accounts
+                        .filter((a: Account) => a.status === "ACTIVE" || a.id === accountId)
+                        .map((a: Account) => ({
+                          value: a.id,
+                          label: formatAccountLabel(a),
+                        })),
+                    ]}
+                    required
+                  />
+                </div>
+              )}
+
               {/* Dates Row */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <Input
