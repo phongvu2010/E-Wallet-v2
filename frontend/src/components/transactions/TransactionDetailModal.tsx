@@ -57,6 +57,8 @@ interface TransactionDetailModalProps {
 
 const TRANSACTION_TYPES: { value: TransactionType; label: string }[] = [
   { value: "PURCHASE", label: "Chi tiêu thẻ (Purchase)" },
+  { value: "INCOME", label: "Khoản thu nhập (Income)" },
+  { value: "TRANSFER", label: "Chuyển khoản nội bộ (Transfer)" },
   { value: "REPAYMENT", label: "Thanh toán dư nợ (Repayment)" },
   { value: "INSTALLMENT_MONTHLY", label: "Trả góp kỳ (Installment Period)" },
   { value: "INSTALLMENT_PRINCIPAL", label: "Chuyển đổi trả góp gốc" },
@@ -66,6 +68,10 @@ const TRANSACTION_TYPES: { value: TransactionType; label: string }[] = [
   { value: "INTEREST", label: "Lãi suất phát sinh" },
   { value: "CASH_ADVANCE", label: "Rút tiền mặt" },
   { value: "ADJUSTMENT", label: "Điều chỉnh kế toán" },
+  { value: "DEBT_BORROW", label: "Nhận tiền vay (Sổ nợ dân sự)" },
+  { value: "DEBT_REPAY", label: "Trả nợ gốc (Sổ nợ dân sự)" },
+  { value: "DEBT_LEND", label: "Cho mượn tiền (Sổ nợ dân sự)" },
+  { value: "DEBT_COLLECT", label: "Thu hồi nợ (Sổ nợ dân sự)" },
 ];
 
 export const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({

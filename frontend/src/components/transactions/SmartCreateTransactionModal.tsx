@@ -79,7 +79,7 @@ const PRESET_CHIPS: PresetChip[] = [
   {
     id: "supermarket",
     icon: "🛒",
-    label: "Siêu thị & Đi chợ",
+    label: "Siêu thị & Tiện lợi",
     flow: "EXPENSE",
     categoryKeyword: "Siêu thị",
     defaultDesc: "WINMART / COOPMART",

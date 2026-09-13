@@ -60,6 +60,10 @@ export function inferFlowFromTransactionType(txType: TransactionType): Transacti
     case "CASHBACK_CREDIT":
       return "INCOME";
     case "TRANSFER":
+    case "DEBT_BORROW":
+    case "DEBT_REPAY":
+    case "DEBT_LEND":
+    case "DEBT_COLLECT":
       return "TRANSFER";
     case "REPAYMENT":
       return "REPAYMENT";
@@ -158,6 +162,18 @@ export function inferTransactionTypeFromCategory(
   }
   if (name.includes("thanh toán dư nợ") || name.includes("thanh toán thẻ")) {
     return "REPAYMENT";
+  }
+  if (name.includes("đi vay") || name.includes("nhận tiền vay")) {
+    return "DEBT_BORROW";
+  }
+  if (name.includes("trả nợ vay") || name.includes("trả nợ dân sự")) {
+    return "DEBT_REPAY";
+  }
+  if (name.includes("cho vay") || name.includes("cho mượn")) {
+    return "DEBT_LEND";
+  }
+  if (name.includes("thu hồi nợ") || name.includes("thu nợ")) {
+    return "DEBT_COLLECT";
   }
   if (name.includes("chuyển khoản") || name.includes("chuyển tiền") || catType === "TRANSFER") {
     return "TRANSFER";

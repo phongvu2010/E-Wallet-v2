@@ -38,7 +38,27 @@ async def test_create_borrow_debt_and_repay_with_extra_tip(db_session: AsyncSess
         category_type=CategoryTypeEnum.EXPENSE,
         is_system=True,
     )
-    db_session.add(cat)
+    cat_parent = Category(
+        id=uuid.UUID("cccccccc-3e4a-4be6-9333-18ebaf270e2e"),
+        name="Chuyển tiền & Trả nợ",
+        category_type=CategoryTypeEnum.TRANSFER,
+        is_system=True,
+    )
+    cat_borrow = Category(
+        id=uuid.UUID("cccccccc-3e4a-4be6-9333-18ebaf270004"),
+        parent_id=cat_parent.id,
+        name="Đi vay tiền",
+        category_type=CategoryTypeEnum.TRANSFER,
+        is_system=True,
+    )
+    cat_repay = Category(
+        id=uuid.UUID("cccccccc-3e4a-4be6-9333-18ebaf270005"),
+        parent_id=cat_parent.id,
+        name="Trả nợ vay",
+        category_type=CategoryTypeEnum.TRANSFER,
+        is_system=True,
+    )
+    db_session.add_all([cat, cat_parent, cat_borrow, cat_repay])
     await db_session.flush()
 
     # 2. Create Borrow Debt (Vay bạn Nam 5tr)
@@ -60,6 +80,12 @@ async def test_create_borrow_debt_and_repay_with_extra_tip(db_session: AsyncSess
     assert created_debt.remaining_amount == Decimal("5000000.00")
     assert created_debt.status == DebtStatusEnum.ACTIVE
 
+    # Verify initial transaction has correct category_id (Đi vay tiền)
+    tx_borrow_stmt = select(Transaction).where(Transaction.transaction_type == TransactionTypeEnum.DEBT_BORROW)
+    tx_borrow_res = await db_session.execute(tx_borrow_stmt)
+    tx_borrow = tx_borrow_res.scalar_one()
+    assert tx_borrow.category_id == cat_borrow.id
+
     # 3. Repay Period 1: 2,000,000 VND principal
     payload_repay_1 = DebtRepaymentCreate(
         repayment_date=datetime.date(2026, 9, 15),
@@ -77,6 +103,12 @@ async def test_create_borrow_debt_and_repay_with_extra_tip(db_session: AsyncSess
     assert debt_after_p1.total_extra_amount == Decimal("0.00")
     assert debt_after_p1.status == DebtStatusEnum.ACTIVE
     assert len(debt_after_p1.repayments) == 1
+
+    # Verify repayment transaction has correct category_id (Trả nợ vay)
+    tx_repay_stmt = select(Transaction).where(Transaction.transaction_type == TransactionTypeEnum.DEBT_REPAY)
+    tx_repay_res = await db_session.execute(tx_repay_stmt)
+    tx_repay = tx_repay_res.scalars().first()
+    assert tx_repay.category_id == cat_repay.id
 
     # 4. Repay Period 2: 3,000,000 VND principal + 200,000 VND appreciation tip
     payload_repay_2 = DebtRepaymentCreate(
@@ -113,7 +145,20 @@ async def test_create_lend_debt_and_collect_with_extra(db_session: AsyncSession)
         initial_balance=Decimal("5000000.00"),
         status=AccountStatusEnum.ACTIVE,
     )
-    db_session.add(acc)
+    # Setup categories for lending and collecting
+    cat_lend = Category(
+        id=uuid.UUID("cccccccc-3e4a-4be6-9333-18ebaf270006"),
+        name="Cho vay tiền",
+        category_type=CategoryTypeEnum.TRANSFER,
+        is_system=True,
+    )
+    cat_collect = Category(
+        id=uuid.UUID("cccccccc-3e4a-4be6-9333-18ebaf270007"),
+        name="Thu hồi nợ",
+        category_type=CategoryTypeEnum.TRANSFER,
+        is_system=True,
+    )
+    db_session.add_all([acc, cat_lend, cat_collect])
     await db_session.flush()
 
     # 1. Cho bạn Tuấn mượn 2,000,000 VND
@@ -129,6 +174,12 @@ async def test_create_lend_debt_and_collect_with_extra(db_session: AsyncSession)
 
     assert lend_debt.debt_type == DebtTypeEnum.LEND
     assert lend_debt.remaining_amount == Decimal("2000000.00")
+
+    # Verify initial lend transaction has correct category_id (Cho vay tiền)
+    tx_lend_stmt = select(Transaction).where(Transaction.transaction_type == TransactionTypeEnum.DEBT_LEND)
+    tx_lend_res = await db_session.execute(tx_lend_stmt)
+    tx_lend = tx_lend_res.scalar_one()
+    assert tx_lend.category_id == cat_lend.id
 
     # 2. Tuấn trả lại 2,000,000 VND gốc + 100,000 VND cảm ơn
     payload_collect = DebtRepaymentCreate(
@@ -147,6 +198,12 @@ async def test_create_lend_debt_and_collect_with_extra(db_session: AsyncSession)
     assert collected_debt.total_extra_amount == Decimal("100000.00")
     assert collected_debt.status == DebtStatusEnum.PAID_OFF
 
+    # Verify collect transaction has correct category_id (Thu hồi nợ)
+    tx_collect_stmt = select(Transaction).where(Transaction.transaction_type == TransactionTypeEnum.DEBT_COLLECT)
+    tx_collect_res = await db_session.execute(tx_collect_stmt)
+    tx_collect = tx_collect_res.scalar_one()
+    assert tx_collect.category_id == cat_collect.id
+
 
 @pytest.mark.asyncio
 async def test_debt_summary_kpis(db_session: AsyncSession):
@@ -155,3 +212,35 @@ async def test_debt_summary_kpis(db_session: AsyncSession):
     assert kpis is not None
     assert isinstance(kpis.total_borrow_count, int)
     assert isinstance(kpis.total_lend_count, int)
+
+
+@pytest.mark.asyncio
+async def test_get_debts_api_endpoint(client: AsyncClient, db_session: AsyncSession):
+    """Test GET /api/v1/debts endpoint serialization with account and institution."""
+    acc = Account(
+        account_name="Vietcombank Digital",
+        account_type=AccountTypeEnum.BANK_ACCOUNT,
+        initial_balance=Decimal("2000000.00"),
+        status=AccountStatusEnum.ACTIVE,
+    )
+    db_session.add(acc)
+    await db_session.flush()
+
+    payload_create = DebtCreate(
+        counterparty_name="Chị Mai",
+        debt_type=DebtTypeEnum.BORROW,
+        principal_amount=Decimal("3000000.00"),
+        start_date=datetime.date(2026, 9, 10),
+        account_id=acc.id,
+    )
+    await DebtService.create(db_session, payload_create)
+
+    response = await client.get("/api/v1/debts")
+    assert response.status_code == 200
+    data = response.json()
+    assert isinstance(data, list)
+    assert len(data) >= 1
+    target = next((d for d in data if d["counterparty_name"] == "Chị Mai"), None)
+    assert target is not None
+    assert target["account_name"] == "Vietcombank Digital"
+

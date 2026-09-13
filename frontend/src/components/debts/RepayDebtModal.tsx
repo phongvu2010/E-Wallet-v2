@@ -201,20 +201,16 @@ export const RepayDebtModal: React.FC<RepayDebtModalProps> = ({
                 value={extraCategoryId}
                 onChange={(e) => setExtraCategoryId(e.target.value)}
                 className="text-xs"
-              >
-                <option value="">
-                  {isBorrow ? "-- Mặc định: Chi tiêu khác / Quà tặng --" : "-- Mặc định: Thu nhập khác --"}
-                </option>
-                {categoryGroups.map((group) => (
-                  <optgroup key={group.label} label={group.label}>
-                    {group.options.map((cat) => (
-                      <option key={cat.value} value={cat.value}>
-                        {cat.label}
-                      </option>
-                    ))}
-                  </optgroup>
-                ))}
-              </Select>
+                options={[
+                  {
+                    value: "",
+                    label: isBorrow
+                      ? "-- Mặc định: Chi tiêu khác / Quà tặng --"
+                      : "-- Mặc định: Thu nhập khác --",
+                  },
+                ]}
+                groups={categoryGroups}
+              />
               <p className="text-[11px] text-amber-300/80 mt-1">
                 ✨ Số tiền {formatCurrency(numExtra)} này <strong>sẽ được ghi nhận chuẩn xác vào {isBorrow ? "Chi tiêu thực tế" : "Thu nhập thực tế"}</strong> trong báo cáo tài chính của bạn.
               </p>
@@ -233,14 +229,14 @@ export const RepayDebtModal: React.FC<RepayDebtModalProps> = ({
               value={accountId}
               onChange={(e) => setAccountId(e.target.value)}
               className="pl-9"
-            >
-              <option value="">-- Không trích số dư (Ghi nhận sổ riêng) --</option>
-              {accounts.map((acc: Account) => (
-                <option key={acc.id} value={acc.id}>
-                  {formatAccountLabel(acc)}
-                </option>
-              ))}
-            </Select>
+              options={[
+                { value: "", label: "-- Không trích số dư (Ghi nhận sổ riêng) --" },
+                ...accounts.map((acc: Account) => ({
+                  value: acc.id,
+                  label: formatAccountLabel(acc),
+                })),
+              ]}
+            />
           </div>
         </div>
 

@@ -424,6 +424,139 @@ try:
     print(f"Migrated {len(account_id_map)} Accounts.")
 
     # 3. Map & Sync Categories
+    STANDARD_CATEGORY_PARENTS = [
+        ("11111111-3e4a-4be6-9333-18ebaf270e2e", "Ăn uống & F&B", "EXPENSE", "Utensils", "#f59e0b"),
+        ("22222222-3e4a-4be6-9333-18ebaf270e2e", "Mua sắm & Tiêu dùng", "EXPENSE", "ShoppingBag", "#ec4899"),
+        ("33333333-3e4a-4be6-9333-18ebaf270e2e", "Di chuyển & Đi lại", "EXPENSE", "Car", "#06b6d4"),
+        ("44444444-3e4a-4be6-9333-18ebaf270e2e", "Hóa đơn & Tiện ích", "EXPENSE", "Zap", "#8b5cf6"),
+        ("55555555-3e4a-4be6-9333-18ebaf270e2e", "Sức khỏe & Làm đẹp", "EXPENSE", "Activity", "#10b981"),
+        ("66666666-3e4a-4be6-9333-18ebaf270e2e", "Giải trí & Du lịch", "EXPENSE", "MapPin", "#3b82f6"),
+        ("77777777-3e4a-4be6-9333-18ebaf270e2e", "Phí & Lãi ngân hàng", "EXPENSE", "Percent", "#f43f5e"),
+        ("88888888-3e4a-4be6-9333-18ebaf270e2e", "Chi tiêu khác", "EXPENSE", "MoreHorizontal", "#64748b"),
+        ("aaaaaaaa-3e4a-4be6-9333-18ebaf270e2e", "Lương & Thu nhập", "INCOME", "Briefcase", "#10b981"),
+        ("bbbbbbbb-3e4a-4be6-9333-18ebaf270e2e", "Thu nhập khác", "INCOME", "Gift", "#14b8a6"),
+        ("cccccccc-3e4a-4be6-9333-18ebaf270e2e", "Chuyển tiền & Trả nợ", "TRANSFER", "Repeat", "#0284c7"),
+    ]
+
+    STANDARD_CATEGORY_CHILDREN = [
+        # Ăn uống & F&B
+        ("11111111-3e4a-4be6-9333-18ebaf270001", "11111111-3e4a-4be6-9333-18ebaf270e2e", "Nhà hàng & Quán ăn", "EXPENSE", "Utensils", "#f59e0b"),
+        ("11111111-3e4a-4be6-9333-18ebaf270003", "11111111-3e4a-4be6-9333-18ebaf270e2e", "Siêu thị & Tiện lợi", "EXPENSE", "ShoppingCart", "#f59e0b"),
+        ("11111111-3e4a-4be6-9333-18ebaf270002", "11111111-3e4a-4be6-9333-18ebaf270e2e", "Cà phê", "EXPENSE", "Coffee", "#f59e0b"),
+        ("11111111-3e4a-4be6-9333-18ebaf270004", "11111111-3e4a-4be6-9333-18ebaf270e2e", "Ăn tối", "EXPENSE", "Utensils", "#f59e0b"),
+
+        # Mua sắm & Tiêu dùng
+        ("22222222-3e4a-4be6-9333-18ebaf270001", "22222222-3e4a-4be6-9333-18ebaf270e2e", "Mua sắm Online / TMĐT", "EXPENSE", "Globe", "#ec4899"),
+        ("22222222-3e4a-4be6-9333-18ebaf270002", "22222222-3e4a-4be6-9333-18ebaf270e2e", "Thời trang & Phụ kiện", "EXPENSE", "Tag", "#ec4899"),
+        ("22222222-3e4a-4be6-9333-18ebaf270003", "22222222-3e4a-4be6-9333-18ebaf270e2e", "Đồ công nghệ & Thiết bị", "EXPENSE", "Laptop", "#ec4899"),
+        ("22222222-3e4a-4be6-9333-18ebaf270004", "22222222-3e4a-4be6-9333-18ebaf270e2e", "Đồ gia dụng & Tiện ích", "EXPENSE", "Home", "#ec4899"),
+
+        # Di chuyển & Đi lại
+        ("33333333-3e4a-4be6-9333-18ebaf270001", "33333333-3e4a-4be6-9333-18ebaf270e2e", "Xăng xe & Nhiên liệu", "EXPENSE", "Fuel", "#06b6d4"),
+        ("33333333-3e4a-4be6-9333-18ebaf270002", "33333333-3e4a-4be6-9333-18ebaf270e2e", "Taxi / Grab / Be", "EXPENSE", "Car", "#06b6d4"),
+        ("33333333-3e4a-4be6-9333-18ebaf270003", "33333333-3e4a-4be6-9333-18ebaf270e2e", "Vé máy bay, Tàu xe & Gửi xe", "EXPENSE", "Plane", "#06b6d4"),
+
+        # Hóa đơn & Tiện ích
+        ("44444444-3e4a-4be6-9333-18ebaf270001", "44444444-3e4a-4be6-9333-18ebaf270e2e", "Điện, Nước & Rác", "EXPENSE", "Zap", "#8b5cf6"),
+        ("44444444-3e4a-4be6-9333-18ebaf270002", "44444444-3e4a-4be6-9333-18ebaf270e2e", "Internet & Cước 4G/5G", "EXPENSE", "Wifi", "#8b5cf6"),
+        ("44444444-3e4a-4be6-9333-18ebaf270003", "44444444-3e4a-4be6-9333-18ebaf270e2e", "Dịch vụ số & App (Netflix, Spotify...)", "EXPENSE", "Cloud", "#8b5cf6"),
+
+        # Sức khỏe & Làm đẹp
+        ("55555555-3e4a-4be6-9333-18ebaf270001", "55555555-3e4a-4be6-9333-18ebaf270e2e", "Thuốc men & Khám bệnh", "EXPENSE", "Activity", "#10b981"),
+        ("55555555-3e4a-4be6-9333-18ebaf270002", "55555555-3e4a-4be6-9333-18ebaf270e2e", "Gym & Thể thao", "EXPENSE", "Dumbbell", "#10b981"),
+        ("55555555-3e4a-4be6-9333-18ebaf270003", "55555555-3e4a-4be6-9333-18ebaf270e2e", "Mỹ phẩm & Chăm sóc cá nhân", "EXPENSE", "Smile", "#10b981"),
+
+        # Giải trí & Du lịch
+        ("66666666-3e4a-4be6-9333-18ebaf270001", "66666666-3e4a-4be6-9333-18ebaf270e2e", "Du lịch & Khách sạn", "EXPENSE", "MapPin", "#3b82f6"),
+        ("66666666-3e4a-4be6-9333-18ebaf270002", "66666666-3e4a-4be6-9333-18ebaf270e2e", "Xem phim & Sự kiện", "EXPENSE", "Film", "#3b82f6"),
+
+        # Phí & Lãi ngân hàng
+        ("77777777-3e4a-4be6-9333-18ebaf270001", "77777777-3e4a-4be6-9333-18ebaf270e2e", "Phí thường niên thẻ", "EXPENSE", "Calendar", "#f43f5e"),
+        ("77777777-3e4a-4be6-9333-18ebaf270002", "77777777-3e4a-4be6-9333-18ebaf270e2e", "Phí SMS & Dịch vụ tài khoản", "EXPENSE", "MessageSquare", "#f43f5e"),
+        ("77777777-3e4a-4be6-9333-18ebaf270003", "77777777-3e4a-4be6-9333-18ebaf270e2e", "Lãi suất thẻ tín dụng", "EXPENSE", "AlertCircle", "#f43f5e"),
+
+        # Chi tiêu khác
+        ("88888888-3e4a-4be6-9333-18ebaf270001", "88888888-3e4a-4be6-9333-18ebaf270e2e", "Trả góp định kỳ thẻ", "EXPENSE", "Clock", "#64748b"),
+        ("88888888-3e4a-4be6-9333-18ebaf270002", "88888888-3e4a-4be6-9333-18ebaf270e2e", "Chi tiêu khác", "EXPENSE", "MoreHorizontal", "#64748b"),
+
+        # Lương & Thu nhập
+        ("aaaaaaaa-3e4a-4be6-9333-18ebaf270001", "aaaaaaaa-3e4a-4be6-9333-18ebaf270e2e", "Tiền lương hàng tháng", "INCOME", "DollarSign", "#10b981"),
+        ("aaaaaaaa-3e4a-4be6-9333-18ebaf270002", "aaaaaaaa-3e4a-4be6-9333-18ebaf270e2e", "Tiền thưởng & Hoa hồng", "INCOME", "Award", "#10b981"),
+        ("aaaaaaaa-3e4a-4be6-9333-18ebaf270003", "aaaaaaaa-3e4a-4be6-9333-18ebaf270e2e", "Thu nhập Freelance / Làm thêm", "INCOME", "Briefcase", "#10b981"),
+
+        # Thu nhập khác
+        ("bbbbbbbb-3e4a-4be6-9333-18ebaf270001", "bbbbbbbb-3e4a-4be6-9333-18ebaf270e2e", "Lãi gửi tiết kiệm & Đầu tư", "INCOME", "TrendingUp", "#14b8a6"),
+        ("bbbbbbbb-3e4a-4be6-9333-18ebaf270002", "bbbbbbbb-3e4a-4be6-9333-18ebaf270e2e", "Tiền quà tặng / Biếu", "INCOME", "Gift", "#14b8a6"),
+        ("bbbbbbbb-3e4a-4be6-9333-18ebaf270003", "bbbbbbbb-3e4a-4be6-9333-18ebaf270e2e", "Hoàn tiền Cashback & Điểm thưởng", "INCOME", "Coins", "#14b8a6"),
+
+        # Chuyển tiền & Trả nợ
+        ("cccccccc-3e4a-4be6-9333-18ebaf270001", "cccccccc-3e4a-4be6-9333-18ebaf270e2e", "Chuyển khoản nội bộ", "TRANSFER", "Repeat", "#0284c7"),
+        ("cccccccc-3e4a-4be6-9333-18ebaf270002", "cccccccc-3e4a-4be6-9333-18ebaf270e2e", "Thanh toán dư nợ thẻ tín dụng", "TRANSFER", "CheckCircle2", "#0284c7"),
+        ("cccccccc-3e4a-4be6-9333-18ebaf270003", "cccccccc-3e4a-4be6-9333-18ebaf270e2e", "Rút tiền ATM / Nạp ví", "TRANSFER", "ArrowDownCircle", "#0284c7"),
+        ("cccccccc-3e4a-4be6-9333-18ebaf270004", "cccccccc-3e4a-4be6-9333-18ebaf270e2e", "Đi vay tiền", "TRANSFER", "ArrowDownLeft", "#0284c7"),
+        ("cccccccc-3e4a-4be6-9333-18ebaf270005", "cccccccc-3e4a-4be6-9333-18ebaf270e2e", "Trả nợ vay", "TRANSFER", "ArrowUpRight", "#0284c7"),
+        ("cccccccc-3e4a-4be6-9333-18ebaf270006", "cccccccc-3e4a-4be6-9333-18ebaf270e2e", "Cho vay tiền", "TRANSFER", "ArrowUpRight", "#0284c7"),
+        ("cccccccc-3e4a-4be6-9333-18ebaf270007", "cccccccc-3e4a-4be6-9333-18ebaf270e2e", "Thu hồi nợ", "TRANSFER", "ArrowDownLeft", "#0284c7"),
+    ]
+
+    cur.execute("UPDATE categories SET name = 'Siêu thị & Tiện lợi' WHERE name = 'Siêu thị & Đi chợ';")
+
+    parent_id_map = {}
+    for p_id, p_name, p_type, p_icon, p_color in STANDARD_CATEGORY_PARENTS:
+        cur.execute("SELECT id FROM categories WHERE name = %s AND parent_id IS NULL;", (p_name,))
+        p_row = cur.fetchone()
+        if p_row:
+            actual_p_id = p_row[0]
+            cur.execute("""
+                UPDATE categories 
+                SET category_type = %s, icon = %s, color = %s, is_system = TRUE
+                WHERE id = %s;
+            """, (p_type, p_icon, p_color, actual_p_id))
+        else:
+            cur.execute("""
+                INSERT INTO categories (id, name, category_type, icon, color, is_system)
+                VALUES (%s, %s, %s, %s, %s, TRUE)
+                ON CONFLICT (id) DO UPDATE SET
+                    name = EXCLUDED.name,
+                    category_type = EXCLUDED.category_type,
+                    icon = EXCLUDED.icon,
+                    color = EXCLUDED.color,
+                    is_system = EXCLUDED.is_system;
+            """, (p_id, p_name, p_type, p_icon, p_color))
+            actual_p_id = p_id
+        parent_id_map[p_name] = actual_p_id
+
+    for c_id, p_id_default, c_name, c_type, c_icon, c_color in STANDARD_CATEGORY_CHILDREN:
+        # Find parent name from default id
+        p_name_target = None
+        for pid_check, pname_check, _, _, _ in STANDARD_CATEGORY_PARENTS:
+            if pid_check == p_id_default:
+                p_name_target = pname_check
+                break
+        actual_p_id = parent_id_map.get(p_name_target) if p_name_target else p_id_default
+
+        cur.execute("SELECT id FROM categories WHERE parent_id = %s AND name = %s;", (actual_p_id, c_name))
+        c_row = cur.fetchone()
+        if c_row:
+            cur.execute("""
+                UPDATE categories 
+                SET category_type = %s, icon = %s, color = %s, is_system = TRUE
+                WHERE id = %s;
+            """, (c_type, c_icon, c_color, c_row[0]))
+        else:
+            cur.execute("""
+                INSERT INTO categories (id, parent_id, name, category_type, icon, color, is_system)
+                VALUES (%s, %s, %s, %s, %s, %s, TRUE)
+                ON CONFLICT (id) DO UPDATE SET
+                    parent_id = EXCLUDED.parent_id,
+                    name = EXCLUDED.name,
+                    category_type = EXCLUDED.category_type,
+                    icon = EXCLUDED.icon,
+                    color = EXCLUDED.color,
+                    is_system = EXCLUDED.is_system;
+            """, (c_id, actual_p_id, c_name, c_type, c_icon, c_color))
+
+    # Sync any extra categories from Categories sheet if present
     for _, cat_row in df_categories.iterrows():
         c_p = str(cat_row.get("Category (Cấp 1)", "")).strip()
         c_sub = str(cat_row.get("Category Detail (Cấp 2)", "")).strip()
@@ -449,8 +582,50 @@ try:
                         (p_id, c_sub, p_id),
                     )
 
+    # Backfill category for existing DEBT transactions if un-categorized
+    cur.execute("""
+        UPDATE transactions t
+        SET category_id = c.id
+        FROM categories c
+        WHERE t.category_id IS NULL
+          AND (
+            (t.transaction_type = 'DEBT_BORROW' AND c.name = 'Đi vay tiền')
+            OR (t.transaction_type = 'DEBT_REPAY' AND c.name = 'Trả nợ vay')
+            OR (t.transaction_type = 'DEBT_LEND' AND c.name = 'Cho vay tiền')
+            OR (t.transaction_type = 'DEBT_COLLECT' AND c.name = 'Thu hồi nợ')
+          );
+    """)
+
     cur.execute("SELECT name, id FROM categories;")
     cat_map = {row[0]: row[1] for row in cur.fetchall()}
+
+    def get_merchant_default_category_id(m_clean: str) -> Optional[str]:
+        m_u = m_clean.upper()
+        if any(k in m_u for k in ["SHOPEE", "LAZADA", "TIKI", "BAOKIM", "NGAN LUONG"]):
+            return cat_map.get("Mua sắm Online / TMĐT")
+        if any(k in m_u for k in ["JOLLIBEE", "GOGI", "KPUB", "K-PUB", "KICHI", "HAI SAN"]):
+            return cat_map.get("Nhà hàng & Quán ăn")
+        if any(k in m_u for k in ["BUN RIEU", "CANH BUN"]):
+            return cat_map.get("Ăn tối")
+        if any(k in m_u for k in ["GSM", "GRAB", "GREEN SM", "VINASUN"]):
+            return cat_map.get("Taxi / Grab / Be")
+        if any(k in m_u for k in ["MINISTOP", "VINMART", "WINMART", "COOP", "CO.OP", "WM+"]):
+            return cat_map.get("Siêu thị & Tiện lợi")
+        if any(k in m_u for k in ["STARBUCKS", "PHUC LONG", "P/LONG", "HIGHLANDS"]) or m_u == "PL" or m_u.startswith("PL "):
+            return cat_map.get("Cà phê")
+        if any(k in m_u for k in ["VAN PHAT", "ANDY LONG", "NGUYEN KIM", "CELLPHONES"]):
+            return cat_map.get("Đồ công nghệ & Thiết bị")
+        if any(k in m_u for k in ["COOLMATE", "HOANG PHUC", "YAME"]):
+            return cat_map.get("Thời trang & Phụ kiện")
+        if "VENESA" in m_u:
+            return cat_map.get("Mỹ phẩm & Chăm sóc cá nhân")
+        if "DIAMOND" in m_u:
+            return cat_map.get("Thuốc men & Khám bệnh")
+        if any(k in m_u for k in ["GOOGLE", "APPLE"]):
+            return cat_map.get("Dịch vụ số & App (Netflix, Spotify...)")
+        if "SHANGHAI" in m_u:
+            return cat_map.get("Du lịch & Khách sạn")
+        return None
 
     # 4. Migrate Merchants & Aliases
     unique_merchants = df_transactions["Merchant"].dropna().unique()
@@ -460,18 +635,25 @@ try:
         if not m_clean or m_clean == "None":
             continue
 
+        def_cat_id = get_merchant_default_category_id(m_clean)
+
         cur.execute("SELECT id FROM merchants WHERE cleaned_name = %s;", (m_clean,))
         res = cur.fetchone()
         if res:
             m_id = res[0]
+            if def_cat_id:
+                cur.execute(
+                    "UPDATE merchants SET default_category_id = %s WHERE id = %s;",
+                    (def_cat_id, m_id),
+                )
         else:
             cur.execute(
                 """
-                INSERT INTO merchants (cleaned_name)
-                VALUES (%s)
+                INSERT INTO merchants (cleaned_name, default_category_id)
+                VALUES (%s, %s)
                 RETURNING id;
             """,
-                (m_clean,),
+                (m_clean, def_cat_id),
             )
             m_id = cur.fetchone()[0]
 
@@ -665,6 +847,102 @@ try:
     matched_manual_count = 0
     updated_existing_count = 0
 
+    def resolve_tx_category(
+        r_desc: Optional[str],
+        m_name: Optional[str],
+        c_det: Optional[str],
+        t_type: str,
+    ) -> str:
+        desc_u = (r_desc or "").upper()
+        merch_u = (m_name or "").upper()
+        c_det_u = (c_det or "").upper()
+
+        # Rule: BCCTKM DAM CHAT SO DINH CHAT SONG -> Hoàn tiền Cashback & Điểm thưởng (Thu nhập khác)
+        if "DAM CHAT" in desc_u or "BCCTKM" in desc_u or c_det == "Chương trình ưu đãi":
+            return "Hoàn tiền Cashback & Điểm thưởng"
+
+        # Rule: PL, PHUC LONG, P/LONG -> Cà phê (Ăn uống & F&B)
+        if any(k in desc_u for k in ["PHUC LONG", "P/LONG"]) or any(k in merch_u for k in ["PHUC LONG", "P/LONG"]) or re.search(r"\bPL\b", desc_u) or re.search(r"\bPL\b", merch_u):
+            return "Cà phê"
+
+        # Rule: BUN RIEU CANH BUN THUY -> Ăn tối (Ăn uống & F&B)
+        if "BUN RIEU" in desc_u or "BUN RIEU" in merch_u or "BUN THUY" in desc_u:
+            return "Ăn tối"
+
+        # Rule: JOLLIBEE, GOGI VAN HANH MALL -> Nhà hàng & Quán ăn (Ăn uống & F&B)
+        if "JOLLIBEE" in desc_u or "JOLLIBEE" in merch_u or "GOGI" in desc_u or "GOGI" in merch_u:
+            return "Nhà hàng & Quán ăn"
+
+        # Rule: SHOPEE -> Mua sắm Online / TMĐT (Mua sắm & Tiêu dùng)
+        if "SHOPEE" in desc_u or "SHOPEE" in merch_u:
+            if c_det in ["Trả góp", "Tất toán trả góp"]:
+                return "Trả góp định kỳ thẻ"
+            return "Mua sắm Online / TMĐT"
+
+        # Rule: Interest Charged -> Lãi suất thẻ tín dụng (Phí & Lãi ngân hàng)
+        if "INTEREST" in desc_u or c_det == "Lãi suất" or ("LÃI" in c_det_u and "TIẾT KIỆM" not in c_det_u):
+            return "Lãi suất thẻ tín dụng"
+
+        # Rule: ANNUAL FEE -> Phí thường niên thẻ (Phí & Lãi ngân hàng)
+        if "ANNUAL FEE" in desc_u or c_det in ["Phí thường niên", "Hoàn phí thường niên"]:
+            return "Phí thường niên thẻ"
+
+        # Rule: Notification service fee, SMS -> Phí SMS & Dịch vụ tài khoản (Phí & Lãi ngân hàng)
+        if "NOTIFICATION" in desc_u or "SMS" in desc_u or c_det == "Phí SMS" or "ZALO & SMS" in desc_u:
+            return "Phí SMS & Dịch vụ tài khoản"
+
+        # Rule: GSM, Grab -> Taxi / Grab / Be (Di chuyển & Đi lại)
+        if "GSM" in desc_u or "GRAB" in desc_u or "GREEN SM" in merch_u or c_det == "Taxi":
+            return "Taxi / Grab / Be"
+
+        # General Smart Mappings & Fallbacks:
+        if c_det in ["Thương mại điện tử", "Mua sắm Online", "TMĐT"] or any(m in desc_u for m in ["LAZADA", "TIKI", "BAOKIM", "NGAN LUONG"]):
+            return "Mua sắm Online / TMĐT"
+        if c_det in ["Cửa hàng tiện lợi", "Siêu thị & Tiện lợi", "Siêu thị & Đi chợ"] or any(m in desc_u for m in ["MINISTOP", "VINMART", "WINMART", "COOP", "CO.OP", "WM+"]):
+            return "Siêu thị & Tiện lợi"
+        if c_det == "Cà phê" or any(m in desc_u for m in ["STARBUCKS", "HIGHLANDS"]):
+            return "Cà phê"
+        if c_det in ["Nhà hàng & F&B", "Nhà hàng & Quán ăn"] or any(m in desc_u for m in ["KPUB", "K-PUB", "KICHI", "HAI SAN"]):
+            return "Nhà hàng & Quán ăn"
+        if any(m in desc_u for m in ["GOOGLE*CLOUD", "GOOGLE CLOUD", "NETFLIX", "SPOTIFY", "APPLE.COM"]) or c_det in ["Dịch vụ Cloud", "Dịch vụ công nghệ / App"]:
+            return "Dịch vụ số & App (Netflix, Spotify...)"
+        if c_det in ["Cửa hàng công nghệ", "Đồ công nghệ & Thiết bị"] or any(m in desc_u for m in ["VAN PHAT", "ANDY LONG", "NGUYEN KIM", "CELLPHONES", "DP"]):
+            return "Đồ công nghệ & Thiết bị"
+        if c_det in ["Thời trang & Trang phục", "Thời trang & Phụ kiện"] or any(m in desc_u for m in ["COOLMATE", "HOANG PHUC", "YAME", "FASTECH"]):
+            return "Thời trang & Phụ kiện"
+        if c_det in ["Chăm sóc cá nhân", "Mỹ phẩm & Chăm sóc cá nhân"] or "VENESA" in desc_u:
+            return "Mỹ phẩm & Chăm sóc cá nhân"
+        if c_det in ["Y tế & Sức khỏe", "Thuốc men & Khám bệnh"] or "DIAMOND" in desc_u:
+            return "Thuốc men & Khám bệnh"
+        if c_det in ["Du lịch", "Du lịch & Khách sạn"] or any(m in desc_u for m in ["SHANGHAI", "ALP*", "WUZHEN"]):
+            return "Du lịch & Khách sạn"
+        if c_det in ["Di chuyển & Vận tải", "Taxi"] or "VINASUN" in desc_u:
+            return "Taxi / Grab / Be"
+        if c_det in ["Xăng xe", "Xăng xe & Nhiên liệu"] or "PETROLIMEX" in desc_u:
+            return "Xăng xe & Nhiên liệu"
+        if c_det in ["Thanh toán dư nợ", "Thanh toán nợ thẻ"] or t_type == "REPAYMENT":
+            return "Thanh toán dư nợ thẻ tín dụng"
+        if c_det in ["Nạp tiền", "Rút tiền ATM"] or t_type == "CASH_ADVANCE":
+            return "Rút tiền ATM / Nạp ví"
+        if c_det in ["Trả góp", "Tất toán trả góp", "Chuyển đổi sang trả góp"] or t_type in ["INSTALLMENT_MONTHLY", "INSTALLMENT_PRINCIPAL"]:
+            return "Trả góp định kỳ thẻ"
+        if c_det in ["Hoàn tiền Cashback", "Hoàn tiền"] or t_type == "CASHBACK_CREDIT":
+            return "Hoàn tiền Cashback & Điểm thưởng"
+        if c_det in ["Đi vay", "Đi vay tiền", "Nhận tiền vay"] or t_type == "DEBT_BORROW":
+            return "Đi vay tiền"
+        if c_det in ["Trả nợ", "Trả nợ vay", "Trả nợ gốc", "Trả nợ dân sự"] or t_type == "DEBT_REPAY":
+            return "Trả nợ vay"
+        if c_det in ["Cho vay", "Cho vay tiền", "Cho mượn", "Cho mượn tiền"] or t_type == "DEBT_LEND":
+            return "Cho vay tiền"
+        if c_det in ["Thu hồi nợ", "Thu nợ", "Thu nợ cho vay"] or t_type == "DEBT_COLLECT":
+            return "Thu hồi nợ"
+        if c_det in ["Tiền lương hàng tháng", "Lương", "Tiền lương"]:
+            return "Tiền lương hàng tháng"
+        if c_det in ["Tiền thưởng & Hoa hồng", "Thưởng", "Tiền thưởng"]:
+            return "Tiền thưởng & Hoa hồng"
+
+        return c_det or "Chi tiêu khác"
+
     for _, row in df_transactions.iterrows():
         acc_num = str(row["Account Number"]).strip()
         acc_id = account_id_map.get(acc_num)
@@ -689,18 +967,7 @@ try:
             if not pd.isna(row["Category Detail"])
             else None
         )
-        cat_id = cat_map.get(cat_det)
-        if not cat_id:
-            if cat_det in ["Dịch vụ Cloud", "Dịch vụ công nghệ / App"]:
-                cat_id = cat_map.get("Dịch vụ số & Ứng dụng")
-            else:
-                cat_id = cat_map.get("Chi tiêu khác")
-
-        # Fallback raw_description if missing (e.g. Repayment / Income transactions)
-        if not raw_desc:
-            raw_desc = cat_det or merch_name or "Giao dịch thẻ"
-
-        cat_str = str(row["Category"]).strip()
+        cat_str = str(row["Category"]).strip() if not pd.isna(row["Category"]) else ""
         tx_type = "PURCHASE"
         if cat_det in ["Trả góp", "Tất toán trả góp"]:
             tx_type = "INSTALLMENT_MONTHLY"
@@ -710,13 +977,30 @@ try:
             tx_type = "REPAYMENT"
         elif cat_det == "Hủy giao dịch":
             tx_type = "REFUND"
-        elif cat_det == "Hoàn tiền Cashback":
+        elif (
+            cat_det in ["Hoàn tiền Cashback", "Chương trình ưu đãi"]
+            or (raw_desc and any(k in raw_desc.upper() for k in ["BCCTKM", "DAM CHAT"]))
+        ):
             tx_type = "CASHBACK_CREDIT"
         elif cat_str == "Phí & Lãi":
-            if "Lãi" in cat_det:
+            if cat_det and "Lãi" in cat_det:
                 tx_type = "INTEREST"
             else:
                 tx_type = "FEE"
+
+        # Fallback raw_description if missing (e.g. Repayment / Income transactions)
+        if not raw_desc:
+            raw_desc = cat_det or merch_name or "Giao dịch thẻ"
+
+        resolved_cat_name = resolve_tx_category(raw_desc, merch_name, cat_det, tx_type)
+        cat_id = cat_map.get(resolved_cat_name)
+        if not cat_id:
+            for c_name, c_id in cat_map.items():
+                if c_name.lower() == resolved_cat_name.lower():
+                    cat_id = c_id
+                    break
+        if not cat_id:
+            cat_id = cat_map.get("Chi tiêu khác")
 
         amt = clean_num(row["Amount"])
         fee = clean_num(row["Fee"])

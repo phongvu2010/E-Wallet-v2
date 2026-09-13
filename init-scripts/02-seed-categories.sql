@@ -32,14 +32,19 @@ ON CONFLICT (id) DO UPDATE SET
 INSERT INTO categories (id, parent_id, name, category_type, icon, color, is_system) VALUES
 -- Ăn uống & F&B
 ('11111111-3e4a-4be6-9333-18ebaf270001', '11111111-3e4a-4be6-9333-18ebaf270e2e', 'Nhà hàng & Quán ăn', 'EXPENSE', 'Utensils', '#f59e0b', TRUE),
-('11111111-3e4a-4be6-9333-18ebaf270003', '11111111-3e4a-4be6-9333-18ebaf270e2e', 'Siêu thị & Đi chợ', 'EXPENSE', 'ShoppingCart', '#f59e0b', TRUE),
 ('11111111-3e4a-4be6-9333-18ebaf270002', '11111111-3e4a-4be6-9333-18ebaf270e2e', 'Cà phê', 'EXPENSE', 'Coffee', '#f59e0b', TRUE),
+('11111111-3e4a-4be6-9333-18ebaf270003', '11111111-3e4a-4be6-9333-18ebaf270e2e', 'Ăn sáng', 'EXPENSE', 'Utensils', '#f59e0b', TRUE),
+('11111111-3e4a-4be6-9333-18ebaf270004', '11111111-3e4a-4be6-9333-18ebaf270e2e', 'Ăn trưa', 'EXPENSE', 'Utensils', '#f59e0b', TRUE),
+('11111111-3e4a-4be6-9333-18ebaf270005', '11111111-3e4a-4be6-9333-18ebaf270e2e', 'Ăn tối', 'EXPENSE', 'Utensils', '#f59e0b', TRUE),
+('11111111-3e4a-4be6-9333-18ebaf270006', '11111111-3e4a-4be6-9333-18ebaf270e2e', 'Ăn vặt', 'EXPENSE', 'Utensils', '#f59e0b', TRUE),
+('11111111-3e4a-4be6-9333-18ebaf270007', '11111111-3e4a-4be6-9333-18ebaf270e2e', 'Nhậu', 'EXPENSE', 'Utensils', '#f59e0b', TRUE),
 
 -- Mua sắm & Tiêu dùng
-('22222222-3e4a-4be6-9333-18ebaf270001', '22222222-3e4a-4be6-9333-18ebaf270e2e', 'Mua sắm Online / TMĐT', 'EXPENSE', 'Globe', '#ec4899', TRUE),
-('22222222-3e4a-4be6-9333-18ebaf270002', '22222222-3e4a-4be6-9333-18ebaf270e2e', 'Thời trang & Phụ kiện', 'EXPENSE', 'Tag', '#ec4899', TRUE),
-('22222222-3e4a-4be6-9333-18ebaf270003', '22222222-3e4a-4be6-9333-18ebaf270e2e', 'Đồ công nghệ & Thiết bị', 'EXPENSE', 'Laptop', '#ec4899', TRUE),
-('22222222-3e4a-4be6-9333-18ebaf270004', '22222222-3e4a-4be6-9333-18ebaf270e2e', 'Đồ gia dụng & Tiện ích', 'EXPENSE', 'Home', '#ec4899', TRUE),
+('22222222-3e4a-4be6-9333-18ebaf270001', '22222222-3e4a-4be6-9333-18ebaf270e2e', 'Siêu thị & Tiện lợi', 'EXPENSE', 'ShoppingCart', '#f59e0b', TRUE),
+('22222222-3e4a-4be6-9333-18ebaf270002', '22222222-3e4a-4be6-9333-18ebaf270e2e', 'Mua sắm Online / TMĐT', 'EXPENSE', 'Globe', '#ec4899', TRUE),
+('22222222-3e4a-4be6-9333-18ebaf270003', '22222222-3e4a-4be6-9333-18ebaf270e2e', 'Thời trang & Phụ kiện', 'EXPENSE', 'Tag', '#ec4899', TRUE),
+('22222222-3e4a-4be6-9333-18ebaf270004', '22222222-3e4a-4be6-9333-18ebaf270e2e', 'Đồ công nghệ & Thiết bị', 'EXPENSE', 'Laptop', '#ec4899', TRUE),
+('22222222-3e4a-4be6-9333-18ebaf270005', '22222222-3e4a-4be6-9333-18ebaf270e2e', 'Đồ gia dụng & Tiện ích', 'EXPENSE', 'Home', '#ec4899', TRUE),
 
 -- Di chuyển & Đi lại
 ('33333333-3e4a-4be6-9333-18ebaf270001', '33333333-3e4a-4be6-9333-18ebaf270e2e', 'Xăng xe & Nhiên liệu', 'EXPENSE', 'Fuel', '#06b6d4', TRUE),
@@ -82,7 +87,11 @@ INSERT INTO categories (id, parent_id, name, category_type, icon, color, is_syst
 -- Chuyển tiền & Trả nợ
 ('cccccccc-3e4a-4be6-9333-18ebaf270001', 'cccccccc-3e4a-4be6-9333-18ebaf270e2e', 'Chuyển khoản nội bộ', 'TRANSFER', 'Repeat', '#0284c7', TRUE),
 ('cccccccc-3e4a-4be6-9333-18ebaf270002', 'cccccccc-3e4a-4be6-9333-18ebaf270e2e', 'Thanh toán dư nợ thẻ tín dụng', 'TRANSFER', 'CheckCircle2', '#0284c7', TRUE),
-('cccccccc-3e4a-4be6-9333-18ebaf270003', 'cccccccc-3e4a-4be6-9333-18ebaf270e2e', 'Rút tiền ATM / Nạp ví', 'TRANSFER', 'ArrowDownCircle', '#0284c7', TRUE)
+('cccccccc-3e4a-4be6-9333-18ebaf270003', 'cccccccc-3e4a-4be6-9333-18ebaf270e2e', 'Rút tiền ATM / Nạp ví', 'TRANSFER', 'ArrowDownCircle', '#0284c7', TRUE),
+('cccccccc-3e4a-4be6-9333-18ebaf270004', 'cccccccc-3e4a-4be6-9333-18ebaf270e2e', 'Đi vay tiền', 'TRANSFER', 'ArrowDownLeft', '#0284c7', TRUE),
+('cccccccc-3e4a-4be6-9333-18ebaf270005', 'cccccccc-3e4a-4be6-9333-18ebaf270e2e', 'Trả nợ vay', 'TRANSFER', 'ArrowUpRight', '#0284c7', TRUE),
+('cccccccc-3e4a-4be6-9333-18ebaf270006', 'cccccccc-3e4a-4be6-9333-18ebaf270e2e', 'Cho vay tiền', 'TRANSFER', 'ArrowUpRight', '#0284c7', TRUE),
+('cccccccc-3e4a-4be6-9333-18ebaf270007', 'cccccccc-3e4a-4be6-9333-18ebaf270e2e', 'Thu hồi nợ', 'TRANSFER', 'ArrowDownLeft', '#0284c7', TRUE)
 ON CONFLICT (id) DO UPDATE SET
     parent_id = EXCLUDED.parent_id,
     name = EXCLUDED.name,

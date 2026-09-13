@@ -506,8 +506,15 @@ class LoanService:
 
         # Create settlement transaction if source account is provided
         if payload.settlement_account_id:
+            cat_query = select(Category.id).where(
+                Category.name.ilike("%thanh toán%") | Category.name.ilike("%chuyển tiền%")
+            ).limit(1)
+            cat_res = await db.execute(cat_query)
+            cat_id = cat_res.scalar_one_or_none()
+
             tx = Transaction(
                 account_id=payload.settlement_account_id,
+                category_id=cat_id,
                 transaction_date=settle_date,
                 post_date=settle_date,
                 raw_description=f"Tất toán trước hạn toàn bộ gói vay: {loan.loan_name}",

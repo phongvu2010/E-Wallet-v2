@@ -308,6 +308,10 @@ export const TransactionsPage: React.FC = () => {
                   { value: "REFUND", label: "Hoàn tiền (-)" },
                   { value: "CASHBACK_CREDIT", label: "Cashback (-)" },
                   { value: "CASH_ADVANCE", label: "Ứng tiền mặt (+)" },
+                  { value: "DEBT_BORROW", label: "Nhận tiền vay (+)" },
+                  { value: "DEBT_REPAY", label: "Trả nợ gốc (+)" },
+                  { value: "DEBT_LEND", label: "Cho mượn tiền (+)" },
+                  { value: "DEBT_COLLECT", label: "Thu hồi nợ (-)" },
                 ]}
               />
             </div>
@@ -404,8 +408,12 @@ export const TransactionsPage: React.FC = () => {
                           {formatDate(tx.transaction_date)}
                         </span>
                         {txAcc && (
-                          <span className="px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 text-[10px] font-mono truncate max-w-[120px]">
-                            {txAcc.account_name}
+                          <span className="inline-flex items-center gap-1.5 px-1.5 py-0.5 rounded bg-slate-800 border border-slate-700/60 text-slate-300 text-[10px] font-mono truncate max-w-[140px]">
+                            <span
+                              className="w-1.5 h-1.5 rounded-full flex-shrink-0"
+                              style={{ backgroundColor: txAcc.color_hex || "#3b82f6" }}
+                            />
+                            <span className="truncate">{txAcc.account_name}</span>
                           </span>
                         )}
                       </div>
@@ -483,12 +491,15 @@ export const TransactionsPage: React.FC = () => {
               <table className="w-full text-left text-xs">
                 <thead className="bg-slate-950/60 text-slate-400 uppercase font-semibold border-b border-slate-800">
                   <tr>
-                    <th className="py-3 px-4">Ngày GD</th>
+                    <th className="py-3 px-4 whitespace-nowrap">Ngày GD</th>
+                    {!selectedAccountId && (
+                      <th className="py-3 px-4 whitespace-nowrap">Tên Tài Khoản</th>
+                    )}
+                    <th className="py-3 px-4 whitespace-nowrap">Loại GD</th>
+                    <th className="py-3 px-4 whitespace-nowrap">Danh Mục</th>
                     <th className="py-3 px-4">Nội Dung Chi Tiết</th>
-                    <th className="py-3 px-4">Danh Mục</th>
-                    <th className="py-3 px-4">Loại GD</th>
-                    <th className="py-3 px-4 text-right font-bold">Số Tiền (VNĐ)</th>
-                    <th className="py-3 px-4 text-center">Thao Tác</th>
+                    <th className="py-3 px-4 text-right font-bold whitespace-nowrap">Số Tiền (VNĐ)</th>
+                    <th className="py-3 px-4 text-center whitespace-nowrap">Thao Tác</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-800/60 font-medium">
@@ -496,6 +507,7 @@ export const TransactionsPage: React.FC = () => {
                     const typeMeta = getTransactionTypeLabel(tx.transaction_type);
                     const isCredit = Number(tx.total_amount) < 0;
                     const isIncome = tx.transaction_type === "INCOME";
+                    const txAcc = accountMap.get(tx.account_id);
 
                     return (
                       <tr
@@ -503,9 +515,62 @@ export const TransactionsPage: React.FC = () => {
                         onClick={() => setSelectedDetailTx(tx)}
                         className="hover:bg-slate-800/60 cursor-pointer transition-colors group"
                       >
+                        {/* 1. Ngày GD */}
                         <td className="py-3.5 px-4 font-mono text-slate-300 whitespace-nowrap">
                           {formatDate(tx.transaction_date)}
                         </td>
+
+                        {/* 2. Tên Tài Khoản */}
+                        {!selectedAccountId && (
+                          <td className="py-3.5 px-4 whitespace-nowrap">
+                            {txAcc ? (
+                              <div className="flex items-center gap-2">
+                                <span
+                                  className="w-2.5 h-2.5 rounded-full flex-shrink-0 shadow-sm"
+                                  style={{ backgroundColor: txAcc.color_hex || "#3b82f6" }}
+                                />
+                                <div className="min-w-0">
+                                  <div
+                                    className="font-semibold text-slate-200 truncate max-w-[140px] group-hover:text-emerald-300 transition-colors"
+                                    title={txAcc.account_name}
+                                  >
+                                    {txAcc.account_name}
+                                  </div>
+                                  <div className="text-[10px] text-slate-400 font-mono flex items-center gap-1">
+                                    {txAcc.institution?.short_name || txAcc.institution?.name ? (
+                                      <span>{txAcc.institution?.short_name || txAcc.institution?.name}</span>
+                                    ) : null}
+                                    {txAcc.card_number_last4 ? (
+                                      <span>• {txAcc.card_number_last4}</span>
+                                    ) : null}
+                                  </div>
+                                </div>
+                              </div>
+                            ) : (
+                              <span className="text-slate-500 text-xs">-</span>
+                            )}
+                          </td>
+                        )}
+
+                        {/* 3. Loại GD */}
+                        <td className="py-3.5 px-4 whitespace-nowrap">
+                          <span
+                            className={`inline-flex items-center whitespace-nowrap px-2.5 py-0.5 rounded-md text-[11px] font-semibold border ${typeMeta.color}`}
+                          >
+                            {typeMeta.label}
+                          </span>
+                        </td>
+
+                        {/* 4. Danh Mục */}
+                        <td className="py-3.5 px-4 whitespace-nowrap">
+                          <span className="text-slate-300 font-medium">
+                            {tx.transaction_type === "INSTALLMENT_MONTHLY" && tx.installment_plan?.product_name
+                              ? tx.installment_plan.product_name
+                              : tx.category?.name || "Chưa phân loại"}
+                          </span>
+                        </td>
+
+                        {/* 5. Nội Dung Chi Tiết */}
                         <td className="py-3.5 px-4 max-w-sm">
                           <div
                             className="font-semibold text-slate-100 truncate group-hover:text-emerald-400 transition-colors"
@@ -519,20 +584,8 @@ export const TransactionsPage: React.FC = () => {
                             </div>
                           )}
                         </td>
-                        <td className="py-3.5 px-4 whitespace-nowrap">
-                          <span className="text-slate-300 font-medium">
-                            {tx.transaction_type === "INSTALLMENT_MONTHLY" && tx.installment_plan?.product_name
-                              ? tx.installment_plan.product_name
-                              : tx.category?.name || "Chưa phân loại"}
-                          </span>
-                        </td>
-                        <td className="py-3.5 px-4 whitespace-nowrap">
-                          <span
-                            className={`inline-flex items-center whitespace-nowrap px-2.5 py-0.5 rounded-md text-[11px] font-semibold border ${typeMeta.color}`}
-                          >
-                            {typeMeta.label}
-                          </span>
-                        </td>
+
+                        {/* 6. Số Tiền (VNĐ) */}
                         <td className="py-3.5 px-4 text-right font-mono font-bold whitespace-nowrap">
                           <span
                             className={
@@ -547,6 +600,8 @@ export const TransactionsPage: React.FC = () => {
                             {formatCurrency(Number(tx.total_amount))}
                           </span>
                         </td>
+
+                        {/* 7. Thao Tác */}
                         <td className="py-3.5 px-4 text-center whitespace-nowrap">
                           <div
                             className="flex items-center justify-center gap-1"

@@ -8,6 +8,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.models.account import Account
 from app.models.category import Category, CategoryTypeEnum
 from app.models.debt import Debt, DebtRepayment, DebtStatusEnum, DebtTypeEnum
 from app.models.transaction import Transaction, TransactionTypeEnum
@@ -25,42 +26,56 @@ class DebtService:
     """Business service layer for Personal Debts & Peer-to-Peer Informal Borrowing/Lending."""
 
     @staticmethod
+    async def _resolve_category_id(db: AsyncSession, target_names: List[str]) -> Optional[UUID]:
+        """Auto-resolve Category ID matching target names in priority order."""
+        for name in target_names:
+            stmt = select(Category.id).where(Category.name.ilike(f"%{name}%")).limit(1)
+            res = await db.execute(stmt)
+            cat_id = res.scalar_one_or_none()
+            if cat_id:
+                return cat_id
+        return None
+
+    @staticmethod
     def _serialize_debt(debt: Debt) -> DebtRead:
         """Convert Debt ORM instance with loaded relationships into Pydantic DebtRead schema."""
         repayments_read = []
-        for r in debt.repayments:
-            repayments_read.append(
-                DebtRepaymentRead(
-                    id=r.id,
-                    debt_id=r.debt_id,
-                    account_id=r.account_id,
-                    account_name=r.account.account_name if r.account else None,
-                    account_bank_name=(
-                        r.account.institution.name
-                        if r.account and r.account.institution
-                        else None
-                    ),
-                    repayment_date=r.repayment_date,
-                    principal_paid=r.principal_paid,
-                    extra_amount=r.extra_amount,
-                    total_amount=r.total_amount,
-                    transaction_id=r.transaction_id,
-                    extra_transaction_id=r.extra_transaction_id,
-                    note=r.note,
-                    created_at=r.created_at,
+        if debt.repayments:
+            for r in debt.repayments:
+                r_acc_name = r.account.account_name if r.account else None
+                r_bank_name = None
+                if r.account and getattr(r.account, "institution", None):
+                    r_bank_name = r.account.institution.name
+
+                repayments_read.append(
+                    DebtRepaymentRead(
+                        id=r.id,
+                        debt_id=r.debt_id,
+                        account_id=r.account_id,
+                        account_name=r_acc_name,
+                        account_bank_name=r_bank_name,
+                        repayment_date=r.repayment_date,
+                        principal_paid=r.principal_paid,
+                        extra_amount=r.extra_amount,
+                        total_amount=r.total_amount,
+                        transaction_id=r.transaction_id,
+                        extra_transaction_id=r.extra_transaction_id,
+                        note=r.note,
+                        created_at=r.created_at,
+                    )
                 )
-            )
+
+        account_name = debt.account.account_name if debt.account else None
+        account_bank_name = None
+        if debt.account and getattr(debt.account, "institution", None):
+            account_bank_name = debt.account.institution.name
 
         return DebtRead(
             id=debt.id,
             user_id=debt.user_id,
             account_id=debt.account_id,
-            account_name=debt.account.account_name if debt.account else None,
-            account_bank_name=(
-                debt.account.institution.name
-                if debt.account and debt.account.institution
-                else None
-            ),
+            account_name=account_name,
+            account_bank_name=account_bank_name,
             counterparty_name=debt.counterparty_name,
             counterparty_phone=debt.counterparty_phone,
             debt_type=debt.debt_type,
@@ -88,8 +103,8 @@ class DebtService:
         query = (
             select(Debt)
             .options(
-                selectinload(Debt.account),
-                selectinload(Debt.repayments).selectinload(DebtRepayment.account),
+                selectinload(Debt.account).selectinload(Account.institution),
+                selectinload(Debt.repayments).selectinload(DebtRepayment.account).selectinload(Account.institution),
             )
             .order_by(
                 # ACTIVE debts first, then latest start_date
@@ -115,8 +130,8 @@ class DebtService:
         query = (
             select(Debt)
             .options(
-                selectinload(Debt.account),
-                selectinload(Debt.repayments).selectinload(DebtRepayment.account),
+                selectinload(Debt.account).selectinload(Account.institution),
+                selectinload(Debt.repayments).selectinload(DebtRepayment.account).selectinload(Account.institution),
             )
             .where(Debt.id == debt_id)
         )
@@ -186,8 +201,12 @@ class DebtService:
         if payload.account_id:
             if payload.debt_type == DebtTypeEnum.BORROW:
                 # Tiền đi vay nhận về ví/tài khoản (+Asset Inflow)
+                cat_id = await DebtService._resolve_category_id(
+                    db, ["Đi vay tiền", "Đi vay", "Nhận tiền vay", "Chuyển tiền & Trả nợ"]
+                )
                 tx_init = Transaction(
                     account_id=payload.account_id,
+                    category_id=cat_id,
                     transaction_date=payload.start_date,
                     post_date=payload.start_date,
                     transaction_type=TransactionTypeEnum.DEBT_BORROW,
@@ -199,8 +218,12 @@ class DebtService:
                 )
             else:
                 # Tiền xuất ra cho bạn bè vay mượn (-Asset Outflow)
+                cat_id = await DebtService._resolve_category_id(
+                    db, ["Cho vay tiền", "Cho vay", "Cho mượn tiền", "Chuyển tiền & Trả nợ"]
+                )
                 tx_init = Transaction(
                     account_id=payload.account_id,
+                    category_id=cat_id,
                     transaction_date=payload.start_date,
                     post_date=payload.start_date,
                     transaction_type=TransactionTypeEnum.DEBT_LEND,
@@ -300,8 +323,12 @@ class DebtService:
         if acc_id:
             if debt.debt_type == DebtTypeEnum.BORROW:
                 # Tôi trả nợ cho bạn -> Trích tiền khỏi tài khoản (-Asset Outflow, không tính vào Expense P&L)
+                cat_id = await DebtService._resolve_category_id(
+                    db, ["Trả nợ vay", "Trả nợ", "Trả nợ gốc", "Chuyển tiền & Trả nợ"]
+                )
                 tx_principal = Transaction(
                     account_id=acc_id,
+                    category_id=cat_id,
                     transaction_date=payload.repayment_date,
                     post_date=payload.repayment_date,
                     transaction_type=TransactionTypeEnum.DEBT_REPAY,
@@ -313,8 +340,12 @@ class DebtService:
                 )
             else:
                 # Bạn trả nợ cho tôi -> Tiền vào tài khoản (+Asset Inflow, không tính vào Income P&L)
+                cat_id = await DebtService._resolve_category_id(
+                    db, ["Thu hồi nợ", "Thu nợ", "Thu hồi nợ gốc", "Chuyển tiền & Trả nợ"]
+                )
                 tx_principal = Transaction(
                     account_id=acc_id,
+                    category_id=cat_id,
                     transaction_date=payload.repayment_date,
                     post_date=payload.repayment_date,
                     transaction_type=TransactionTypeEnum.DEBT_COLLECT,

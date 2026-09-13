@@ -167,27 +167,35 @@ class TransactionService:
 
         target_names = []
         if tx_type == TransactionTypeEnum.INCOME:
-            target_names = ["Tiền lương hàng tháng", "Lương & Thu nhập", "Thu nhập khác", "Thu nhập", "Lương", "Thưởng"]
+            target_names = ["Tiền lương hàng tháng", "Lương & Thu nhập", "Thu nhập khác", "Tiền thưởng & Hoa hồng"]
         elif tx_type == TransactionTypeEnum.TRANSFER:
-            target_names = ["Chuyển khoản nội bộ", "Chuyển tiền & Trả nợ", "Chuyển khoản", "Chuyển tiền"]
+            target_names = ["Chuyển khoản nội bộ", "Chuyển tiền & Trả nợ"]
         elif tx_type == TransactionTypeEnum.REPAYMENT:
-            target_names = ["Thanh toán dư nợ thẻ tín dụng", "Chuyển tiền & Trả nợ", "Thanh toán dư nợ", "Thanh toán"]
+            target_names = ["Thanh toán dư nợ thẻ tín dụng", "Chuyển tiền & Trả nợ"]
         elif tx_type == TransactionTypeEnum.INSTALLMENT_MONTHLY:
-            target_names = ["Phí chuyển đổi trả góp", "Phí & Lãi ngân hàng", "Trả góp"]
+            target_names = ["Trả góp định kỳ thẻ", "Chi tiêu khác"]
         elif tx_type == TransactionTypeEnum.INSTALLMENT_PRINCIPAL:
-            target_names = ["Chuyển khoản nội bộ", "Chuyển tiền & Trả nợ", "Trả góp"]
+            target_names = ["Chuyển khoản nội bộ", "Trả góp định kỳ thẻ"]
         elif tx_type == TransactionTypeEnum.INTEREST:
-            target_names = ["Lãi suất phát sinh", "Phí & Lãi ngân hàng", "Lãi suất"]
+            target_names = ["Lãi suất thẻ tín dụng", "Phí & Lãi ngân hàng"]
         elif tx_type == TransactionTypeEnum.FEE:
-            target_names = ["Phí thường niên thẻ", "Phí SMS & Ngân hàng điện tử", "Phí giao dịch & Dịch vụ thẻ", "Phí & Lãi ngân hàng"]
+            target_names = ["Phí thường niên thẻ", "Phí SMS & Dịch vụ tài khoản", "Phí & Lãi ngân hàng"]
         elif tx_type == TransactionTypeEnum.CASHBACK_CREDIT:
-            target_names = ["Hoàn tiền & Khuyến mãi", "Lương & Thu nhập", "Hoàn tiền"]
+            target_names = ["Hoàn tiền Cashback & Điểm thưởng", "Thu nhập khác"]
         elif tx_type == TransactionTypeEnum.REFUND:
-            target_names = ["Thương mại điện tử & Mua sắm online", "Mua sắm & Tiêu dùng", "Hủy giao dịch"]
+            target_names = ["Mua sắm Online / TMĐT", "Mua sắm & Tiêu dùng"]
         elif tx_type == TransactionTypeEnum.CASH_ADVANCE:
             target_names = ["Rút tiền ATM / Nạp ví", "Chuyển tiền & Trả nợ", "Chi tiêu khác"]
+        elif tx_type == TransactionTypeEnum.DEBT_BORROW:
+            target_names = ["Đi vay tiền", "Đi vay", "Nhận tiền vay", "Chuyển tiền & Trả nợ"]
+        elif tx_type == TransactionTypeEnum.DEBT_REPAY:
+            target_names = ["Trả nợ vay", "Trả nợ", "Trả nợ gốc", "Chuyển tiền & Trả nợ"]
+        elif tx_type == TransactionTypeEnum.DEBT_LEND:
+            target_names = ["Cho vay tiền", "Cho vay", "Cho mượn tiền", "Chuyển tiền & Trả nợ"]
+        elif tx_type == TransactionTypeEnum.DEBT_COLLECT:
+            target_names = ["Thu hồi nợ", "Thu nợ", "Thu hồi nợ gốc", "Chuyển tiền & Trả nợ"]
         elif tx_type == TransactionTypeEnum.PURCHASE:
-            target_names = ["Chi tiêu khác", "Mua sắm & Tiêu dùng", "Nhà hàng & Ăn uống", "Ăn uống & F&B"]
+            target_names = ["Nhà hàng & Quán ăn", "Ăn tối", "Mua sắm Online / TMĐT", "Siêu thị & Tiện lợi", "Chi tiêu khác"]
 
         for name in target_names:
             cat_res = await db.execute(
@@ -231,6 +239,10 @@ class TransactionService:
             TransactionTypeEnum.CASHBACK_CREDIT: "Tiền hoàn Cashback",
             TransactionTypeEnum.CASH_ADVANCE: "Ứng tiền mặt",
             TransactionTypeEnum.ADJUSTMENT: "Điều chỉnh giao dịch",
+            TransactionTypeEnum.DEBT_BORROW: "Nhận tiền vay",
+            TransactionTypeEnum.DEBT_REPAY: "Trả nợ vay",
+            TransactionTypeEnum.DEBT_LEND: "Cho vay tiền",
+            TransactionTypeEnum.DEBT_COLLECT: "Thu hồi nợ",
         }
         return type_fallbacks.get(tx_type, "Giao dịch tài chính")
 
@@ -302,6 +314,7 @@ class TransactionService:
             TransactionTypeEnum.REFUND,
             TransactionTypeEnum.CASHBACK_CREDIT,
             TransactionTypeEnum.INSTALLMENT_PRINCIPAL,
+            TransactionTypeEnum.DEBT_COLLECT,
         }
         total_amt = abs(tx_data["total_amount"])
         amt = abs(tx_data["amount"])
@@ -453,6 +466,7 @@ class TransactionService:
             TransactionTypeEnum.REFUND,
             TransactionTypeEnum.CASHBACK_CREDIT,
             TransactionTypeEnum.INSTALLMENT_PRINCIPAL,
+            TransactionTypeEnum.DEBT_COLLECT,
         }
 
         if "total_amount" in update_data:

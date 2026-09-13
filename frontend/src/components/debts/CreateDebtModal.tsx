@@ -194,14 +194,14 @@ export const CreateDebtModal: React.FC<CreateDebtModalProps> = ({
               value={accountId}
               onChange={(e) => setAccountId(e.target.value)}
               className="pl-9"
-            >
-              <option value="">-- Không liên kết tài khoản (Ghi nhận sổ riêng) --</option>
-              {accounts.map((acc: Account) => (
-                <option key={acc.id} value={acc.id}>
-                  {formatAccountLabel(acc)}
-                </option>
-              ))}
-            </Select>
+              options={[
+                { value: "", label: "-- Không liên kết tài khoản (Ghi nhận sổ riêng) --" },
+                ...accounts.map((acc: Account) => ({
+                  value: acc.id,
+                  label: formatAccountLabel(acc),
+                })),
+              ]}
+            />
           </div>
           <p className="text-[11px] text-slate-400 mt-1">
             {debtType === "BORROW"

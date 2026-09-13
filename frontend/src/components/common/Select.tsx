@@ -19,10 +19,11 @@ interface SelectProps extends React.SelectHTMLAttributes<HTMLSelectElement> {
   error?: string;
   options?: SelectOption[];
   groups?: SelectGroup[];
+  children?: React.ReactNode;
 }
 
 export const Select = React.forwardRef<HTMLSelectElement, SelectProps>(
-  ({ label, error, options, groups, className, ...props }, ref) => {
+  ({ label, error, options, groups, children, className, ...props }, ref) => {
     return (
       <div className="w-full">
         {label && (
@@ -43,6 +44,7 @@ export const Select = React.forwardRef<HTMLSelectElement, SelectProps>(
             )}
             {...props}
           >
+            {children}
             {options &&
               options.map((opt) => (
                 <option
