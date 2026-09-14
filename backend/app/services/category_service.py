@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy.orm import selectinload
 
+from app.core.transaction import atomic_transaction
 from app.models.category import Category, CategoryTypeEnum
 from app.schemas.category import CategoryCreate, CategoryUpdate
 
@@ -108,17 +109,11 @@ class CategoryService:
             data["category_type"] = parent.category_type
 
         cat = Category(**data)
-        db.add(cat)
-        try:
-            await db.commit()
+        async with atomic_transaction(db, error_prefix="Lỗi tạo danh mục"):
+            db.add(cat)
+            await db.flush()
             await db.refresh(cat)
             return cat
-        except Exception as e:
-            await db.rollback()
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Error creating category: {str(e)}",
-            )
 
     @staticmethod
     async def update(
@@ -162,23 +157,18 @@ class CategoryService:
                 # Auto align category_type with parent
                 update_data["category_type"] = parent.category_type
 
-        for key, value in update_data.items():
-            setattr(cat, key, value)
+        async with atomic_transaction(db, error_prefix="Lỗi cập nhật danh mục"):
+            for key, value in update_data.items():
+                setattr(cat, key, value)
 
-        # If parent category changes its category_type, cascade update to its children
-        if "category_type" in update_data and cat.parent_id is None and cat.children:
-            for child in cat.children:
-                child.category_type = update_data["category_type"]
+            # If parent category changes its category_type, cascade update to its children
+            if "category_type" in update_data and cat.parent_id is None and cat.children:
+                for child in cat.children:
+                    child.category_type = update_data["category_type"]
 
-        try:
-            await db.commit()
-            return await CategoryService.get_by_id(db, category_id)
-        except Exception as e:
-            await db.rollback()
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Error updating category: {str(e)}",
-            )
+            await db.flush()
+
+        return await CategoryService.get_by_id(db, category_id)
 
     @staticmethod
     async def delete(db: AsyncSession, category_id: UUID) -> bool:
@@ -195,13 +185,7 @@ class CategoryService:
             HTTPException: 404 Not Found if category does not exist, or 400 on error.
         """
         cat = await CategoryService.get_by_id(db, category_id)
-        try:
+        async with atomic_transaction(db, error_prefix="Lỗi xóa danh mục"):
             await db.delete(cat)
-            await db.commit()
-            return True
-        except Exception as e:
-            await db.rollback()
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Error deleting category: {str(e)}",
-            )
+            await db.flush()
+        return True

@@ -12,6 +12,7 @@ from app.models.account import Account
 from app.models.category import Category, CategoryTypeEnum
 from app.models.debt import Debt, DebtRepayment, DebtStatusEnum, DebtTypeEnum
 from app.models.transaction import Transaction, TransactionTypeEnum
+from app.core.transaction import atomic_transaction
 from app.schemas.debt import (
     DebtCreate,
     DebtRead,
@@ -180,105 +181,92 @@ class DebtService:
                 detail="Số tiền gốc vay/mượn phải lớn hơn 0",
             )
 
-        debt = Debt(
-            counterparty_name=payload.counterparty_name.strip(),
-            counterparty_phone=payload.counterparty_phone.strip() if payload.counterparty_phone else None,
-            debt_type=payload.debt_type,
-            principal_amount=p0,
-            remaining_amount=p0,
-            total_paid_principal=Decimal("0.00"),
-            total_extra_amount=Decimal("0.00"),
-            start_date=payload.start_date,
-            due_date=payload.due_date,
-            account_id=payload.account_id,
-            status=DebtStatusEnum.ACTIVE,
-            note=payload.note.strip() if payload.note else None,
-        )
-        db.add(debt)
-        await db.flush()
-
-        # Automatically create the initial transaction if an account is selected
-        if payload.account_id:
-            if payload.debt_type == DebtTypeEnum.BORROW:
-                # Tiền đi vay nhận về ví/tài khoản (+Asset Inflow)
-                cat_id = await DebtService._resolve_category_id(
-                    db, ["Đi vay tiền", "Đi vay", "Nhận tiền vay", "Chuyển tiền & Trả nợ"]
-                )
-                tx_init = Transaction(
-                    account_id=payload.account_id,
-                    category_id=cat_id,
-                    transaction_date=payload.start_date,
-                    post_date=payload.start_date,
-                    transaction_type=TransactionTypeEnum.DEBT_BORROW,
-                    amount=p0,
-                    fee=Decimal("0.00"),
-                    total_amount=p0,
-                    raw_description=f"Nhận tiền vay: {payload.counterparty_name.strip()}",
-                    note=payload.note or f"Vay mượn từ {payload.counterparty_name.strip()}",
-                )
-            else:
-                # Tiền xuất ra cho bạn bè vay mượn (-Asset Outflow)
-                cat_id = await DebtService._resolve_category_id(
-                    db, ["Cho vay tiền", "Cho vay", "Cho mượn tiền", "Chuyển tiền & Trả nợ"]
-                )
-                tx_init = Transaction(
-                    account_id=payload.account_id,
-                    category_id=cat_id,
-                    transaction_date=payload.start_date,
-                    post_date=payload.start_date,
-                    transaction_type=TransactionTypeEnum.DEBT_LEND,
-                    amount=p0,
-                    fee=Decimal("0.00"),
-                    total_amount=p0,
-                    raw_description=f"Cho vay tiền: {payload.counterparty_name.strip()}",
-                    note=payload.note or f"Cho {payload.counterparty_name.strip()} vay tiền",
-                )
-            db.add(tx_init)
-
-        try:
-            await db.commit()
-            return await DebtService.get_by_id(db, debt.id)
-        except Exception as e:
-            await db.rollback()
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Lỗi khi tạo khoản nợ: {str(e)}",
+        async with atomic_transaction(db, error_prefix="Lỗi khi tạo khoản nợ"):
+            debt = Debt(
+                counterparty_name=payload.counterparty_name.strip(),
+                counterparty_phone=payload.counterparty_phone.strip() if payload.counterparty_phone else None,
+                debt_type=payload.debt_type,
+                principal_amount=p0,
+                remaining_amount=p0,
+                total_paid_principal=Decimal("0.00"),
+                total_extra_amount=Decimal("0.00"),
+                start_date=payload.start_date,
+                due_date=payload.due_date,
+                account_id=payload.account_id,
+                status=DebtStatusEnum.ACTIVE,
+                note=payload.note.strip() if payload.note else None,
             )
+            db.add(debt)
+            await db.flush()
+
+            # Automatically create the initial transaction if an account is selected
+            if payload.account_id:
+                if payload.debt_type == DebtTypeEnum.BORROW:
+                    # Tiền đi vay nhận về ví/tài khoản (+Asset Inflow)
+                    cat_id = await DebtService._resolve_category_id(
+                        db, ["Đi vay tiền", "Đi vay", "Nhận tiền vay", "Chuyển tiền & Trả nợ"]
+                    )
+                    tx_init = Transaction(
+                        account_id=payload.account_id,
+                        category_id=cat_id,
+                        transaction_date=payload.start_date,
+                        post_date=payload.start_date,
+                        transaction_type=TransactionTypeEnum.DEBT_BORROW,
+                        amount=p0,
+                        fee=Decimal("0.00"),
+                        total_amount=p0,
+                        raw_description=f"Nhận tiền vay: {payload.counterparty_name.strip()}",
+                        note=payload.note or f"Vay mượn từ {payload.counterparty_name.strip()}",
+                    )
+                else:
+                    # Tiền xuất ra cho bạn bè vay mượn (-Asset Outflow)
+                    cat_id = await DebtService._resolve_category_id(
+                        db, ["Cho vay tiền", "Cho vay", "Cho mượn tiền", "Chuyển tiền & Trả nợ"]
+                    )
+                    tx_init = Transaction(
+                        account_id=payload.account_id,
+                        category_id=cat_id,
+                        transaction_date=payload.start_date,
+                        post_date=payload.start_date,
+                        transaction_type=TransactionTypeEnum.DEBT_LEND,
+                        amount=p0,
+                        fee=Decimal("0.00"),
+                        total_amount=p0,
+                        raw_description=f"Cho vay tiền: {payload.counterparty_name.strip()}",
+                        note=payload.note or f"Cho {payload.counterparty_name.strip()} vay tiền",
+                    )
+                db.add(tx_init)
+                await db.flush()
+
+        return await DebtService.get_by_id(db, debt.id)
 
     @staticmethod
     async def update(db: AsyncSession, debt_id: UUID, payload: DebtUpdate) -> DebtRead:
         """Update metadata of a debt record."""
-        query = select(Debt).where(Debt.id == debt_id)
-        result = await db.execute(query)
-        debt = result.scalar_one_or_none()
-        if not debt:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Khoản nợ với ID {debt_id} không tồn tại",
-            )
+        async with atomic_transaction(db, error_prefix="Lỗi khi cập nhật khoản nợ"):
+            query = select(Debt).where(Debt.id == debt_id)
+            result = await db.execute(query)
+            debt = result.scalar_one_or_none()
+            if not debt:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"Khoản nợ với ID {debt_id} không tồn tại",
+                )
 
-        if payload.counterparty_name is not None:
-            debt.counterparty_name = payload.counterparty_name.strip()
-        if payload.counterparty_phone is not None:
-            debt.counterparty_phone = payload.counterparty_phone.strip() if payload.counterparty_phone else None
-        if payload.due_date is not None:
-            debt.due_date = payload.due_date
-        if payload.status is not None:
-            debt.status = payload.status
-        if payload.note is not None:
-            debt.note = payload.note.strip() if payload.note else None
+            if payload.counterparty_name is not None:
+                debt.counterparty_name = payload.counterparty_name.strip()
+            if payload.counterparty_phone is not None:
+                debt.counterparty_phone = payload.counterparty_phone.strip() if payload.counterparty_phone else None
+            if payload.due_date is not None:
+                debt.due_date = payload.due_date
+            if payload.status is not None:
+                debt.status = payload.status
+            if payload.note is not None:
+                debt.note = payload.note.strip() if payload.note else None
 
-        debt.updated_at = datetime.datetime.now(datetime.timezone.utc)
+            debt.updated_at = datetime.datetime.now(datetime.timezone.utc)
 
-        try:
-            await db.commit()
-            return await DebtService.get_by_id(db, debt.id)
-        except Exception as e:
-            await db.rollback()
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Lỗi khi cập nhật khoản nợ: {str(e)}",
-            )
+        return await DebtService.get_by_id(db, debt.id)
 
     @staticmethod
     async def record_repayment(
@@ -318,152 +306,138 @@ class DebtService:
         total_paid_this_time = principal_paid + extra_amount
         acc_id = payload.account_id or debt.account_id
 
-        # 1. Transaction cho phần nợ gốc (Principal)
-        tx_principal = None
-        if acc_id:
-            if debt.debt_type == DebtTypeEnum.BORROW:
-                # Tôi trả nợ cho bạn -> Trích tiền khỏi tài khoản (-Asset Outflow, không tính vào Expense P&L)
-                cat_id = await DebtService._resolve_category_id(
-                    db, ["Trả nợ vay", "Trả nợ", "Trả nợ gốc", "Chuyển tiền & Trả nợ"]
-                )
-                tx_principal = Transaction(
-                    account_id=acc_id,
-                    category_id=cat_id,
-                    transaction_date=payload.repayment_date,
-                    post_date=payload.repayment_date,
-                    transaction_type=TransactionTypeEnum.DEBT_REPAY,
-                    amount=principal_paid,
-                    fee=Decimal("0.00"),
-                    total_amount=principal_paid,
-                    raw_description=f"Trả nợ gốc: {debt.counterparty_name}",
-                    note=payload.note or f"Trả nợ gốc cho {debt.counterparty_name}",
-                )
-            else:
-                # Bạn trả nợ cho tôi -> Tiền vào tài khoản (+Asset Inflow, không tính vào Income P&L)
-                cat_id = await DebtService._resolve_category_id(
-                    db, ["Thu hồi nợ", "Thu nợ", "Thu hồi nợ gốc", "Chuyển tiền & Trả nợ"]
-                )
-                tx_principal = Transaction(
-                    account_id=acc_id,
-                    category_id=cat_id,
-                    transaction_date=payload.repayment_date,
-                    post_date=payload.repayment_date,
-                    transaction_type=TransactionTypeEnum.DEBT_COLLECT,
-                    amount=principal_paid,
-                    fee=Decimal("0.00"),
-                    total_amount=-principal_paid,  # Negative sign convention for DEBT_COLLECT credit
-                    raw_description=f"Thu hồi nợ gốc: {debt.counterparty_name}",
-                    note=payload.note or f"Thu hồi nợ gốc từ {debt.counterparty_name}",
-                )
-            db.add(tx_principal)
-            await db.flush()
-
-        # 2. Transaction cho phần tiền bồi dưỡng / cảm ơn (Extra / Tip - nếu có)
-        tx_extra = None
-        if acc_id and extra_amount > Decimal("0.00"):
-            # Tìm danh mục phù hợp
-            cat_id = payload.extra_category_id
-            if not cat_id:
+        async with atomic_transaction(db, error_prefix="Lỗi khi ghi nhận trả nợ"):
+            # 1. Transaction cho phần nợ gốc (Principal)
+            tx_principal = None
+            if acc_id:
                 if debt.debt_type == DebtTypeEnum.BORROW:
-                    # Tìm danh mục "Chi tiêu khác" hoặc "Quà tặng"
-                    cat_stmt = select(Category.id).where(
-                        Category.category_type == CategoryTypeEnum.EXPENSE
-                    ).order_by(Category.name.asc()).limit(1)
-                    res_cat = await db.execute(cat_stmt)
-                    cat_id = res_cat.scalar_one_or_none()
+                    # Tôi trả nợ cho bạn -> Trích tiền khỏi tài khoản (-Asset Outflow, không tính vào Expense P&L)
+                    cat_id = await DebtService._resolve_category_id(
+                        db, ["Trả nợ vay", "Trả nợ", "Trả nợ gốc", "Chuyển tiền & Trả nợ"]
+                    )
+                    tx_principal = Transaction(
+                        account_id=acc_id,
+                        category_id=cat_id,
+                        transaction_date=payload.repayment_date,
+                        post_date=payload.repayment_date,
+                        transaction_type=TransactionTypeEnum.DEBT_REPAY,
+                        amount=principal_paid,
+                        fee=Decimal("0.00"),
+                        total_amount=principal_paid,
+                        raw_description=f"Trả nợ gốc: {debt.counterparty_name}",
+                        note=payload.note or f"Trả nợ gốc cho {debt.counterparty_name}",
+                    )
                 else:
-                    # Tìm danh mục "Thu nhập khác"
-                    cat_stmt = select(Category.id).where(
-                        Category.category_type == CategoryTypeEnum.INCOME
-                    ).order_by(Category.name.asc()).limit(1)
-                    res_cat = await db.execute(cat_stmt)
-                    cat_id = res_cat.scalar_one_or_none()
+                    # Bạn trả nợ cho tôi -> Tiền vào tài khoản (+Asset Inflow, không tính vào Income P&L)
+                    cat_id = await DebtService._resolve_category_id(
+                        db, ["Thu hồi nợ", "Thu nợ", "Thu hồi nợ gốc", "Chuyển tiền & Trả nợ"]
+                    )
+                    tx_principal = Transaction(
+                        account_id=acc_id,
+                        category_id=cat_id,
+                        transaction_date=payload.repayment_date,
+                        post_date=payload.repayment_date,
+                        transaction_type=TransactionTypeEnum.DEBT_COLLECT,
+                        amount=principal_paid,
+                        fee=Decimal("0.00"),
+                        total_amount=-principal_paid,  # Negative sign convention for DEBT_COLLECT credit
+                        raw_description=f"Thu hồi nợ gốc: {debt.counterparty_name}",
+                        note=payload.note or f"Thu hồi nợ gốc từ {debt.counterparty_name}",
+                    )
+                db.add(tx_principal)
+                await db.flush()
 
-            if debt.debt_type == DebtTypeEnum.BORROW:
-                # Tiền trả thêm cảm ơn người cho vay -> Là CHI TIÊU THỰC TẾ (Expense)
-                tx_extra = Transaction(
-                    account_id=acc_id,
-                    category_id=cat_id,
-                    transaction_date=payload.repayment_date,
-                    post_date=payload.repayment_date,
-                    transaction_type=TransactionTypeEnum.PURCHASE,
-                    amount=extra_amount,
-                    fee=Decimal("0.00"),
-                    total_amount=extra_amount,
-                    raw_description=f"Tiền bồi dưỡng / cảm ơn khi trả nợ: {debt.counterparty_name}",
-                    note=f"Tiền bồi dưỡng cảm ơn {debt.counterparty_name} (Khoản vay {debt.principal_amount:,.0f}đ)",
-                )
-            else:
-                # Tiền cảm ơn / cà phê nhận thêm từ người vay -> Là THU NHẬP THỰC TẾ (Income)
-                tx_extra = Transaction(
-                    account_id=acc_id,
-                    category_id=cat_id,
-                    transaction_date=payload.repayment_date,
-                    post_date=payload.repayment_date,
-                    transaction_type=TransactionTypeEnum.INCOME,
-                    amount=extra_amount,
-                    fee=Decimal("0.00"),
-                    total_amount=extra_amount,
-                    raw_description=f"Tiền bồi dưỡng / cảm ơn nhận được: {debt.counterparty_name}",
-                    note=f"Tiền cảm ơn nhận từ {debt.counterparty_name} (Khoản cho vay {debt.principal_amount:,.0f}đ)",
-                )
-            db.add(tx_extra)
-            await db.flush()
+            # 2. Transaction cho phần tiền bồi dưỡng / cảm ơn (Extra / Tip - nếu có)
+            tx_extra = None
+            if acc_id and extra_amount > Decimal("0.00"):
+                # Tìm danh mục phù hợp
+                cat_id = payload.extra_category_id
+                if not cat_id:
+                    if debt.debt_type == DebtTypeEnum.BORROW:
+                        # Tìm danh mục "Chi tiêu khác" hoặc "Quà tặng"
+                        cat_stmt = select(Category.id).where(
+                            Category.category_type == CategoryTypeEnum.EXPENSE
+                        ).order_by(Category.name.asc()).limit(1)
+                        res_cat = await db.execute(cat_stmt)
+                        cat_id = res_cat.scalar_one_or_none()
+                    else:
+                        # Tìm danh mục "Thu nhập khác"
+                        cat_stmt = select(Category.id).where(
+                            Category.category_type == CategoryTypeEnum.INCOME
+                        ).order_by(Category.name.asc()).limit(1)
+                        res_cat = await db.execute(cat_stmt)
+                        cat_id = res_cat.scalar_one_or_none()
 
-        # 3. Tạo bản ghi DebtRepayment
-        repayment = DebtRepayment(
-            debt_id=debt.id,
-            account_id=acc_id,
-            repayment_date=payload.repayment_date,
-            principal_paid=principal_paid,
-            extra_amount=extra_amount,
-            total_amount=total_paid_this_time,
-            transaction_id=tx_principal.id if tx_principal else None,
-            extra_transaction_id=tx_extra.id if tx_extra else None,
-            note=payload.note.strip() if payload.note else None,
-        )
-        db.add(repayment)
+                if debt.debt_type == DebtTypeEnum.BORROW:
+                    # Tiền trả thêm cảm ơn người cho vay -> Là CHI TIÊU THỰC TẾ (Expense)
+                    tx_extra = Transaction(
+                        account_id=acc_id,
+                        category_id=cat_id,
+                        transaction_date=payload.repayment_date,
+                        post_date=payload.repayment_date,
+                        transaction_type=TransactionTypeEnum.PURCHASE,
+                        amount=extra_amount,
+                        fee=Decimal("0.00"),
+                        total_amount=extra_amount,
+                        raw_description=f"Tiền bồi dưỡng / cảm ơn khi trả nợ: {debt.counterparty_name}",
+                        note=f"Tiền bồi dưỡng cảm ơn {debt.counterparty_name} (Khoản vay {debt.principal_amount:,.0f}đ)",
+                    )
+                else:
+                    # Tiền cảm ơn / cà phê nhận thêm từ người vay -> Là THU NHẬP THỰC TẾ (Income)
+                    tx_extra = Transaction(
+                        account_id=acc_id,
+                        category_id=cat_id,
+                        transaction_date=payload.repayment_date,
+                        post_date=payload.repayment_date,
+                        transaction_type=TransactionTypeEnum.INCOME,
+                        amount=extra_amount,
+                        fee=Decimal("0.00"),
+                        total_amount=extra_amount,
+                        raw_description=f"Tiền bồi dưỡng / cảm ơn nhận được: {debt.counterparty_name}",
+                        note=f"Tiền cảm ơn nhận từ {debt.counterparty_name} (Khoản cho vay {debt.principal_amount:,.0f}đ)",
+                    )
+                db.add(tx_extra)
+                await db.flush()
 
-        # 4. Cập nhật dư nợ và trạng thái khoản nợ
-        new_remaining = max(Decimal("0.00"), debt.remaining_amount - principal_paid)
-        debt.remaining_amount = new_remaining
-        debt.total_paid_principal += principal_paid
-        debt.total_extra_amount += extra_amount
-
-        if new_remaining <= Decimal("0.00"):
-            debt.status = DebtStatusEnum.PAID_OFF
-
-        debt.updated_at = datetime.datetime.now(datetime.timezone.utc)
-
-        try:
-            await db.commit()
-            return await DebtService.get_by_id(db, debt.id)
-        except Exception as e:
-            await db.rollback()
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Lỗi khi ghi nhận trả nợ: {str(e)}",
+            # 3. Tạo bản ghi DebtRepayment
+            repayment = DebtRepayment(
+                debt_id=debt.id,
+                account_id=acc_id,
+                repayment_date=payload.repayment_date,
+                principal_paid=principal_paid,
+                extra_amount=extra_amount,
+                total_amount=total_paid_this_time,
+                transaction_id=tx_principal.id if tx_principal else None,
+                extra_transaction_id=tx_extra.id if tx_extra else None,
+                note=payload.note.strip() if payload.note else None,
             )
+            db.add(repayment)
+
+            # 4. Cập nhật dư nợ và trạng thái khoản nợ
+            new_remaining = max(Decimal("0.00"), debt.remaining_amount - principal_paid)
+            debt.remaining_amount = new_remaining
+            debt.total_paid_principal += principal_paid
+            debt.total_extra_amount += extra_amount
+
+            if new_remaining <= Decimal("0.00"):
+                debt.status = DebtStatusEnum.PAID_OFF
+
+            debt.updated_at = datetime.datetime.now(datetime.timezone.utc)
+
+        return await DebtService.get_by_id(db, debt.id)
 
     @staticmethod
     async def delete(db: AsyncSession, debt_id: UUID) -> bool:
         """Delete a debt record and all its associated repayments."""
-        query = select(Debt).where(Debt.id == debt_id)
-        result = await db.execute(query)
-        debt = result.scalar_one_or_none()
-        if not debt:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Khoản nợ với ID {debt_id} không tồn tại",
-            )
+        async with atomic_transaction(db, error_prefix="Lỗi khi xóa khoản nợ"):
+            query = select(Debt).where(Debt.id == debt_id)
+            result = await db.execute(query)
+            debt = result.scalar_one_or_none()
+            if not debt:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"Khoản nợ với ID {debt_id} không tồn tại",
+                )
 
-        await db.delete(debt)
-        try:
-            await db.commit()
-            return True
-        except Exception as e:
-            await db.rollback()
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Lỗi khi xóa khoản nợ: {str(e)}",
-            )
+            await db.delete(debt)
+        return True

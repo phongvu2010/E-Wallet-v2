@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy.orm import selectinload
 
+from app.core.transaction import atomic_transaction
 from app.models.account import Account, AccountStatusEnum
 from app.schemas.account import (
     AccountCreate,
@@ -97,17 +98,11 @@ class AccountService:
             if field in data and isinstance(data[field], str) and data[field].strip() == "":
                 data[field] = None
 
-        account = Account(**data)
-        db.add(account)
-        try:
-            await db.commit()
-            return await AccountService.get_by_id(db, account.id)
-        except Exception as e:
-            await db.rollback()
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Failed to create account: {str(e)}",
-            )
+        async with atomic_transaction(db, error_prefix="Không thể tạo tài khoản"):
+            account = Account(**data)
+            db.add(account)
+
+        return await AccountService.get_by_id(db, account.id)
 
     @staticmethod
     async def update(
@@ -126,25 +121,19 @@ class AccountService:
         Raises:
             HTTPException: 400 Bad Request if update or commit fails.
         """
-        account = await AccountService.get_by_id(db, account_id)
-        update_data = payload.model_dump(exclude_unset=True)
+        async with atomic_transaction(db, error_prefix="Không thể cập nhật tài khoản"):
+            account = await AccountService.get_by_id(db, account_id)
+            update_data = payload.model_dump(exclude_unset=True)
 
-        # Convert empty strings to None for nullable fields
-        for field in ["note", "color_hex", "replaces_account_id", "closed_date"]:
-            if field in update_data and isinstance(update_data[field], str) and update_data[field].strip() == "":
-                update_data[field] = None
+            # Convert empty strings to None for nullable fields
+            for field in ["note", "color_hex", "replaces_account_id", "closed_date"]:
+                if field in update_data and isinstance(update_data[field], str) and update_data[field].strip() == "":
+                    update_data[field] = None
 
-        for key, value in update_data.items():
-            setattr(account, key, value)
-        try:
-            await db.commit()
-            return await AccountService.get_by_id(db, account.id)
-        except Exception as e:
-            await db.rollback()
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Failed to update account: {str(e)}",
-            )
+            for key, value in update_data.items():
+                setattr(account, key, value)
+
+        return await AccountService.get_by_id(db, account.id)
 
     @staticmethod
     async def update_status(
@@ -165,17 +154,11 @@ class AccountService:
         Raises:
             HTTPException: 400 Bad Request on commit failure.
         """
-        account = await AccountService.get_by_id(db, account_id)
-        account.status = new_status
-        try:
-            await db.commit()
-            return await AccountService.get_by_id(db, account.id)
-        except Exception as e:
-            await db.rollback()
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Failed to update account status: {str(e)}",
-            )
+        async with atomic_transaction(db, error_prefix="Không thể cập nhật trạng thái tài khoản"):
+            account = await AccountService.get_by_id(db, account_id)
+            account.status = new_status
+
+        return await AccountService.get_by_id(db, account.id)
 
     @staticmethod
     async def toggle_status(db: AsyncSession, account_id: UUID) -> Account:
@@ -193,25 +176,19 @@ class AccountService:
         Raises:
             HTTPException: 400 Bad Request if card is in non-toggleable state (CLOSED or REPLACED).
         """
-        account = await AccountService.get_by_id(db, account_id)
-        if account.status == AccountStatusEnum.ACTIVE:
-            account.status = AccountStatusEnum.LOCKED
-        elif account.status == AccountStatusEnum.LOCKED:
-            account.status = AccountStatusEnum.ACTIVE
-        else:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Cannot toggle status of card with status {account.status}",
-            )
-        try:
-            await db.commit()
-            return await AccountService.get_by_id(db, account.id)
-        except Exception as e:
-            await db.rollback()
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Failed to toggle account status: {str(e)}",
-            )
+        async with atomic_transaction(db, error_prefix="Không thể đổi trạng thái tài khoản"):
+            account = await AccountService.get_by_id(db, account_id)
+            if account.status == AccountStatusEnum.ACTIVE:
+                account.status = AccountStatusEnum.LOCKED
+            elif account.status == AccountStatusEnum.LOCKED:
+                account.status = AccountStatusEnum.ACTIVE
+            else:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Cannot toggle status of card with status {account.status}",
+                )
+
+        return await AccountService.get_by_id(db, account.id)
 
     @staticmethod
     async def get_live_balances(

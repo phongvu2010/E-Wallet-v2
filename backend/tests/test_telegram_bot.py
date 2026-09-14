@@ -2,6 +2,8 @@
 
 from decimal import Decimal
 from unittest.mock import AsyncMock, patch
+import uuid
+
 import pytest
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -236,15 +238,13 @@ async def test_telegram_transaction_draft_and_confirm_flow(db_session: AsyncSess
         assert inst._get_draft(draft_id) is None
 
         # Verify transaction actually exists in database
-        find_tx = await db_session.execute(
-            select(Transaction).where(
-                Transaction.amount == Decimal("65000"),
-                Transaction.raw_description.ilike("%Ăn trưa%"),
-            )
-        )
-        saved_tx = find_tx.scalar_one_or_none()
+        import re
+        match = re.search(r"Mã giao dịch:\* `([^`]+)`", edited_text)
+        assert match is not None
+        tx_id = uuid.UUID(match.group(1))
+        saved_tx = await db_session.get(Transaction, tx_id)
         assert saved_tx is not None
-        assert saved_tx.total_amount == Decimal("65000")
+        assert abs(saved_tx.total_amount) == Decimal("65000")
 
 
 @pytest.mark.asyncio

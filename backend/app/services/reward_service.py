@@ -5,6 +5,7 @@ from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
+from app.core.transaction import atomic_transaction
 from app.models.reward import RewardLedger, RewardTypeEnum
 from app.schemas.reward import RewardLedgerCreate
 
@@ -82,15 +83,9 @@ class RewardService:
         Raises:
             HTTPException: 400 Bad Request on integrity or insertion error.
         """
-        rw = RewardLedger(**payload.model_dump())
-        db.add(rw)
-        try:
-            await db.commit()
-            await db.refresh(rw)
-            return rw
-        except Exception as e:
-            await db.rollback()
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Error creating reward entry: {str(e)}",
-            )
+        async with atomic_transaction(db, error_prefix="Lỗi khi tạo bản ghi điểm thưởng/hoàn tiền"):
+            rw = RewardLedger(**payload.model_dump())
+            db.add(rw)
+            await db.flush()
+
+        return await RewardService.get_by_id(db, rw.id)

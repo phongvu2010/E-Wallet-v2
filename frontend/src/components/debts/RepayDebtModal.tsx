@@ -21,6 +21,7 @@ import { Account } from "../../types/account";
 import { Debt } from "../../types/debt";
 import { formatCategoryTreeToGroups } from "../../utils/categoryHelpers";
 import { formatAccountLabel, formatCurrency } from "../../utils/formatters";
+import { FormErrors, validateRepayDebtForm } from "../../utils/validators";
 
 interface RepayDebtModalProps {
   isOpen: boolean;
@@ -39,6 +40,7 @@ export const RepayDebtModal: React.FC<RepayDebtModalProps> = ({
   const [accountId, setAccountId] = useState("");
   const [extraCategoryId, setExtraCategoryId] = useState("");
   const [note, setNote] = useState("");
+  const [errors, setErrors] = useState<FormErrors>({});
   const [formError, setFormError] = useState<string | null>(null);
 
   const { data: accounts = [] } = useAccounts();
@@ -55,6 +57,7 @@ export const RepayDebtModal: React.FC<RepayDebtModalProps> = ({
       setAccountId(debt.account_id || "");
       setExtraCategoryId("");
       setNote("");
+      setErrors({});
       setFormError(null);
     }
   }, [debt]);
@@ -68,25 +71,30 @@ export const RepayDebtModal: React.FC<RepayDebtModalProps> = ({
 
   const handlePayFull = () => {
     setPrincipalPaid(debt.remaining_amount);
+    if (errors.principalPaid) setErrors((prev) => ({ ...prev, principalPaid: undefined }));
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!numPrincipal || numPrincipal <= 0) {
-      setFormError("Vui lòng nhập số tiền gốc trả/thu hợp lệ (> 0)");
+    const validationErrors = validateRepayDebtForm(
+      {
+        repaymentDate,
+        principalPaid,
+        extraAmount,
+        accountId,
+        extraCategoryId,
+        note,
+      },
+      debt
+    );
+
+    if (Object.keys(validationErrors).length > 0) {
+      setErrors(validationErrors);
       return;
     }
 
-    if (numPrincipal > debt.remaining_amount) {
-      setFormError(
-        `Số tiền gốc trả (${formatCurrency(numPrincipal)}) vượt quá dư nợ còn lại (${formatCurrency(
-          debt.remaining_amount
-        )}). Vui lòng điền phần trả dư vào ô "Tiền bồi dưỡng / Cảm ơn"!`
-      );
-      return;
-    }
-
+    setErrors({});
     setFormError(null);
 
     try {
@@ -167,7 +175,11 @@ export const RepayDebtModal: React.FC<RepayDebtModalProps> = ({
           </div>
           <CurrencyInput
             value={principalPaid}
-            onValueChange={(val) => setPrincipalPaid(val)}
+            onValueChange={(val) => {
+              setPrincipalPaid(val);
+              if (errors.principalPaid) setErrors((prev) => ({ ...prev, principalPaid: undefined }));
+            }}
+            error={errors.principalPaid}
             placeholder={`Tối đa ${debt.remaining_amount.toLocaleString("vi-VN")}`}
           />
           <p className="text-[11px] text-slate-400 mt-1">
@@ -188,7 +200,11 @@ export const RepayDebtModal: React.FC<RepayDebtModalProps> = ({
 
           <CurrencyInput
             value={extraAmount}
-            onValueChange={(val) => setExtraAmount(val)}
+            onValueChange={(val) => {
+              setExtraAmount(val);
+              if (errors.extraAmount) setErrors((prev) => ({ ...prev, extraAmount: undefined }));
+            }}
+            error={errors.extraAmount}
             placeholder="VD: 200,000 (Nếu có trả dư thêm để cảm ơn)"
           />
 
@@ -253,7 +269,11 @@ export const RepayDebtModal: React.FC<RepayDebtModalProps> = ({
               <Input
                 type="date"
                 value={repaymentDate}
-                onChange={(e) => setRepaymentDate(e.target.value)}
+                onChange={(e) => {
+                  setRepaymentDate(e.target.value);
+                  if (errors.repaymentDate) setErrors((prev) => ({ ...prev, repaymentDate: undefined }));
+                }}
+                error={errors.repaymentDate}
                 className="pl-9"
                 required
               />

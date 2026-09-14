@@ -24,6 +24,7 @@ from app.schemas.transaction import (
     TransactionSummaryRead,
     TransactionUpdate,
 )
+from app.core.transaction import atomic_transaction
 from app.services.installment_service import add_months_to_date
 
 
@@ -267,140 +268,137 @@ class TransactionService:
         Raises:
             HTTPException: 400 Bad Request if validation or commit fails.
         """
-        tx_data = payload.model_dump()
-        convert_installment = tx_data.pop("convert_to_installment", None)
-        merchant_name = tx_data.pop("merchant_name", None)
+        async with atomic_transaction(db, error_prefix="Không thể tạo giao dịch"):
+            tx_data = payload.model_dump()
+            convert_installment = tx_data.pop("convert_to_installment", None)
+            merchant_name = tx_data.pop("merchant_name", None)
 
-        # Default post_date to transaction_date if omitted or None (for manual transactions)
-        if not tx_data.get("post_date") and tx_data.get("transaction_date"):
-            tx_data["post_date"] = tx_data["transaction_date"]
+            # Default post_date to transaction_date if omitted or None (for manual transactions)
+            if not tx_data.get("post_date") and tx_data.get("transaction_date"):
+                tx_data["post_date"] = tx_data["transaction_date"]
 
-        # Auto-resolve category if missing
-        tx_data["category_id"] = await TransactionService._resolve_default_category_for_type(
-            db, tx_data.get("transaction_type", TransactionTypeEnum.PURCHASE), tx_data.get("category_id")
-        )
-
-        # Auto-resolve fallback description if empty (e.g. coffee vỉa hè / cash transaction)
-        tx_data["raw_description"] = await TransactionService._resolve_fallback_description(
-            db,
-            tx_data.get("raw_description"),
-            merchant_name,
-            tx_data.get("note"),
-            tx_data.get("category_id"),
-            tx_data.get("transaction_type", TransactionTypeEnum.PURCHASE),
-        )
-
-        # 1. Resolve or dynamically create Merchant if merchant_name is provided and merchant_id is empty
-        if not tx_data.get("merchant_id") and merchant_name and merchant_name.strip():
-            m_clean = merchant_name.strip()
-            find_m = await db.execute(
-                select(Merchant).where(Merchant.cleaned_name.ilike(m_clean))
+            # Auto-resolve category if missing
+            tx_data["category_id"] = await TransactionService._resolve_default_category_for_type(
+                db, tx_data.get("transaction_type", TransactionTypeEnum.PURCHASE), tx_data.get("category_id")
             )
-            existing_m = find_m.scalar_one_or_none()
-            if existing_m:
-                tx_data["merchant_id"] = existing_m.id
-            else:
-                new_m = Merchant(
-                    cleaned_name=m_clean,
-                    default_category_id=tx_data.get("category_id"),
+
+            # Auto-resolve fallback description if empty (e.g. coffee vỉa hè / cash transaction)
+            tx_data["raw_description"] = await TransactionService._resolve_fallback_description(
+                db,
+                tx_data.get("raw_description"),
+                merchant_name,
+                tx_data.get("note"),
+                tx_data.get("category_id"),
+                tx_data.get("transaction_type", TransactionTypeEnum.PURCHASE),
+            )
+
+            # 1. Resolve or dynamically create Merchant if merchant_name is provided and merchant_id is empty
+            if not tx_data.get("merchant_id") and merchant_name and merchant_name.strip():
+                m_clean = merchant_name.strip()
+                find_m = await db.execute(
+                    select(Merchant).where(Merchant.cleaned_name.ilike(m_clean))
                 )
-                db.add(new_m)
-                await db.flush()
-                tx_data["merchant_id"] = new_m.id
+                existing_m = find_m.scalar_one_or_none()
+                if existing_m:
+                    tx_data["merchant_id"] = existing_m.id
+                else:
+                    new_m = Merchant(
+                        cleaned_name=m_clean,
+                        default_category_id=tx_data.get("category_id"),
+                    )
+                    db.add(new_m)
+                    await db.flush()
+                    tx_data["merchant_id"] = new_m.id
 
-        # 2. Enforce sign conventions based on transaction_type
-        credit_types = {
-            TransactionTypeEnum.REPAYMENT,
-            TransactionTypeEnum.REFUND,
-            TransactionTypeEnum.CASHBACK_CREDIT,
-            TransactionTypeEnum.INSTALLMENT_PRINCIPAL,
-            TransactionTypeEnum.DEBT_COLLECT,
-        }
-        total_amt = abs(tx_data["total_amount"])
-        amt = abs(tx_data["amount"])
+            # 2. Enforce sign conventions based on transaction_type
+            credit_types = {
+                TransactionTypeEnum.REPAYMENT,
+                TransactionTypeEnum.REFUND,
+                TransactionTypeEnum.CASHBACK_CREDIT,
+                TransactionTypeEnum.INSTALLMENT_PRINCIPAL,
+                TransactionTypeEnum.DEBT_COLLECT,
+            }
+            total_amt = abs(tx_data["total_amount"])
+            amt = abs(tx_data["amount"])
 
-        if tx_data["transaction_type"] in credit_types:
-            tx_data["total_amount"] = -total_amt
-            tx_data["amount"] = -amt
-        else:
-            tx_data["total_amount"] = total_amt
-            tx_data["amount"] = amt
+            if tx_data["transaction_type"] in credit_types:
+                tx_data["total_amount"] = -total_amt
+                tx_data["amount"] = -amt
+            else:
+                tx_data["total_amount"] = total_amt
+                tx_data["amount"] = amt
 
-        if (
-            convert_installment
-            or tx_data.get("installment_plan_id")
-            or tx_data.get("transaction_type") == TransactionTypeEnum.INSTALLMENT_MONTHLY
-        ):
-            tx_data["is_installment"] = True
+            if (
+                convert_installment
+                or tx_data.get("installment_plan_id")
+                or tx_data.get("transaction_type") == TransactionTypeEnum.INSTALLMENT_MONTHLY
+            ):
+                tx_data["is_installment"] = True
 
-        tx = Transaction(**tx_data)
-        db.add(tx)
-        await db.flush()
-
-        # 3. Handle inline Installment Plan & Schedule generation if requested
-        if convert_installment:
-            term = convert_installment.get("term_months", 3) or 3
-            p_name = convert_installment.get("product_name") or tx.raw_description
-            conv_fee = convert_installment.get("conversion_fee", Decimal("0.00")) or Decimal("0.00")
-            int_rate = convert_installment.get("interest_rate_percent", Decimal("0.00")) or Decimal("0.00")
-            plan_tot = abs(tx.total_amount)
-            base_monthly = round(plan_tot / term, 2)
-            accumulated_principal = Decimal("0.00")
-
-            # Fetch account billing day
-            acc_stmt = select(Account.billing_day_of_month).where(
-                Account.id == tx.account_id
-            )
-            acc_res = await db.execute(acc_stmt)
-            billing_day = acc_res.scalar_one_or_none()
-            base_monthly = round(plan_tot / Decimal(term), 2)
-            first_period_principal = plan_tot - (Decimal(term - 1) * base_monthly)
-
-            plan = InstallmentPlan(
-                account_id=tx.account_id,
-                origin_transaction_id=tx.id,
-                product_name=p_name,
-                merchant_id=tx.merchant_id,
-                start_date=tx.transaction_date,
-                total_amount=plan_tot,
-                conversion_fee=conv_fee,
-                interest_rate_percent=int_rate,
-                term_months=term,
-                monthly_principal=base_monthly,
-                monthly_payment=base_monthly,
-                remaining_balance=plan_tot,
-                status=InstallmentStatusEnum.ACTIVE,
-            )
-            db.add(plan)
+            tx = Transaction(**tx_data)
+            db.add(tx)
             await db.flush()
 
-            # Generate monthly schedules with odd-cents balancing in the first period
-            for i in range(1, term + 1):
-                period_principal = first_period_principal if i == 1 else base_monthly
-                due_date = add_months_to_date(tx.transaction_date, i, billing_day)
+            # 3. Handle inline Installment Plan & Schedule generation if requested
+            if convert_installment:
+                term = convert_installment.get("term_months", 3) or 3
+                if term <= 0:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail="Số tháng trả góp phải lớn hơn 0",
+                    )
+                p_name = convert_installment.get("product_name") or tx.raw_description
+                conv_fee = convert_installment.get("conversion_fee", Decimal("0.00")) or Decimal("0.00")
+                int_rate = convert_installment.get("interest_rate_percent", Decimal("0.00")) or Decimal("0.00")
+                plan_tot = abs(tx.total_amount)
+                base_monthly = round(plan_tot / Decimal(term), 2)
+                first_period_principal = plan_tot - (Decimal(term - 1) * base_monthly)
 
-                sched = InstallmentSchedule(
-                    installment_plan_id=plan.id,
-                    installment_index=i,
-                    total_installments=term,
-                    due_date=due_date,
-                    principal_amount=period_principal,
-                    total_installment_amount=period_principal,
-                    is_billed=False,
+                # Fetch account billing day
+                acc_stmt = select(Account.billing_day_of_month).where(
+                    Account.id == tx.account_id
                 )
-                db.add(sched)
+                acc_res = await db.execute(acc_stmt)
+                billing_day = acc_res.scalar_one_or_none()
 
-            tx.installment_plan_id = plan.id
+                plan = InstallmentPlan(
+                    account_id=tx.account_id,
+                    origin_transaction_id=tx.id,
+                    product_name=p_name,
+                    merchant_id=tx.merchant_id,
+                    start_date=tx.transaction_date,
+                    total_amount=plan_tot,
+                    conversion_fee=conv_fee,
+                    interest_rate_percent=int_rate,
+                    term_months=term,
+                    monthly_principal=base_monthly,
+                    monthly_payment=base_monthly,
+                    remaining_balance=plan_tot,
+                    status=InstallmentStatusEnum.ACTIVE,
+                )
+                db.add(plan)
+                await db.flush()
 
-        try:
-            await db.commit()
-            return await TransactionService.get_by_id(db, tx.id)
-        except Exception as e:
-            await db.rollback()
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Failed to create transaction: {str(e)}",
-            )
+                # Generate monthly schedules with odd-cents balancing in the first period
+                for i in range(1, term + 1):
+                    period_principal = first_period_principal if i == 1 else base_monthly
+                    due_date = add_months_to_date(tx.transaction_date, i, billing_day)
+
+                    sched = InstallmentSchedule(
+                        installment_plan_id=plan.id,
+                        installment_index=i,
+                        total_installments=term,
+                        due_date=due_date,
+                        principal_amount=period_principal,
+                        total_installment_amount=period_principal,
+                        is_billed=False,
+                    )
+                    db.add(sched)
+
+                tx.installment_plan_id = plan.id
+                await db.flush()
+
+        return await TransactionService.get_by_id(db, tx.id)
 
     @staticmethod
     async def update(
@@ -419,107 +417,100 @@ class TransactionService:
         Raises:
             HTTPException: 400 Bad Request on failure.
         """
-        tx = await TransactionService.get_by_id(db, transaction_id)
-        update_data = payload.model_dump(exclude_unset=True)
+        async with atomic_transaction(db, error_prefix="Không thể cập nhật giao dịch"):
+            tx = await TransactionService.get_by_id(db, transaction_id)
+            update_data = payload.model_dump(exclude_unset=True)
 
-        # 1. Resolve dynamic Merchant if merchant_name is provided and merchant_id is empty
-        merchant_name = update_data.pop("merchant_name", None)
-        if merchant_name and merchant_name.strip() and not update_data.get("merchant_id"):
-            m_clean = merchant_name.strip()
-            find_m = await db.execute(
-                select(Merchant).where(Merchant.cleaned_name.ilike(m_clean))
-            )
-            existing_m = find_m.scalar_one_or_none()
-            if existing_m:
-                update_data["merchant_id"] = existing_m.id
-            else:
-                new_m = Merchant(
-                    cleaned_name=m_clean,
-                    default_category_id=update_data.get("category_id") or tx.category_id,
+            # 1. Resolve dynamic Merchant if merchant_name is provided and merchant_id is empty
+            merchant_name = update_data.pop("merchant_name", None)
+            if merchant_name and merchant_name.strip() and not update_data.get("merchant_id"):
+                m_clean = merchant_name.strip()
+                find_m = await db.execute(
+                    select(Merchant).where(Merchant.cleaned_name.ilike(m_clean))
                 )
-                db.add(new_m)
-                await db.flush()
-        # 2. Enforce sign conventions based on transaction_type
-        tx_type = update_data.get("transaction_type", tx.transaction_type)
+                existing_m = find_m.scalar_one_or_none()
+                if existing_m:
+                    update_data["merchant_id"] = existing_m.id
+                else:
+                    new_m = Merchant(
+                        cleaned_name=m_clean,
+                        default_category_id=update_data.get("category_id") or tx.category_id,
+                    )
+                    db.add(new_m)
+                    await db.flush()
+            # 2. Enforce sign conventions based on transaction_type
+            tx_type = update_data.get("transaction_type", tx.transaction_type)
 
-        # Handle raw_description fallback if updated to empty
-        if "raw_description" in update_data:
-            if update_data["raw_description"] and update_data["raw_description"].strip():
-                update_data["raw_description"] = update_data["raw_description"].strip()
-            else:
-                update_data["raw_description"] = await TransactionService._resolve_fallback_description(
-                    db,
-                    None,
-                    merchant_name,
-                    update_data.get("note", tx.note),
-                    update_data.get("category_id", tx.category_id),
-                    tx_type,
-                )
+            # Handle raw_description fallback if updated to empty
+            if "raw_description" in update_data:
+                if update_data["raw_description"] and update_data["raw_description"].strip():
+                    update_data["raw_description"] = update_data["raw_description"].strip()
+                else:
+                    update_data["raw_description"] = await TransactionService._resolve_fallback_description(
+                        db,
+                        None,
+                        merchant_name,
+                        update_data.get("note", tx.note),
+                        update_data.get("category_id", tx.category_id),
+                        tx_type,
+                    )
 
-        # If transaction_date is updated and post_date is omitted, sync post_date for unbilled transactions
-        if "transaction_date" in update_data and update_data["transaction_date"]:
-            if "post_date" not in update_data or update_data["post_date"] is None:
-                if tx.statement_id is None or tx.post_date == tx.transaction_date:
-                    update_data["post_date"] = update_data["transaction_date"]
-        credit_types = {
-            TransactionTypeEnum.REPAYMENT,
-            TransactionTypeEnum.REFUND,
-            TransactionTypeEnum.CASHBACK_CREDIT,
-            TransactionTypeEnum.INSTALLMENT_PRINCIPAL,
-            TransactionTypeEnum.DEBT_COLLECT,
-        }
+            # If transaction_date is updated and post_date is omitted, sync post_date for unbilled transactions
+            if "transaction_date" in update_data and update_data["transaction_date"]:
+                if "post_date" not in update_data or update_data["post_date"] is None:
+                    if tx.statement_id is None or tx.post_date == tx.transaction_date:
+                        update_data["post_date"] = update_data["transaction_date"]
+            credit_types = {
+                TransactionTypeEnum.REPAYMENT,
+                TransactionTypeEnum.REFUND,
+                TransactionTypeEnum.CASHBACK_CREDIT,
+                TransactionTypeEnum.INSTALLMENT_PRINCIPAL,
+                TransactionTypeEnum.DEBT_COLLECT,
+            }
 
-        if "total_amount" in update_data:
-            tot = abs(update_data["total_amount"])
-            update_data["total_amount"] = -tot if tx_type in credit_types else tot
-        elif "transaction_type" in update_data:
-            tot = abs(tx.total_amount)
-            update_data["total_amount"] = -tot if tx_type in credit_types else tot
+            if "total_amount" in update_data:
+                tot = abs(update_data["total_amount"])
+                update_data["total_amount"] = -tot if tx_type in credit_types else tot
+            elif "transaction_type" in update_data:
+                tot = abs(tx.total_amount)
+                update_data["total_amount"] = -tot if tx_type in credit_types else tot
 
-        if "amount" in update_data:
-            a = abs(update_data["amount"])
-            update_data["amount"] = -a if tx_type in credit_types else a
-        elif "transaction_type" in update_data:
-            a = abs(tx.amount)
-            update_data["amount"] = -a if tx_type in credit_types else a
+            if "amount" in update_data:
+                a = abs(update_data["amount"])
+                update_data["amount"] = -a if tx_type in credit_types else a
+            elif "transaction_type" in update_data:
+                a = abs(tx.amount)
+                update_data["amount"] = -a if tx_type in credit_types else a
 
-        # Convert empty strings to None for nullable fields
-        for field in [
-            "note",
-            "post_date",
-            "original_currency",
-            "installment_plan_id",
-            "statement_id",
-            "settles_statement_id",
-            "transfer_to_account_id",
-        ]:
-            if update_data.get(field) == "":
-                update_data[field] = None
+            # Convert empty strings to None for nullable fields
+            for field in [
+                "note",
+                "post_date",
+                "original_currency",
+                "installment_plan_id",
+                "statement_id",
+                "settles_statement_id",
+                "transfer_to_account_id",
+            ]:
+                if update_data.get(field) == "":
+                    update_data[field] = None
 
-        if (
-            update_data.get("installment_plan_id")
-            or tx_type == TransactionTypeEnum.INSTALLMENT_MONTHLY
-        ):
-            update_data["is_installment"] = True
-        elif (
-            "installment_plan_id" in update_data
-            and update_data["installment_plan_id"] is None
-            and tx_type != TransactionTypeEnum.INSTALLMENT_MONTHLY
-        ):
-            update_data["is_installment"] = False
+            if (
+                update_data.get("installment_plan_id")
+                or tx_type == TransactionTypeEnum.INSTALLMENT_MONTHLY
+            ):
+                update_data["is_installment"] = True
+            elif (
+                "installment_plan_id" in update_data
+                and update_data["installment_plan_id"] is None
+                and tx_type != TransactionTypeEnum.INSTALLMENT_MONTHLY
+            ):
+                update_data["is_installment"] = False
 
-        for key, value in update_data.items():
-            setattr(tx, key, value)
+            for key, value in update_data.items():
+                setattr(tx, key, value)
 
-        try:
-            await db.commit()
-            return await TransactionService.get_by_id(db, tx.id)
-        except Exception as e:
-            await db.rollback()
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Failed to update transaction: {str(e)}",
-            )
+        return await TransactionService.get_by_id(db, tx.id)
 
     @staticmethod
     async def delete(db: AsyncSession, transaction_id: UUID) -> bool:
@@ -535,17 +526,10 @@ class TransactionService:
         Raises:
             HTTPException: 400 Bad Request on deletion failure.
         """
-        tx = await TransactionService.get_by_id(db, transaction_id)
-        try:
+        async with atomic_transaction(db, error_prefix="Không thể xóa giao dịch"):
+            tx = await TransactionService.get_by_id(db, transaction_id)
             await db.delete(tx)
-            await db.commit()
-            return True
-        except Exception as e:
-            await db.rollback()
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Failed to delete transaction: {str(e)}",
-            )
+        return True
 
     @staticmethod
     async def get_summary(

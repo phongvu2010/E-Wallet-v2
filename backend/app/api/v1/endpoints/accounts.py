@@ -86,6 +86,7 @@ async def create_account(payload: AccountCreate, db: AsyncSession = Depends(get_
 
 
 @router.put("/{account_id}", response_model=AccountRead, summary="Update card details")
+@router.patch("/{account_id}", response_model=AccountRead, summary="Partial update card details")
 async def update_account(
     account_id: UUID,
     payload: AccountUpdate,

@@ -16,6 +16,7 @@ from app.models.installment import (
     InstallmentSchedule,
     InstallmentStatusEnum,
 )
+from app.core.transaction import atomic_transaction
 from app.schemas.installment import (
     EarlySettleRequest,
     EarlySettleResponse,
@@ -147,55 +148,48 @@ class InstallmentService:
         base_monthly = round(tot_amt / Decimal(term), 2)
         first_period_principal = tot_amt - (Decimal(term - 1) * base_monthly)
 
-        # Get account billing_day_of_month
-        acc_stmt = select(Account.billing_day_of_month).where(
-            Account.id == payload.account_id
-        )
-        acc_res = await db.execute(acc_stmt)
-        billing_day = acc_res.scalar_one_or_none()
-
-        plan = InstallmentPlan(
-            account_id=payload.account_id,
-            origin_transaction_id=payload.origin_transaction_id,
-            product_name=payload.product_name,
-            merchant_id=payload.merchant_id,
-            start_date=payload.start_date,
-            total_amount=tot_amt,
-            conversion_fee=payload.conversion_fee,
-            interest_rate_percent=payload.interest_rate_percent,
-            term_months=term,
-            monthly_principal=base_monthly,
-            monthly_payment=base_monthly,
-            remaining_balance=tot_amt,
-            status=InstallmentStatusEnum.ACTIVE,
-        )
-        db.add(plan)
-        await db.flush()
-
-        for i in range(1, term + 1):
-            period_principal = first_period_principal if i == 1 else base_monthly
-            due_date = add_months_to_date(payload.start_date, i, billing_day)
-
-            sched = InstallmentSchedule(
-                installment_plan_id=plan.id,
-                installment_index=i,
-                total_installments=term,
-                due_date=due_date,
-                principal_amount=period_principal,
-                total_installment_amount=period_principal,
-                is_billed=False,
+        async with atomic_transaction(db, error_prefix="Không thể tạo gói trả góp"):
+            # Get account billing_day_of_month
+            acc_stmt = select(Account.billing_day_of_month).where(
+                Account.id == payload.account_id
             )
-            db.add(sched)
+            acc_res = await db.execute(acc_stmt)
+            billing_day = acc_res.scalar_one_or_none()
 
-        try:
-            await db.commit()
-            return await InstallmentService.get_by_id(db, plan.id)
-        except Exception as e:
-            await db.rollback()
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Failed to create installment plan: {str(e)}",
+            plan = InstallmentPlan(
+                account_id=payload.account_id,
+                origin_transaction_id=payload.origin_transaction_id,
+                product_name=payload.product_name,
+                merchant_id=payload.merchant_id,
+                start_date=payload.start_date,
+                total_amount=tot_amt,
+                conversion_fee=payload.conversion_fee,
+                interest_rate_percent=payload.interest_rate_percent,
+                term_months=term,
+                monthly_principal=base_monthly,
+                monthly_payment=base_monthly,
+                remaining_balance=tot_amt,
+                status=InstallmentStatusEnum.ACTIVE,
             )
+            db.add(plan)
+            await db.flush()
+
+            for i in range(1, term + 1):
+                period_principal = first_period_principal if i == 1 else base_monthly
+                due_date = add_months_to_date(payload.start_date, i, billing_day)
+
+                sched = InstallmentSchedule(
+                    installment_plan_id=plan.id,
+                    installment_index=i,
+                    total_installments=term,
+                    due_date=due_date,
+                    principal_amount=period_principal,
+                    total_installment_amount=period_principal,
+                    is_billed=False,
+                )
+                db.add(sched)
+
+        return await InstallmentService.get_by_id(db, plan.id)
 
     @staticmethod
     async def early_settle(
@@ -240,23 +234,17 @@ class InstallmentService:
             ),
         }
 
-        try:
+        async with atomic_transaction(db, error_prefix="Không thể tất toán gói trả góp"):
             result = await db.execute(text(sql), params)
             row = result.mappings().one()
-            await db.commit()
-            return EarlySettleResponse(
-                plan_id=row["plan_id"],
-                product_name=row["product_name"],
-                settled_principal=row["settled_principal"],
-                early_settlement_fee=row["early_settlement_fee"],
-                new_status=InstallmentStatusEnum(row["new_status"]),
-            )
-        except Exception as e:
-            await db.rollback()
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Failed to early settle plan: {str(e)}",
-            )
+
+        return EarlySettleResponse(
+            plan_id=row["plan_id"],
+            product_name=row["product_name"],
+            settled_principal=row["settled_principal"],
+            early_settlement_fee=row["early_settlement_fee"],
+            new_status=InstallmentStatusEnum(row["new_status"]),
+        )
 
     @staticmethod
     async def get_forecast(db: AsyncSession) -> List[InstallmentForecastRead]:

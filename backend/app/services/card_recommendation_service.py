@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy.orm import selectinload
 
+from app.core.transaction import atomic_transaction
 from app.models.card_benefit import CardBenefit
 from app.models.reward import RewardTypeEnum
 from app.schemas.card_recommendation import (
@@ -76,17 +77,11 @@ class CardRecommendationService:
     ) -> CardBenefit:
         """Register a new card benefit rule."""
         benefit = CardBenefit(**payload.model_dump())
-        db.add(benefit)
-        try:
-            await db.commit()
+        async with atomic_transaction(db, error_prefix="Lỗi tạo quyền lợi thẻ"):
+            db.add(benefit)
+            await db.flush()
             await db.refresh(benefit)
             return benefit
-        except Exception as e:
-            await db.rollback()
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Failed to create card benefit: {str(e)}",
-            )
 
     @staticmethod
     async def recommend_best_card(

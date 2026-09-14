@@ -1,17 +1,28 @@
-import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { transactionService } from "../services/transactionService";
-import { installmentService } from "../services/installmentService";
+import { QueryClient, useMutation, useQueryClient } from "@tanstack/react-query";
 import { accountService } from "../services/accountService";
+import { categoryService } from "../services/categoryService";
+import { debtService } from "../services/debtService";
+import { installmentService } from "../services/installmentService";
+import { loanService } from "../services/loanService";
 import { notificationService } from "../services/notificationService";
 import { recommendationService } from "../services/recommendationService";
-import { categoryService } from "../services/categoryService";
-import { loanService } from "../services/loanService";
-import { TransactionCreatePayload, TransactionUpdatePayload } from "../types/transaction";
-import { EarlySettlePayload } from "../types/installment";
-import { AccountCreatePayload, AccountUpdatePayload, AccountStatus } from "../types/account";
-import { NotificationSettingsUpdate } from "../types/notification";
+import { transactionService } from "../services/transactionService";
+import {
+  AccountCreatePayload,
+  AccountStatus,
+  AccountUpdatePayload,
+} from "../types/account";
 import { CardRecommendationRequest } from "../types/cardRecommendation";
-import { CategoryCreatePayload, CategoryUpdatePayload } from "../types/category";
+import {
+  CategoryCreatePayload,
+  CategoryUpdatePayload,
+} from "../types/category";
+import {
+  DebtCreatePayload,
+  DebtRepaymentPayload,
+  DebtUpdatePayload,
+} from "../types/debt";
+import { EarlySettlePayload } from "../types/installment";
 import {
   AdjustLoanRatePayload,
   EarlySettleLoanPayload,
@@ -19,19 +30,86 @@ import {
   LoanUpdatePayload,
   PayLoanPeriodPayload,
 } from "../types/loan";
+import { NotificationSettingsUpdate } from "../types/notification";
+import {
+  TransactionCreatePayload,
+  TransactionUpdatePayload,
+} from "../types/transaction";
+import { queryKeys } from "../utils/queryKeys";
+
+// ====================================================================
+// DOMAIN INVALIDATION HELPERS (CASCADE INVALITADION MATRIX)
+// ====================================================================
+
+/**
+ * Invalidate all transaction and ledger queries, as well as downstream analytics,
+ * accounts, live balances, and statements.
+ */
+function invalidateTransactionsAndLedger(queryClient: QueryClient) {
+  queryClient.invalidateQueries({ queryKey: queryKeys.transactions.all });
+  queryClient.invalidateQueries({ queryKey: queryKeys.accounts.all });
+  queryClient.invalidateQueries({ queryKey: queryKeys.analytics.all });
+  queryClient.invalidateQueries({ queryKey: queryKeys.statements.all });
+  queryClient.invalidateQueries({ queryKey: queryKeys.installments.all });
+  queryClient.invalidateQueries({ queryKey: queryKeys.debts.kpis() });
+  queryClient.invalidateQueries({ queryKey: queryKeys.loans.kpis() });
+}
+
+/**
+ * Invalidate account lists, live balances, card benefits, and dependent analytics.
+ */
+function invalidateAccountCascade(queryClient: QueryClient) {
+  queryClient.invalidateQueries({ queryKey: queryKeys.accounts.all });
+  queryClient.invalidateQueries({ queryKey: queryKeys.analytics.all });
+  queryClient.invalidateQueries({ queryKey: queryKeys.transactions.all });
+}
+
+/**
+ * Invalidate loan domain and connected transactions/accounts/analytics.
+ */
+function invalidateLoanCascade(queryClient: QueryClient, loanId?: string) {
+  queryClient.invalidateQueries({ queryKey: queryKeys.loans.all });
+  if (loanId) {
+    queryClient.invalidateQueries({ queryKey: queryKeys.loans.detail(loanId) });
+  }
+  queryClient.invalidateQueries({ queryKey: queryKeys.transactions.all });
+  queryClient.invalidateQueries({ queryKey: queryKeys.accounts.all });
+  queryClient.invalidateQueries({ queryKey: queryKeys.analytics.all });
+}
+
+/**
+ * Invalidate debt domain and connected transactions/accounts/analytics.
+ */
+function invalidateDebtCascade(queryClient: QueryClient, debtId?: string) {
+  queryClient.invalidateQueries({ queryKey: queryKeys.debts.all });
+  if (debtId) {
+    queryClient.invalidateQueries({ queryKey: queryKeys.debts.detail(debtId) });
+  }
+  queryClient.invalidateQueries({ queryKey: queryKeys.transactions.all });
+  queryClient.invalidateQueries({ queryKey: queryKeys.accounts.all });
+  queryClient.invalidateQueries({ queryKey: queryKeys.analytics.all });
+}
+
+/**
+ * Invalidate category lists, tree hierarchy, and affected transaction/spending views.
+ */
+function invalidateCategoryCascade(queryClient: QueryClient) {
+  queryClient.invalidateQueries({ queryKey: queryKeys.categories.all });
+  queryClient.invalidateQueries({ queryKey: queryKeys.transactions.all });
+  queryClient.invalidateQueries({ queryKey: queryKeys.analytics.monthlySpending() });
+}
+
+// ====================================================================
+// 1. TRANSACTIONS MUTATIONS
+// ====================================================================
 
 export function useCreateTransaction() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (payload: TransactionCreatePayload) => transactionService.create(payload),
+    mutationFn: (payload: TransactionCreatePayload) =>
+      transactionService.create(payload),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["transactions"] });
-      queryClient.invalidateQueries({ queryKey: ["transaction-summary"] });
-      queryClient.invalidateQueries({ queryKey: ["accounts-live"] });
-      queryClient.invalidateQueries({ queryKey: ["dashboard-overview"] });
-      queryClient.invalidateQueries({ queryKey: ["monthly-spending"] });
-      queryClient.invalidateQueries({ queryKey: ["net-worth"] });
-      queryClient.invalidateQueries({ queryKey: ["cash-flow"] });
+      invalidateTransactionsAndLedger(queryClient);
     },
   });
 }
@@ -39,15 +117,15 @@ export function useCreateTransaction() {
 export function useUpdateTransaction() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, payload }: { id: string; payload: TransactionUpdatePayload }) =>
-      transactionService.update(id, payload),
+    mutationFn: ({
+      id,
+      payload,
+    }: {
+      id: string;
+      payload: TransactionUpdatePayload;
+    }) => transactionService.update(id, payload),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["transactions"] });
-      queryClient.invalidateQueries({ queryKey: ["transaction-summary"] });
-      queryClient.invalidateQueries({ queryKey: ["accounts-live"] });
-      queryClient.invalidateQueries({ queryKey: ["dashboard-overview"] });
-      queryClient.invalidateQueries({ queryKey: ["net-worth"] });
-      queryClient.invalidateQueries({ queryKey: ["cash-flow"] });
+      invalidateTransactionsAndLedger(queryClient);
     },
   });
 }
@@ -57,42 +135,42 @@ export function useDeleteTransaction() {
   return useMutation({
     mutationFn: (id: string) => transactionService.delete(id),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["transactions"] });
-      queryClient.invalidateQueries({ queryKey: ["transaction-summary"] });
-      queryClient.invalidateQueries({ queryKey: ["accounts-live"] });
-      queryClient.invalidateQueries({ queryKey: ["dashboard-overview"] });
-      queryClient.invalidateQueries({ queryKey: ["net-worth"] });
-      queryClient.invalidateQueries({ queryKey: ["cash-flow"] });
+      invalidateTransactionsAndLedger(queryClient);
     },
   });
 }
 
+// ====================================================================
+// 2. INSTALLMENT MUTATIONS
+// ====================================================================
+
 export function useEarlySettleInstallment() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ planId, payload }: { planId: string; payload: EarlySettlePayload }) =>
-      installmentService.earlySettle(planId, payload),
+    mutationFn: ({
+      planId,
+      payload,
+    }: {
+      planId: string;
+      payload: EarlySettlePayload;
+    }) => installmentService.earlySettle(planId, payload),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["installments"] });
-      queryClient.invalidateQueries({ queryKey: ["installment-forecast"] });
-      queryClient.invalidateQueries({ queryKey: ["accounts-live"] });
-      queryClient.invalidateQueries({ queryKey: ["dashboard-overview"] });
-      queryClient.invalidateQueries({ queryKey: ["transactions"] });
-      queryClient.invalidateQueries({ queryKey: ["net-worth"] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.installments.all });
+      invalidateTransactionsAndLedger(queryClient);
     },
   });
 }
+
+// ====================================================================
+// 3. ACCOUNT MUTATIONS
+// ====================================================================
 
 export function useCreateAccount() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (payload: AccountCreatePayload) => accountService.create(payload),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["accounts"] });
-      queryClient.invalidateQueries({ queryKey: ["accounts-live"] });
-      queryClient.invalidateQueries({ queryKey: ["dashboard-overview"] });
-      queryClient.invalidateQueries({ queryKey: ["credit-utilization"] });
-      queryClient.invalidateQueries({ queryKey: ["net-worth"] });
+      invalidateAccountCascade(queryClient);
     },
   });
 }
@@ -100,14 +178,15 @@ export function useCreateAccount() {
 export function useUpdateAccount() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, payload }: { id: string; payload: AccountUpdatePayload }) =>
-      accountService.update(id, payload),
+    mutationFn: ({
+      id,
+      payload,
+    }: {
+      id: string;
+      payload: AccountUpdatePayload;
+    }) => accountService.update(id, payload),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["accounts"] });
-      queryClient.invalidateQueries({ queryKey: ["accounts-live"] });
-      queryClient.invalidateQueries({ queryKey: ["dashboard-overview"] });
-      queryClient.invalidateQueries({ queryKey: ["credit-utilization"] });
-      queryClient.invalidateQueries({ queryKey: ["net-worth"] });
+      invalidateAccountCascade(queryClient);
     },
   });
 }
@@ -115,13 +194,15 @@ export function useUpdateAccount() {
 export function useUpdateAccountStatus() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, status }: { id: string; status: AccountStatus }) =>
-      accountService.updateStatus(id, status),
+    mutationFn: ({
+      id,
+      status,
+    }: {
+      id: string;
+      status: AccountStatus;
+    }) => accountService.updateStatus(id, status),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["accounts"] });
-      queryClient.invalidateQueries({ queryKey: ["accounts-live"] });
-      queryClient.invalidateQueries({ queryKey: ["dashboard-overview"] });
-      queryClient.invalidateQueries({ queryKey: ["credit-utilization"] });
+      invalidateAccountCascade(queryClient);
     },
   });
 }
@@ -131,19 +212,21 @@ export function useToggleAccountStatus() {
   return useMutation({
     mutationFn: (id: string) => accountService.toggleStatus(id),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["dashboard-overview"] });
-      queryClient.invalidateQueries({ queryKey: ["credit-utilization"] });
+      invalidateAccountCascade(queryClient);
     },
   });
 }
+
+// ====================================================================
+// 4. NOTIFICATION MUTATIONS
+// ====================================================================
 
 export function useMarkNotificationRead() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (id: string) => notificationService.markRead(id),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["notification-summary"] });
-      queryClient.invalidateQueries({ queryKey: ["notifications"] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.notifications.all });
     },
   });
 }
@@ -153,8 +236,7 @@ export function useMarkAllNotificationsRead() {
   return useMutation({
     mutationFn: () => notificationService.markAllRead(),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["notification-summary"] });
-      queryClient.invalidateQueries({ queryKey: ["notifications"] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.notifications.all });
     },
   });
 }
@@ -164,8 +246,7 @@ export function useScanAlerts() {
   return useMutation({
     mutationFn: () => notificationService.scanAlerts(),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["notification-summary"] });
-      queryClient.invalidateQueries({ queryKey: ["notifications"] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.notifications.all });
     },
   });
 }
@@ -176,7 +257,9 @@ export function useUpdateNotificationSettings() {
     mutationFn: (payload: NotificationSettingsUpdate) =>
       notificationService.updateSettings(payload),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["notification-settings"] });
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.notifications.settings(),
+      });
     },
   });
 }
@@ -198,15 +281,16 @@ export function useCardRecommendation() {
   });
 }
 
+// ====================================================================
+// 5. CATEGORY MUTATIONS
+// ====================================================================
+
 export function useCreateCategory() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (payload: CategoryCreatePayload) => categoryService.create(payload),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["category-tree"] });
-      queryClient.invalidateQueries({ queryKey: ["categories"] });
-      queryClient.invalidateQueries({ queryKey: ["transactions"] });
-      queryClient.invalidateQueries({ queryKey: ["monthly-spending"] });
+      invalidateCategoryCascade(queryClient);
     },
   });
 }
@@ -214,13 +298,15 @@ export function useCreateCategory() {
 export function useUpdateCategory() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, payload }: { id: string; payload: CategoryUpdatePayload }) =>
-      categoryService.update(id, payload),
+    mutationFn: ({
+      id,
+      payload,
+    }: {
+      id: string;
+      payload: CategoryUpdatePayload;
+    }) => categoryService.update(id, payload),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["category-tree"] });
-      queryClient.invalidateQueries({ queryKey: ["categories"] });
-      queryClient.invalidateQueries({ queryKey: ["transactions"] });
-      queryClient.invalidateQueries({ queryKey: ["monthly-spending"] });
+      invalidateCategoryCascade(queryClient);
     },
   });
 }
@@ -230,16 +316,13 @@ export function useDeleteCategory() {
   return useMutation({
     mutationFn: (id: string) => categoryService.delete(id),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["category-tree"] });
-      queryClient.invalidateQueries({ queryKey: ["categories"] });
-      queryClient.invalidateQueries({ queryKey: ["transactions"] });
-      queryClient.invalidateQueries({ queryKey: ["monthly-spending"] });
+      invalidateCategoryCascade(queryClient);
     },
   });
 }
 
 // ====================================================================
-// FINANCIAL LOANS & FLOATING INTEREST RATE MUTATIONS
+// 6. FINANCIAL LOANS MUTATIONS
 // ====================================================================
 
 export function useCreateLoan() {
@@ -247,10 +330,7 @@ export function useCreateLoan() {
   return useMutation({
     mutationFn: (payload: LoanCreatePayload) => loanService.create(payload),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["loans"] });
-      queryClient.invalidateQueries({ queryKey: ["loans-kpis"] });
-      queryClient.invalidateQueries({ queryKey: ["net-worth"] });
-      queryClient.invalidateQueries({ queryKey: ["dashboard-overview"] });
+      invalidateLoanCascade(queryClient);
     },
   });
 }
@@ -258,12 +338,15 @@ export function useCreateLoan() {
 export function useUpdateLoan() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, payload }: { id: string; payload: LoanUpdatePayload }) =>
-      loanService.update(id, payload),
+    mutationFn: ({
+      id,
+      payload,
+    }: {
+      id: string;
+      payload: LoanUpdatePayload;
+    }) => loanService.update(id, payload),
     onSuccess: (_, { id }) => {
-      queryClient.invalidateQueries({ queryKey: ["loans"] });
-      queryClient.invalidateQueries({ queryKey: ["loan", id] });
-      queryClient.invalidateQueries({ queryKey: ["loans-kpis"] });
+      invalidateLoanCascade(queryClient, id);
     },
   });
 }
@@ -271,12 +354,15 @@ export function useUpdateLoan() {
 export function useAdjustLoanRate() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, payload }: { id: string; payload: AdjustLoanRatePayload }) =>
-      loanService.adjustRate(id, payload),
+    mutationFn: ({
+      id,
+      payload,
+    }: {
+      id: string;
+      payload: AdjustLoanRatePayload;
+    }) => loanService.adjustRate(id, payload),
     onSuccess: (_, { id }) => {
-      queryClient.invalidateQueries({ queryKey: ["loans"] });
-      queryClient.invalidateQueries({ queryKey: ["loan", id] });
-      queryClient.invalidateQueries({ queryKey: ["loans-kpis"] });
+      invalidateLoanCascade(queryClient, id);
     },
   });
 }
@@ -284,15 +370,15 @@ export function useAdjustLoanRate() {
 export function usePayLoanPeriod() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, payload }: { id: string; payload: PayLoanPeriodPayload }) =>
-      loanService.payPeriod(id, payload),
+    mutationFn: ({
+      id,
+      payload,
+    }: {
+      id: string;
+      payload: PayLoanPeriodPayload;
+    }) => loanService.payPeriod(id, payload),
     onSuccess: (_, { id }) => {
-      queryClient.invalidateQueries({ queryKey: ["loans"] });
-      queryClient.invalidateQueries({ queryKey: ["loan", id] });
-      queryClient.invalidateQueries({ queryKey: ["loans-kpis"] });
-      queryClient.invalidateQueries({ queryKey: ["transactions"] });
-      queryClient.invalidateQueries({ queryKey: ["accounts-live"] });
-      queryClient.invalidateQueries({ queryKey: ["net-worth"] });
+      invalidateLoanCascade(queryClient, id);
     },
   });
 }
@@ -300,15 +386,15 @@ export function usePayLoanPeriod() {
 export function useEarlySettleLoan() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, payload }: { id: string; payload: EarlySettleLoanPayload }) =>
-      loanService.earlySettle(id, payload),
+    mutationFn: ({
+      id,
+      payload,
+    }: {
+      id: string;
+      payload: EarlySettleLoanPayload;
+    }) => loanService.earlySettle(id, payload),
     onSuccess: (_, { id }) => {
-      queryClient.invalidateQueries({ queryKey: ["loans"] });
-      queryClient.invalidateQueries({ queryKey: ["loan", id] });
-      queryClient.invalidateQueries({ queryKey: ["loans-kpis"] });
-      queryClient.invalidateQueries({ queryKey: ["transactions"] });
-      queryClient.invalidateQueries({ queryKey: ["accounts-live"] });
-      queryClient.invalidateQueries({ queryKey: ["net-worth"] });
+      invalidateLoanCascade(queryClient, id);
     },
   });
 }
@@ -318,31 +404,21 @@ export function useDeleteLoan() {
   return useMutation({
     mutationFn: (id: string) => loanService.delete(id),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["loans"] });
-      queryClient.invalidateQueries({ queryKey: ["loans-kpis"] });
-      queryClient.invalidateQueries({ queryKey: ["net-worth"] });
+      invalidateLoanCascade(queryClient);
     },
   });
 }
 
 // ====================================================================
-// PERSONAL DEBTS & P2P LENDING MUTATIONS
+// 7. PERSONAL DEBTS & P2P LENDING MUTATIONS
 // ====================================================================
-
-import { debtService } from "../services/debtService";
-import { DebtCreatePayload, DebtRepaymentPayload, DebtUpdatePayload } from "../types/debt";
 
 export function useCreateDebt() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (payload: DebtCreatePayload) => debtService.create(payload),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["debts"] });
-      queryClient.invalidateQueries({ queryKey: ["debts-kpis"] });
-      queryClient.invalidateQueries({ queryKey: ["transactions"] });
-      queryClient.invalidateQueries({ queryKey: ["accounts-live"] });
-      queryClient.invalidateQueries({ queryKey: ["net-worth"] });
-      queryClient.invalidateQueries({ queryKey: ["dashboard-overview"] });
+      invalidateDebtCascade(queryClient);
     },
   });
 }
@@ -350,12 +426,15 @@ export function useCreateDebt() {
 export function useUpdateDebt() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, payload }: { id: string; payload: DebtUpdatePayload }) =>
-      debtService.update(id, payload),
+    mutationFn: ({
+      id,
+      payload,
+    }: {
+      id: string;
+      payload: DebtUpdatePayload;
+    }) => debtService.update(id, payload),
     onSuccess: (_, { id }) => {
-      queryClient.invalidateQueries({ queryKey: ["debts"] });
-      queryClient.invalidateQueries({ queryKey: ["debt", id] });
-      queryClient.invalidateQueries({ queryKey: ["debts-kpis"] });
+      invalidateDebtCascade(queryClient, id);
     },
   });
 }
@@ -363,18 +442,15 @@ export function useUpdateDebt() {
 export function useRepayDebt() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, payload }: { id: string; payload: DebtRepaymentPayload }) =>
-      debtService.repay(id, payload),
+    mutationFn: ({
+      id,
+      payload,
+    }: {
+      id: string;
+      payload: DebtRepaymentPayload;
+    }) => debtService.repay(id, payload),
     onSuccess: (_, { id }) => {
-      queryClient.invalidateQueries({ queryKey: ["debts"] });
-      queryClient.invalidateQueries({ queryKey: ["debt", id] });
-      queryClient.invalidateQueries({ queryKey: ["debts-kpis"] });
-      queryClient.invalidateQueries({ queryKey: ["transactions"] });
-      queryClient.invalidateQueries({ queryKey: ["accounts-live"] });
-      queryClient.invalidateQueries({ queryKey: ["net-worth"] });
-      queryClient.invalidateQueries({ queryKey: ["cash-flow"] });
-      queryClient.invalidateQueries({ queryKey: ["monthly-spending"] });
-      queryClient.invalidateQueries({ queryKey: ["dashboard-overview"] });
+      invalidateDebtCascade(queryClient, id);
     },
   });
 }
@@ -384,10 +460,7 @@ export function useDeleteDebt() {
   return useMutation({
     mutationFn: (id: string) => debtService.delete(id),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["debts"] });
-      queryClient.invalidateQueries({ queryKey: ["debts-kpis"] });
-      queryClient.invalidateQueries({ queryKey: ["net-worth"] });
+      invalidateDebtCascade(queryClient);
     },
   });
 }
-

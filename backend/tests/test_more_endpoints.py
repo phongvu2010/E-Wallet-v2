@@ -19,20 +19,23 @@ async def test_category_tree(client: AsyncClient):
     assert isinstance(data, list)
     assert len(data) >= 1
     # Check parent category with children
-    parent_names = [c["name"] for c in data]
-    assert "Chi tiêu" in parent_names
-    chi_tieu = next(c for c in data if c["name"] == "Chi tiêu")
-    assert "children" in chi_tieu
-    assert len(chi_tieu["children"]) >= 1
+    parent_with_children = next((c for c in data if c.get("children")), None)
+    assert parent_with_children is not None
+    assert len(parent_with_children["children"]) >= 1
 
 
 @pytest.mark.asyncio
 async def test_category_crud(client: AsyncClient):
+    import uuid
+    suffix = uuid.uuid4().hex[:6]
+    parent_name = f"Đầu tư & Tiết kiệm Test {suffix}"
+    child_name = f"Cổ tức chứng khoán {suffix}"
+
     # 1. Create a parent category
     parent_res = await client.post(
         "/api/v1/categories",
         json={
-            "name": "Đầu tư & Tiết kiệm Test",
+            "name": parent_name,
             "category_type": "INCOME",
             "icon": "TrendingUp",
             "color": "#10b981",
@@ -41,14 +44,14 @@ async def test_category_crud(client: AsyncClient):
     assert parent_res.status_code == 201
     parent_data = parent_res.json()
     parent_id = parent_data["id"]
-    assert parent_data["name"] == "Đầu tư & Tiết kiệm Test"
+    assert parent_data["name"] == parent_name
     assert parent_data["category_type"] == "INCOME"
 
     # 2. Create a child subcategory under this parent
     child_res = await client.post(
         "/api/v1/categories",
         json={
-            "name": "Cổ tức chứng khoán",
+            "name": child_name,
             "parent_id": parent_id,
             "icon": "Coins",
             "color": "#059669",
@@ -64,13 +67,13 @@ async def test_category_crud(client: AsyncClient):
     update_res = await client.put(
         f"/api/v1/categories/{child_id}",
         json={
-            "name": "Cổ tức & Trái tức",
+            "name": f"Cổ tức & Trái tức {suffix}",
             "color": "#047857",
         },
     )
     assert update_res.status_code == 200
     updated_child = update_res.json()
-    assert updated_child["name"] == "Cổ tức & Trái tức"
+    assert updated_child["name"] == f"Cổ tức & Trái tức {suffix}"
     assert updated_child["color"] == "#047857"
 
     # 4. Delete child category

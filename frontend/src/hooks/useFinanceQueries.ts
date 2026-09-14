@@ -12,8 +12,11 @@ import { recommendationService } from "../services/recommendationService";
 import { merchantService } from "../services/merchantService";
 import { institutionService } from "../services/institutionService";
 import { loanService } from "../services/loanService";
+import { debtService } from "../services/debtService";
 import { TransactionFilterParams } from "../types/transaction";
 import { InstallmentStatus } from "../types/installment";
+import { DebtStatus, DebtType } from "../types/debt";
+import { queryKeys } from "../utils/queryKeys";
 
 // ====================================================================
 // 1. ACCOUNTS & LIVE BALANCES
@@ -24,7 +27,7 @@ import { InstallmentStatus } from "../types/installment";
  */
 export function useAccounts() {
   return useQuery({
-    queryKey: ["accounts"],
+    queryKey: queryKeys.accounts.lists(),
     queryFn: () => accountService.getAll(),
     staleTime: 10 * 60 * 1000,
   });
@@ -35,7 +38,7 @@ export function useAccounts() {
  */
 export function useAccountLiveBalances(accountId?: string) {
   return useQuery({
-    queryKey: ["accounts-live", accountId || "all"],
+    queryKey: queryKeys.accounts.live(accountId),
     queryFn: () => accountService.getLiveBalances(accountId),
     staleTime: 30 * 1000,
   });
@@ -50,7 +53,7 @@ export function useAccountLiveBalances(accountId?: string) {
  */
 export function useTransactions(params: TransactionFilterParams) {
   return useQuery({
-    queryKey: ["transactions", params],
+    queryKey: queryKeys.transactions.list(params),
     queryFn: () => transactionService.getFiltered(params),
     placeholderData: (previousData: any) => previousData,
     staleTime: 30 * 1000,
@@ -62,7 +65,7 @@ export function useTransactions(params: TransactionFilterParams) {
  */
 export function useTransactionSummary(accountId?: string, statementId?: string) {
   return useQuery({
-    queryKey: ["transaction-summary", accountId || "all", statementId || "all"],
+    queryKey: queryKeys.transactions.summary(accountId, statementId),
     queryFn: () => transactionService.getSummary(accountId, statementId),
     staleTime: 30 * 1000,
   });
@@ -77,7 +80,7 @@ export function useTransactionSummary(accountId?: string, statementId?: string) 
  */
 export function useStatements(accountId?: string, year?: number) {
   return useQuery({
-    queryKey: ["statements", accountId || "all", year || "all"],
+    queryKey: queryKeys.statements.list(accountId, year),
     queryFn: () => statementService.getAll(accountId, year),
     staleTime: 2 * 60 * 1000,
   });
@@ -88,7 +91,7 @@ export function useStatements(accountId?: string, year?: number) {
  */
 export function useStatementReconciliation(accountId?: string) {
   return useQuery({
-    queryKey: ["statement-reconciliation", accountId || "all"],
+    queryKey: queryKeys.statements.reconciliation(accountId),
     queryFn: () => statementService.getReconciliation(accountId),
     staleTime: 2 * 60 * 1000,
   });
@@ -99,7 +102,7 @@ export function useStatementReconciliation(accountId?: string) {
  */
 export function useStatementPaymentStatus(accountId?: string) {
   return useQuery({
-    queryKey: ["statement-payment-status", accountId || "all"],
+    queryKey: queryKeys.statements.paymentStatus(accountId),
     queryFn: () => statementService.getPaymentStatus(accountId),
     staleTime: 60 * 1000,
   });
@@ -114,7 +117,7 @@ export function useStatementPaymentStatus(accountId?: string) {
  */
 export function useInstallments(accountId?: string, status?: InstallmentStatus) {
   return useQuery({
-    queryKey: ["installments", accountId || "all", status || "all"],
+    queryKey: queryKeys.installments.list(accountId, status),
     queryFn: () => installmentService.getAll(accountId, status),
     staleTime: 2 * 60 * 1000,
   });
@@ -125,7 +128,7 @@ export function useInstallments(accountId?: string, status?: InstallmentStatus) 
  */
 export function useInstallmentForecast() {
   return useQuery({
-    queryKey: ["installment-forecast"],
+    queryKey: queryKeys.installments.forecast(),
     queryFn: () => installmentService.getForecast(),
     staleTime: 2 * 60 * 1000,
   });
@@ -136,7 +139,7 @@ export function useInstallmentForecast() {
  */
 export function useRewards(accountId?: string) {
   return useQuery({
-    queryKey: ["rewards", accountId || "all"],
+    queryKey: queryKeys.rewards.list(accountId),
     queryFn: () => rewardService.getAll(accountId),
     staleTime: 2 * 60 * 1000,
   });
@@ -151,7 +154,7 @@ export function useRewards(accountId?: string) {
  */
 export function useDashboardOverview() {
   return useQuery({
-    queryKey: ["dashboard-overview"],
+    queryKey: queryKeys.analytics.dashboardOverview(),
     queryFn: () => analyticsService.getOverview(),
     staleTime: 30 * 1000,
   });
@@ -162,7 +165,7 @@ export function useDashboardOverview() {
  */
 export function useNetWorth() {
   return useQuery({
-    queryKey: ["net-worth"],
+    queryKey: queryKeys.analytics.netWorth(),
     queryFn: () => analyticsService.getNetWorth(),
     staleTime: 30 * 1000,
   });
@@ -173,7 +176,7 @@ export function useNetWorth() {
  */
 export function useCashFlow(limit = 24) {
   return useQuery({
-    queryKey: ["cash-flow", limit],
+    queryKey: queryKeys.analytics.cashFlow(limit),
     queryFn: () => analyticsService.getCashFlow(limit),
     staleTime: 60 * 1000,
   });
@@ -184,7 +187,7 @@ export function useCashFlow(limit = 24) {
  */
 export function useMonthlySpending(limit = 200) {
   return useQuery({
-    queryKey: ["monthly-spending", limit],
+    queryKey: queryKeys.analytics.monthlySpending(limit),
     queryFn: () => analyticsService.getMonthlySpending(limit),
     staleTime: 2 * 60 * 1000,
   });
@@ -195,7 +198,7 @@ export function useMonthlySpending(limit = 200) {
  */
 export function useUpcomingObligations(daysAhead = 30) {
   return useQuery({
-    queryKey: ["upcoming-obligations", daysAhead],
+    queryKey: queryKeys.analytics.upcomingObligations(daysAhead),
     queryFn: () => analyticsService.getUpcomingObligations(daysAhead),
     staleTime: 60 * 1000,
   });
@@ -206,7 +209,7 @@ export function useUpcomingObligations(daysAhead = 30) {
  */
 export function useCreditUtilization() {
   return useQuery({
-    queryKey: ["credit-utilization"],
+    queryKey: queryKeys.analytics.creditUtilization(),
     queryFn: () => analyticsService.getCreditUtilization(),
     staleTime: 60 * 1000,
   });
@@ -221,7 +224,7 @@ export function useCreditUtilization() {
  */
 export function useCategories() {
   return useQuery({
-    queryKey: ["categories"],
+    queryKey: queryKeys.categories.list(),
     queryFn: () => categoryService.getAll(),
     staleTime: 15 * 60 * 1000,
   });
@@ -232,7 +235,7 @@ export function useCategories() {
  */
 export function useCategoryTree() {
   return useQuery({
-    queryKey: ["category-tree"],
+    queryKey: queryKeys.categories.tree(),
     queryFn: () => categoryService.getTree(),
     staleTime: 15 * 60 * 1000,
   });
@@ -243,7 +246,7 @@ export function useCategoryTree() {
  */
 export function useNotificationSummary() {
   return useQuery({
-    queryKey: ["notification-summary"],
+    queryKey: queryKeys.notifications.summary(),
     queryFn: () => notificationService.getSummary(),
     refetchInterval: 30000,
     staleTime: 20 * 1000,
@@ -255,7 +258,7 @@ export function useNotificationSummary() {
  */
 export function useNotifications(limit = 50, unreadOnly = false) {
   return useQuery({
-    queryKey: ["notifications", limit, unreadOnly],
+    queryKey: queryKeys.notifications.list(limit, unreadOnly),
     queryFn: () => notificationService.getAll(limit, unreadOnly),
     staleTime: 30 * 1000,
   });
@@ -266,7 +269,7 @@ export function useNotifications(limit = 50, unreadOnly = false) {
  */
 export function useNotificationSettings() {
   return useQuery({
-    queryKey: ["notification-settings"],
+    queryKey: queryKeys.notifications.settings(),
     queryFn: () => notificationService.getSettings(),
     staleTime: 5 * 60 * 1000,
   });
@@ -277,7 +280,7 @@ export function useNotificationSettings() {
  */
 export function useCardBenefits(accountId?: string) {
   return useQuery({
-    queryKey: ["card-benefits", accountId || "all"],
+    queryKey: queryKeys.accounts.benefits(accountId),
     queryFn: () => recommendationService.getBenefits(accountId),
     staleTime: 10 * 60 * 1000,
   });
@@ -288,7 +291,7 @@ export function useCardBenefits(accountId?: string) {
  */
 export function useMerchantSuggestions() {
   return useQuery({
-    queryKey: ["merchant-suggestions"],
+    queryKey: queryKeys.merchants.suggestions(100),
     queryFn: () => merchantService.getSuggestions(100),
     staleTime: 10 * 60 * 1000,
   });
@@ -299,7 +302,7 @@ export function useMerchantSuggestions() {
  */
 export function useInstitutions() {
   return useQuery({
-    queryKey: ["institutions"],
+    queryKey: queryKeys.institutions.list(),
     queryFn: () => institutionService.getAll(),
     staleTime: 60 * 60 * 1000,
   });
@@ -310,7 +313,7 @@ export function useInstitutions() {
  */
 export function useSchedulerStatus() {
   return useQuery({
-    queryKey: ["scheduler-status"],
+    queryKey: queryKeys.notifications.schedulerStatus(),
     queryFn: () => notificationService.getSchedulerStatus(),
     refetchInterval: 30000,
     staleTime: 15 * 1000,
@@ -322,7 +325,7 @@ export function useSchedulerStatus() {
  */
 export function useTelegramBotStatus() {
   return useQuery({
-    queryKey: ["telegram-bot-status"],
+    queryKey: queryKeys.telegram.status(),
     queryFn: () => telegramService.getStatus(),
     refetchInterval: 15000,
     staleTime: 10 * 1000,
@@ -338,7 +341,7 @@ export function useTelegramBotStatus() {
  */
 export function useLoans(status?: string, institutionId?: string) {
   return useQuery({
-    queryKey: ["loans", status, institutionId],
+    queryKey: queryKeys.loans.lists(status, institutionId),
     queryFn: () => loanService.getAll(status, institutionId),
     staleTime: 60 * 1000,
   });
@@ -349,7 +352,7 @@ export function useLoans(status?: string, institutionId?: string) {
  */
 export function useLoanKPIs() {
   return useQuery({
-    queryKey: ["loans-kpis"],
+    queryKey: queryKeys.loans.kpis(),
     queryFn: () => loanService.getSummaryKPIs(),
     staleTime: 30 * 1000,
   });
@@ -360,7 +363,7 @@ export function useLoanKPIs() {
  */
 export function useLoan(id?: string) {
   return useQuery({
-    queryKey: ["loan", id],
+    queryKey: queryKeys.loans.detail(id),
     queryFn: () => (id ? loanService.getById(id) : null),
     enabled: !!id,
     staleTime: 30 * 1000,
@@ -371,9 +374,6 @@ export function useLoan(id?: string) {
 // 8. PERSONAL DEBTS & P2P LENDING
 // ====================================================================
 
-import { debtService } from "../services/debtService";
-import { DebtType, DebtStatus } from "../types/debt";
-
 /**
  * Query hook to fetch all personal debts.
  */
@@ -383,7 +383,7 @@ export function useDebts(params?: {
   search?: string;
 }) {
   return useQuery({
-    queryKey: ["debts", params],
+    queryKey: queryKeys.debts.lists(params),
     queryFn: () => debtService.getAll(params),
     staleTime: 30 * 1000,
   });
@@ -394,7 +394,7 @@ export function useDebts(params?: {
  */
 export function useDebtKPIs() {
   return useQuery({
-    queryKey: ["debts-kpis"],
+    queryKey: queryKeys.debts.kpis(),
     queryFn: () => debtService.getKPIs(),
     staleTime: 30 * 1000,
   });
@@ -405,11 +405,9 @@ export function useDebtKPIs() {
  */
 export function useDebt(id?: string) {
   return useQuery({
-    queryKey: ["debt", id],
+    queryKey: queryKeys.debts.detail(id),
     queryFn: () => (id ? debtService.getById(id) : null),
     enabled: !!id,
     staleTime: 30 * 1000,
   });
 }
-
-

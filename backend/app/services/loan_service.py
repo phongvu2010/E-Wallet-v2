@@ -19,6 +19,7 @@ from app.models.loan import (
     LoanStatusEnum,
 )
 from app.models.transaction import Transaction, TransactionTypeEnum
+from app.core.transaction import atomic_transaction
 from app.schemas.loan import (
     AdjustLoanRateRequest,
     EarlySettleLoanRequest,
@@ -108,6 +109,7 @@ class LoanService:
                 selectinload(Loan.rate_histories),
                 selectinload(Loan.account),
             )
+            .execution_options(populate_existing=True)
             .where(Loan.id == loan_id)
         )
         result = await db.execute(query)
@@ -140,129 +142,115 @@ class LoanService:
         base_monthly_principal = round(p0 / Decimal(term), 0)
         pmt = calculate_equal_installment_pmt(p0, r_annual, term)
 
-        loan = Loan(
-            account_id=payload.account_id,
-            institution_id=payload.institution_id,
-            loan_name=payload.loan_name.strip(),
-            loan_code=payload.loan_code.strip() if payload.loan_code else None,
-            loan_type=payload.loan_type,
-            interest_method=payload.interest_method,
-            principal_amount=p0,
-            term_months=term,
-            start_date=payload.start_date,
-            billing_day_of_month=payload.billing_day_of_month,
-            current_interest_rate=r_annual,
-            base_rate=payload.base_rate or Decimal("0.00"),
-            floating_margin=payload.floating_margin or Decimal("0.00"),
-            monthly_fee=monthly_fee,
-            remaining_principal=p0,
-            total_paid_principal=Decimal("0.00"),
-            total_paid_interest=Decimal("0.00"),
-            total_projected_interest=Decimal("0.00"),
-            status=LoanStatusEnum.ACTIVE,
-            note=payload.note.strip() if payload.note else None,
-        )
-        db.add(loan)
-        await db.flush()
-
-        # Generate Amortization Schedule
-        current_balance = p0
-        total_projected_interest = Decimal("0.00")
-
-        for i in range(1, term + 1):
-            beginning_bal = current_balance
-            due_date = add_months_to_date(
-                payload.start_date, i, payload.billing_day_of_month
-            )
-
-            if payload.interest_method == InterestMethodEnum.EQUAL_INSTALLMENT:
-                # Phương thức Trả góp đều (Niên kim cố định / PMT / EMI)
-                # Tiền lãi mỗi tháng theo chuẩn ngân hàng: Dư nợ đầu * (r / 1200)
-                period_interest = round(beginning_bal * (r_annual / Decimal("1200.00")), 0)
-                if i == term:
-                    # Kỳ cuối cùng hấp thụ toàn bộ số dư gốc còn lại để dư nợ về 0 đ
-                    period_principal = beginning_bal
-                else:
-                    period_principal = min(beginning_bal, max(Decimal("0.00"), round(pmt - period_interest, 0)))
-                total_payment = period_principal + period_interest + monthly_fee
-                ending_bal = max(Decimal("0.00"), round(beginning_bal - period_principal, 0))
-            elif payload.interest_method == InterestMethodEnum.FLAT:
-                # Phương thức Lãi phẳng cố định trên gốc ban đầu
-                period_principal = beginning_bal if i == term else min(beginning_bal, base_monthly_principal)
-                period_interest = round(p0 * (r_annual / Decimal("1200.00")), 0)
-                total_payment = period_principal + period_interest + monthly_fee
-                ending_bal = max(Decimal("0.00"), round(beginning_bal - period_principal, 0))
-            else:
-                # Phương thức Dư nợ giảm dần - Gốc chia đều hàng tháng (REDUCING_BALANCE)
-                period_principal = beginning_bal if i == term else min(beginning_bal, base_monthly_principal)
-                period_interest = round(beginning_bal * (r_annual / Decimal("1200.00")), 0)
-                total_payment = period_principal + period_interest + monthly_fee
-                ending_bal = max(Decimal("0.00"), round(beginning_bal - period_principal, 0))
-
-            current_balance = ending_bal
-            total_projected_interest += period_interest
-
-            schedule = LoanSchedule(
-                loan_id=loan.id,
-                period_index=i,
-                total_periods=term,
-                due_date=due_date,
-                applied_interest_rate=r_annual,
-                beginning_balance=beginning_bal,
-                principal_amount=period_principal,
-                interest_amount=period_interest,
+        async with atomic_transaction(db, error_prefix="Không thể tạo gói vay"):
+            loan = Loan(
+                account_id=payload.account_id,
+                institution_id=payload.institution_id,
+                loan_name=payload.loan_name.strip(),
+                loan_code=payload.loan_code.strip() if payload.loan_code else None,
+                loan_type=payload.loan_type,
+                interest_method=payload.interest_method,
+                principal_amount=p0,
+                term_months=term,
+                start_date=payload.start_date,
+                billing_day_of_month=payload.billing_day_of_month,
+                current_interest_rate=r_annual,
+                base_rate=payload.base_rate or Decimal("0.00"),
+                floating_margin=payload.floating_margin or Decimal("0.00"),
                 monthly_fee=monthly_fee,
-                total_payment=total_payment,
-                ending_balance=ending_bal,
-                status=LoanScheduleStatusEnum.UNPAID,
+                remaining_principal=p0,
+                total_paid_principal=Decimal("0.00"),
+                total_paid_interest=Decimal("0.00"),
+                total_projected_interest=Decimal("0.00"),
+                status=LoanStatusEnum.ACTIVE,
+                note=payload.note.strip() if payload.note else None,
             )
-            db.add(schedule)
+            db.add(loan)
+            await db.flush()
 
-        loan.total_projected_interest = total_projected_interest
+            # Generate Amortization Schedule
+            current_balance = p0
+            total_projected_interest = Decimal("0.00")
 
-        # Initial rate history record
-        init_history = LoanRateHistory(
-            loan_id=loan.id,
-            old_rate=r_annual,
-            new_rate=r_annual,
-            old_monthly_fee=monthly_fee,
-            new_monthly_fee=monthly_fee,
-            effective_from_period=1,
-            effective_date=payload.start_date,
-            reason="Lãi suất ban đầu khi giải ngân",
-        )
-        db.add(init_history)
+            for i in range(1, term + 1):
+                beginning_bal = current_balance
+                due_date = add_months_to_date(
+                    payload.start_date, i, payload.billing_day_of_month
+                )
 
-        try:
-            await db.commit()
-            return await LoanService.get_by_id(db, loan.id)
-        except Exception as e:
-            await db.rollback()
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Không thể tạo gói vay: {str(e)}",
+                if payload.interest_method == InterestMethodEnum.EQUAL_INSTALLMENT:
+                    # Phương thức Trả góp đều (Niên kim cố định / PMT / EMI)
+                    # Tiền lãi mỗi tháng theo chuẩn ngân hàng: Dư nợ đầu * (r / 1200)
+                    period_interest = round(beginning_bal * (r_annual / Decimal("1200.00")), 0)
+                    if i == term:
+                        # Kỳ cuối cùng hấp thụ toàn bộ số dư gốc còn lại để dư nợ về 0 đ
+                        period_principal = beginning_bal
+                    else:
+                        period_principal = min(beginning_bal, max(Decimal("0.00"), round(pmt - period_interest, 0)))
+                    total_payment = period_principal + period_interest + monthly_fee
+                    ending_bal = max(Decimal("0.00"), round(beginning_bal - period_principal, 0))
+                elif payload.interest_method == InterestMethodEnum.FLAT:
+                    # Phương thức Lãi phẳng cố định trên gốc ban đầu
+                    period_principal = beginning_bal if i == term else min(beginning_bal, base_monthly_principal)
+                    period_interest = round(p0 * (r_annual / Decimal("1200.00")), 0)
+                    total_payment = period_principal + period_interest + monthly_fee
+                    ending_bal = max(Decimal("0.00"), round(beginning_bal - period_principal, 0))
+                else:
+                    # Phương thức Dư nợ giảm dần - Gốc chia đều hàng tháng (REDUCING_BALANCE)
+                    period_principal = beginning_bal if i == term else min(beginning_bal, base_monthly_principal)
+                    period_interest = round(beginning_bal * (r_annual / Decimal("1200.00")), 0)
+                    total_payment = period_principal + period_interest + monthly_fee
+                    ending_bal = max(Decimal("0.00"), round(beginning_bal - period_principal, 0))
+
+                current_balance = ending_bal
+                total_projected_interest += period_interest
+
+                schedule = LoanSchedule(
+                    loan_id=loan.id,
+                    period_index=i,
+                    total_periods=term,
+                    due_date=due_date,
+                    applied_interest_rate=r_annual,
+                    beginning_balance=beginning_bal,
+                    principal_amount=period_principal,
+                    interest_amount=period_interest,
+                    monthly_fee=monthly_fee,
+                    total_payment=total_payment,
+                    ending_balance=ending_bal,
+                    status=LoanScheduleStatusEnum.UNPAID,
+                )
+                db.add(schedule)
+
+            loan.total_projected_interest = total_projected_interest
+
+            # Initial rate history record
+            init_history = LoanRateHistory(
+                loan_id=loan.id,
+                old_rate=r_annual,
+                new_rate=r_annual,
+                old_monthly_fee=monthly_fee,
+                new_monthly_fee=monthly_fee,
+                effective_from_period=1,
+                effective_date=payload.start_date,
+                reason="Lãi suất ban đầu khi giải ngân",
             )
+            db.add(init_history)
+
+        return await LoanService.get_by_id(db, loan.id)
 
     @staticmethod
     async def update(
         db: AsyncSession, loan_id: UUID, payload: LoanUpdate
     ) -> Loan:
         """Update loan metadata."""
-        loan = await LoanService.get_by_id(db, loan_id)
+        async with atomic_transaction(db, error_prefix="Không thể cập nhật gói vay"):
+            loan = await LoanService.get_by_id(db, loan_id)
 
-        update_data = payload.model_dump(exclude_unset=True)
-        for field, value in update_data.items():
-            setattr(loan, field, value)
+            update_data = payload.model_dump(exclude_unset=True)
+            for field, value in update_data.items():
+                setattr(loan, field, value)
 
-        try:
-            await db.commit()
-            return await LoanService.get_by_id(db, loan.id)
-        except Exception as e:
-            await db.rollback()
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Không thể cập nhật gói vay: {str(e)}",
-            )
+        return await LoanService.get_by_id(db, loan.id)
 
     @staticmethod
     async def adjust_floating_rate(
@@ -293,91 +281,84 @@ class LoanService:
         new_monthly_fee = payload.new_monthly_fee if payload.new_monthly_fee is not None else old_monthly_fee
         eff_date = payload.effective_date or datetime.date.today()
 
-        # Recalculate unpaid periods from eff_period onwards
-        schedules_query = (
-            select(LoanSchedule)
-            .where(LoanSchedule.loan_id == loan.id)
-            .order_by(LoanSchedule.period_index.asc())
-        )
-        schedules_res = await db.execute(schedules_query)
-        all_schedules = schedules_res.scalars().all()
-
-        unpaid_to_recalc = [
-            s for s in all_schedules
-            if s.period_index >= eff_period and s.status == LoanScheduleStatusEnum.UNPAID
-        ]
-
-        if unpaid_to_recalc:
-            if loan.interest_method == InterestMethodEnum.EQUAL_INSTALLMENT:
-                # Recalculate new PMT for remaining unpaid periods
-                first_unpaid = unpaid_to_recalc[0]
-                rem_bal = first_unpaid.beginning_balance
-                rem_term = len(unpaid_to_recalc)
-                new_pmt = calculate_equal_installment_pmt(rem_bal, new_rate, rem_term)
-
-                cur_b = rem_bal
-                for idx, s in enumerate(unpaid_to_recalc):
-                    s.applied_interest_rate = new_rate
-                    s.monthly_fee = new_monthly_fee
-                    s.beginning_balance = cur_b
-
-                    # Standard monthly interest: cur_b * (new_rate / 1200)
-                    period_interest = round(cur_b * (new_rate / Decimal("1200.00")), 0)
-                    s.interest_amount = period_interest
-
-                    if idx == len(unpaid_to_recalc) - 1:
-                        # Final unpaid period absorbs remaining balance
-                        s.principal_amount = cur_b
-                    else:
-                        s.principal_amount = min(cur_b, max(Decimal("0.00"), round(new_pmt - period_interest, 0)))
-
-                    s.total_payment = s.principal_amount + s.interest_amount + new_monthly_fee
-                    s.ending_balance = max(Decimal("0.00"), round(cur_b - s.principal_amount, 0))
-                    cur_b = s.ending_balance
-            elif loan.interest_method == InterestMethodEnum.FLAT:
-                for s in unpaid_to_recalc:
-                    s.applied_interest_rate = new_rate
-                    s.monthly_fee = new_monthly_fee
-                    s.interest_amount = round(loan.principal_amount * (new_rate / Decimal("1200.00")), 0)
-                    s.total_payment = s.principal_amount + s.interest_amount + new_monthly_fee
-            else:  # REDUCING_BALANCE
-                for s in unpaid_to_recalc:
-                    s.applied_interest_rate = new_rate
-                    s.monthly_fee = new_monthly_fee
-                    s.interest_amount = round(s.beginning_balance * (new_rate / Decimal("1200.00")), 0)
-                    s.total_payment = s.principal_amount + s.interest_amount + new_monthly_fee
-
-        # Recalculate loan total projected interest
-        new_projected_interest = loan.total_paid_interest + sum(
-            s.interest_amount for s in all_schedules if s.status != LoanScheduleStatusEnum.PAID
-        )
-
-        loan.current_interest_rate = new_rate
-        loan.monthly_fee = new_monthly_fee
-        loan.total_projected_interest = new_projected_interest
-
-        # Log rate history
-        rate_history = LoanRateHistory(
-            loan_id=loan.id,
-            old_rate=old_rate,
-            new_rate=new_rate,
-            old_monthly_fee=old_monthly_fee,
-            new_monthly_fee=new_monthly_fee,
-            effective_from_period=eff_period,
-            effective_date=eff_date,
-            reason=payload.reason.strip() if payload.reason else "Điều chỉnh lãi suất thả nổi định kỳ",
-        )
-        db.add(rate_history)
-
-        try:
-            await db.commit()
-            return await LoanService.get_by_id(db, loan.id)
-        except Exception as e:
-            await db.rollback()
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Lỗi khi điều chỉnh lãi suất: {str(e)}",
+        async with atomic_transaction(db, error_prefix="Lỗi khi điều chỉnh lãi suất"):
+            # Recalculate unpaid periods from eff_period onwards
+            schedules_query = (
+                select(LoanSchedule)
+                .where(LoanSchedule.loan_id == loan.id)
+                .order_by(LoanSchedule.period_index.asc())
             )
+            schedules_res = await db.execute(schedules_query)
+            all_schedules = schedules_res.scalars().all()
+
+            unpaid_to_recalc = [
+                s for s in all_schedules
+                if s.period_index >= eff_period and s.status == LoanScheduleStatusEnum.UNPAID
+            ]
+
+            if unpaid_to_recalc:
+                if loan.interest_method == InterestMethodEnum.EQUAL_INSTALLMENT:
+                    # Recalculate new PMT for remaining unpaid periods
+                    first_unpaid = unpaid_to_recalc[0]
+                    rem_bal = first_unpaid.beginning_balance
+                    rem_term = len(unpaid_to_recalc)
+                    new_pmt = calculate_equal_installment_pmt(rem_bal, new_rate, rem_term)
+
+                    cur_b = rem_bal
+                    for idx, s in enumerate(unpaid_to_recalc):
+                        s.applied_interest_rate = new_rate
+                        s.monthly_fee = new_monthly_fee
+                        s.beginning_balance = cur_b
+
+                        # Standard monthly interest: cur_b * (new_rate / 1200)
+                        period_interest = round(cur_b * (new_rate / Decimal("1200.00")), 0)
+                        s.interest_amount = period_interest
+
+                        if idx == len(unpaid_to_recalc) - 1:
+                            # Final unpaid period absorbs remaining balance
+                            s.principal_amount = cur_b
+                        else:
+                            s.principal_amount = min(cur_b, max(Decimal("0.00"), round(new_pmt - period_interest, 0)))
+
+                        s.total_payment = s.principal_amount + s.interest_amount + new_monthly_fee
+                        s.ending_balance = max(Decimal("0.00"), round(cur_b - s.principal_amount, 0))
+                        cur_b = s.ending_balance
+                elif loan.interest_method == InterestMethodEnum.FLAT:
+                    for s in unpaid_to_recalc:
+                        s.applied_interest_rate = new_rate
+                        s.monthly_fee = new_monthly_fee
+                        s.interest_amount = round(loan.principal_amount * (new_rate / Decimal("1200.00")), 0)
+                        s.total_payment = s.principal_amount + s.interest_amount + new_monthly_fee
+                else:  # REDUCING_BALANCE
+                    for s in unpaid_to_recalc:
+                        s.applied_interest_rate = new_rate
+                        s.monthly_fee = new_monthly_fee
+                        s.interest_amount = round(s.beginning_balance * (new_rate / Decimal("1200.00")), 0)
+                        s.total_payment = s.principal_amount + s.interest_amount + new_monthly_fee
+
+            # Recalculate loan total projected interest
+            new_projected_interest = loan.total_paid_interest + sum(
+                s.interest_amount for s in all_schedules if s.status != LoanScheduleStatusEnum.PAID
+            )
+
+            loan.current_interest_rate = new_rate
+            loan.monthly_fee = new_monthly_fee
+            loan.total_projected_interest = new_projected_interest
+
+            # Log rate history
+            rate_history = LoanRateHistory(
+                loan_id=loan.id,
+                old_rate=old_rate,
+                new_rate=new_rate,
+                old_monthly_fee=old_monthly_fee,
+                new_monthly_fee=new_monthly_fee,
+                effective_from_period=eff_period,
+                effective_date=eff_date,
+                reason=payload.reason.strip() if payload.reason else "Điều chỉnh lãi suất thả nổi định kỳ",
+            )
+            db.add(rate_history)
+
+        return await LoanService.get_by_id(db, loan.id)
 
     @staticmethod
     async def pay_period(
@@ -407,54 +388,54 @@ class LoanService:
         paid_amount = payload.paid_amount or schedule.total_payment
         paid_date = payload.paid_date or datetime.date.today()
 
-        schedule.status = LoanScheduleStatusEnum.PAID
-        schedule.paid_date = paid_date
-        schedule.paid_amount = paid_amount
+        async with atomic_transaction(db, error_prefix="Lỗi khi thanh toán kỳ vay"):
+            schedule.status = LoanScheduleStatusEnum.PAID
+            schedule.paid_date = paid_date
+            schedule.paid_amount = paid_amount
 
-        # Create repayment transaction if source account is provided
-        if payload.payment_account_id:
-            # Find category for loan repayment
-            cat_query = select(Category).where(
-                Category.name.ilike("%thanh toán%") | Category.name.ilike("%chuyển tiền%")
-            ).limit(1)
-            cat_res = await db.execute(cat_query)
-            cat = cat_res.scalar_one_or_none()
+            # Create repayment transaction if source account is provided
+            if payload.payment_account_id:
+                # Find category for loan repayment
+                cat_query = select(Category).where(
+                    Category.name.ilike("%thanh toán%") | Category.name.ilike("%chuyển tiền%")
+                ).limit(1)
+                cat_res = await db.execute(cat_query)
+                cat = cat_res.scalar_one_or_none()
 
-            tx = Transaction(
-                account_id=payload.payment_account_id,
-                category_id=cat.id if cat else None,
-                transaction_date=paid_date,
-                post_date=paid_date,
-                raw_description=f"Thanh toán nợ vay kỳ {schedule.period_index}/{schedule.total_periods} - {loan.loan_name}",
-                transaction_type=TransactionTypeEnum.REPAYMENT,
-                amount=-abs(schedule.principal_amount),
-                fee=schedule.interest_amount,
-                total_amount=-abs(paid_amount),
-                note=payload.note or f"Gốc: {schedule.principal_amount:,.0f} ₫, Lãi: {schedule.interest_amount:,.0f} ₫ (LS: {schedule.applied_interest_rate}%)",
+                tx = Transaction(
+                    account_id=payload.payment_account_id,
+                    category_id=cat.id if cat else None,
+                    transaction_date=paid_date,
+                    post_date=paid_date,
+                    raw_description=f"Thanh toán nợ vay kỳ {schedule.period_index}/{schedule.total_periods} - {loan.loan_name}",
+                    transaction_type=TransactionTypeEnum.REPAYMENT,
+                    amount=-abs(schedule.principal_amount),
+                    fee=schedule.interest_amount,
+                    total_amount=-abs(paid_amount),
+                    note=payload.note or f"Gốc: {schedule.principal_amount:,.0f} ₫, Lãi: {schedule.interest_amount:,.0f} ₫ (LS: {schedule.applied_interest_rate}%)",
+                )
+                db.add(tx)
+                await db.flush()
+                schedule.transaction_id = tx.id
+
+            # Update loan running balances
+            loan.total_paid_principal += schedule.principal_amount
+            loan.total_paid_interest += schedule.interest_amount
+            loan.remaining_principal = max(
+                Decimal("0.00"), loan.remaining_principal - schedule.principal_amount
             )
-            db.add(tx)
-            await db.flush()
-            schedule.transaction_id = tx.id
 
-        # Update loan running balances
-        loan.total_paid_principal += schedule.principal_amount
-        loan.total_paid_interest += schedule.interest_amount
-        loan.remaining_principal = max(
-            Decimal("0.00"), loan.remaining_principal - schedule.principal_amount
-        )
+            # Check if all schedules are paid
+            scheds_unpaid_query = select(func.count(LoanSchedule.id)).where(
+                LoanSchedule.loan_id == loan.id,
+                LoanSchedule.status != LoanScheduleStatusEnum.PAID,
+            )
+            unpaid_count_res = await db.execute(scheds_unpaid_query)
+            unpaid_count = unpaid_count_res.scalar_one()
 
-        # Check if all schedules are paid
-        scheds_unpaid_query = select(func.count(LoanSchedule.id)).where(
-            LoanSchedule.loan_id == loan.id,
-            LoanSchedule.status != LoanScheduleStatusEnum.PAID,
-        )
-        unpaid_count_res = await db.execute(scheds_unpaid_query)
-        unpaid_count = unpaid_count_res.scalar_one()
+            if unpaid_count == 0 or loan.remaining_principal <= Decimal("0.00"):
+                loan.status = LoanStatusEnum.PAID_OFF
 
-        if unpaid_count == 0 or loan.remaining_principal <= Decimal("0.00"):
-            loan.status = LoanStatusEnum.PAID_OFF
-
-        await db.commit()
         return await LoanService.get_by_id(db, loan.id)
 
     @staticmethod
@@ -489,57 +470,57 @@ class LoanService:
         settle_date = payload.settlement_date or datetime.date.today()
         total_settle_amount = settle_principal + penalty_fee
 
-        # Mark all unpaid schedules as paid with waived interest
-        schedules_query = select(LoanSchedule).where(
-            LoanSchedule.loan_id == loan.id,
-            LoanSchedule.status != LoanScheduleStatusEnum.PAID,
-        )
-        schedules_res = await db.execute(schedules_query)
-        unpaid_schedules = schedules_res.scalars().all()
-
-        for s in unpaid_schedules:
-            s.status = LoanScheduleStatusEnum.PAID
-            s.paid_date = settle_date
-            s.paid_amount = s.principal_amount
-            s.interest_amount = Decimal("0.00")  # Waived future interest
-            s.total_payment = s.principal_amount
-
-        # Create settlement transaction if source account is provided
-        if payload.settlement_account_id:
-            cat_query = select(Category.id).where(
-                Category.name.ilike("%thanh toán%") | Category.name.ilike("%chuyển tiền%")
-            ).limit(1)
-            cat_res = await db.execute(cat_query)
-            cat_id = cat_res.scalar_one_or_none()
-
-            tx = Transaction(
-                account_id=payload.settlement_account_id,
-                category_id=cat_id,
-                transaction_date=settle_date,
-                post_date=settle_date,
-                raw_description=f"Tất toán trước hạn toàn bộ gói vay: {loan.loan_name}",
-                transaction_type=TransactionTypeEnum.REPAYMENT,
-                amount=-abs(settle_principal),
-                fee=penalty_fee,
-                total_amount=-abs(total_settle_amount),
-                note=f"Tất toán gốc còn lại: {settle_principal:,.0f} ₫, Phí phạt trước hạn: {penalty_fee:,.0f} ₫",
+        async with atomic_transaction(db, error_prefix="Lỗi khi tất toán gói vay"):
+            # Mark all unpaid schedules as paid with waived interest
+            schedules_query = select(LoanSchedule).where(
+                LoanSchedule.loan_id == loan.id,
+                LoanSchedule.status != LoanScheduleStatusEnum.PAID,
             )
-            db.add(tx)
+            schedules_res = await db.execute(schedules_query)
+            unpaid_schedules = schedules_res.scalars().all()
 
-        loan.total_paid_principal += settle_principal
-        loan.remaining_principal = Decimal("0.00")
-        loan.status = LoanStatusEnum.PAID_OFF
-        loan.total_projected_interest = loan.total_paid_interest
+            for s in unpaid_schedules:
+                s.status = LoanScheduleStatusEnum.PAID
+                s.paid_date = settle_date
+                s.paid_amount = s.principal_amount
+                s.interest_amount = Decimal("0.00")  # Waived future interest
+                s.total_payment = s.principal_amount
 
-        await db.commit()
+            # Create settlement transaction if source account is provided
+            if payload.settlement_account_id:
+                cat_query = select(Category.id).where(
+                    Category.name.ilike("%thanh toán%") | Category.name.ilike("%chuyển tiền%")
+                ).limit(1)
+                cat_res = await db.execute(cat_query)
+                cat_id = cat_res.scalar_one_or_none()
+
+                tx = Transaction(
+                    account_id=payload.settlement_account_id,
+                    category_id=cat_id,
+                    transaction_date=settle_date,
+                    post_date=settle_date,
+                    raw_description=f"Tất toán trước hạn toàn bộ gói vay: {loan.loan_name}",
+                    transaction_type=TransactionTypeEnum.REPAYMENT,
+                    amount=-abs(settle_principal),
+                    fee=penalty_fee,
+                    total_amount=-abs(total_settle_amount),
+                    note=f"Tất toán gốc còn lại: {settle_principal:,.0f} ₫, Phí phạt trước hạn: {penalty_fee:,.0f} ₫",
+                )
+                db.add(tx)
+
+            loan.total_paid_principal += settle_principal
+            loan.remaining_principal = Decimal("0.00")
+            loan.status = LoanStatusEnum.PAID_OFF
+            loan.total_projected_interest = loan.total_paid_interest
+
         return await LoanService.get_by_id(db, loan.id)
 
     @staticmethod
     async def delete(db: AsyncSession, loan_id: UUID) -> bool:
         """Delete a loan and cascade all schedules and history."""
-        loan = await LoanService.get_by_id(db, loan_id)
-        await db.delete(loan)
-        await db.commit()
+        async with atomic_transaction(db, error_prefix="Không thể xóa gói vay"):
+            loan = await LoanService.get_by_id(db, loan_id)
+            await db.delete(loan)
         return True
 
     @staticmethod

@@ -5,6 +5,7 @@ from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
+from app.core.transaction import atomic_transaction
 from app.models.institution import Institution
 from app.schemas.institution import InstitutionCreate
 
@@ -65,14 +66,8 @@ class InstitutionService:
             HTTPException: 400 Bad Request on uniqueness violation or commit error.
         """
         inst = Institution(**payload.model_dump())
-        db.add(inst)
-        try:
-            await db.commit()
+        async with atomic_transaction(db, error_prefix="Lỗi tạo ngân hàng/tổ chức tài chính"):
+            db.add(inst)
+            await db.flush()
             await db.refresh(inst)
             return inst
-        except Exception as e:
-            await db.rollback()
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Error creating institution: {str(e)}",
-            )

@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy.orm import selectinload
 
+from app.core.transaction import atomic_transaction
 from app.models.merchant import Merchant, MerchantAlias
 from app.schemas.merchant import (
     MerchantAliasCreate,
@@ -80,17 +81,10 @@ class MerchantService:
             HTTPException: 400 Bad Request on integrity violation.
         """
         m = Merchant(**payload.model_dump())
-        db.add(m)
-        try:
-            await db.commit()
-            await db.refresh(m)
-            return await MerchantService.get_by_id(db, m.id)
-        except Exception as e:
-            await db.rollback()
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Error creating merchant: {str(e)}",
-            )
+        async with atomic_transaction(db, error_prefix="Lỗi tạo merchant"):
+            db.add(m)
+            await db.flush()
+        return await MerchantService.get_by_id(db, m.id)
 
     @staticmethod
     async def create_alias(
@@ -112,17 +106,11 @@ class MerchantService:
             HTTPException: 400 Bad Request on error.
         """
         alias = MerchantAlias(**payload.model_dump())
-        db.add(alias)
-        try:
-            await db.commit()
+        async with atomic_transaction(db, error_prefix="Lỗi tạo alias merchant"):
+            db.add(alias)
+            await db.flush()
             await db.refresh(alias)
             return alias
-        except Exception as e:
-            await db.rollback()
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Error creating alias: {str(e)}",
-            )
 
     @staticmethod
     async def get_suggestions(

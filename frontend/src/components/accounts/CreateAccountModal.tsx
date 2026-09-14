@@ -8,7 +8,6 @@ import {
   Plus,
   Smartphone,
   Wallet,
-  X,
 } from "lucide-react";
 import { useCreateAccount } from "../../hooks/useFinanceMutations";
 import { useInstitutions } from "../../hooks/useFinanceQueries";
@@ -20,6 +19,7 @@ import { Input } from "../common/Input";
 import { Modal } from "../common/Modal";
 import { Select } from "../common/Select";
 import { useToast } from "../../context/ToastContext";
+import { FormErrors, parseNumeric, validateAccountForm } from "../../utils/validators";
 
 interface CreateAccountModalProps {
   isOpen: boolean;
@@ -99,10 +99,12 @@ export const CreateAccountModal: React.FC<CreateAccountModalProps> = ({
   const [gracePeriod, setGracePeriod] = useState("15");
   const [selectedColor, setSelectedColor] = useState(ACCOUNT_TYPE_OPTIONS[0].color);
   const [note, setNote] = useState("");
+  const [errors, setErrors] = useState<FormErrors>({});
   const [error, setError] = useState<string | null>(null);
 
   const handleTypeSelect = (type: AccountType) => {
     setAccountType(type);
+    setErrors({});
     const opt = ACCOUNT_TYPE_OPTIONS.find((o) => o.type === type);
     if (opt) setSelectedColor(opt.color);
 
@@ -122,13 +124,29 @@ export const CreateAccountModal: React.FC<CreateAccountModalProps> = ({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!accountName.trim()) {
-      setError("Vui lòng nhập tên tài khoản hoặc ví");
+
+    const validationErrors = validateAccountForm({
+      accountType,
+      accountName,
+      institutionId,
+      accountNumber,
+      initialBalance,
+      creditLimit,
+      billingDay,
+      gracePeriod,
+      note,
+    });
+
+    if (Object.keys(validationErrors).length > 0) {
+      setErrors(validationErrors);
       return;
     }
 
-    const numInitial = parseFloat(initialBalance) || 0;
-    const numLimit = parseFloat(creditLimit) || 0;
+    setErrors({});
+    setError(null);
+
+    const numInitial = parseNumeric(initialBalance);
+    const numLimit = parseNumeric(creditLimit);
     const numBilling = parseInt(billingDay) || 20;
     const numGrace = parseInt(gracePeriod) || 15;
 
@@ -160,6 +178,7 @@ export const CreateAccountModal: React.FC<CreateAccountModalProps> = ({
       setCreditLimit("0");
       setNote("");
       setError(null);
+      setErrors({});
     } catch (err: any) {
       setError(err.message || "Lỗi tạo tài khoản");
     }
@@ -219,14 +238,15 @@ export const CreateAccountModal: React.FC<CreateAccountModalProps> = ({
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
-              <label className="block text-xs font-medium text-slate-300 mb-1.5">
-                Tên tài khoản / Ví <span className="text-rose-400">*</span>
-              </label>
               <Input
-                type="text"
+                label="Tên tài khoản / Ví"
                 placeholder="VD: Vietcombank Lương, Ví Tiền Mặt..."
                 value={accountName}
-                onChange={(e) => setAccountName(e.target.value)}
+                onChange={(e) => {
+                  setAccountName(e.target.value);
+                  if (errors.accountName) setErrors((prev) => ({ ...prev, accountName: undefined }));
+                }}
+                error={errors.accountName}
                 required
               />
             </div>
@@ -252,11 +272,8 @@ export const CreateAccountModal: React.FC<CreateAccountModalProps> = ({
 
             {accountType !== "CASH" && (
               <div>
-                <label className="block text-xs font-medium text-slate-300 mb-1.5">
-                  {accountType === "CREDIT_CARD" ? "Số thẻ (hoặc 4 số cuối)" : "Số tài khoản ngân hàng / Số ví"}
-                </label>
                 <Input
-                  type="text"
+                  label={accountType === "CREDIT_CARD" ? "Số thẻ (hoặc 4 số cuối)" : "Số tài khoản ngân hàng / Số ví"}
                   placeholder={accountType === "CREDIT_CARD" ? "VD: 4696 72xx xxxx 2958" : "VD: 1903 8888 9999"}
                   value={accountNumber}
                   onChange={(e) => setAccountNumber(e.target.value)}
@@ -267,10 +284,8 @@ export const CreateAccountModal: React.FC<CreateAccountModalProps> = ({
             {/* Số dư ban đầu cho Asset Accounts */}
             {accountType !== "CREDIT_CARD" && (
               <div>
-                <label className="block text-xs font-medium text-slate-300 mb-1.5">
-                  Số dư ban đầu (VNĐ)
-                </label>
                 <CurrencyInput
+                  label="Số dư ban đầu (VNĐ)"
                   value={initialBalance}
                   onChange={setInitialBalance}
                   placeholder="0"
@@ -285,38 +300,46 @@ export const CreateAccountModal: React.FC<CreateAccountModalProps> = ({
             {accountType === "CREDIT_CARD" && (
               <>
                 <div>
-                  <label className="block text-xs font-medium text-slate-300 mb-1.5">
-                    Hạn mức tín dụng (VNĐ) <span className="text-rose-400">*</span>
-                  </label>
                   <CurrencyInput
+                    label="Hạn mức tín dụng (VNĐ)"
                     value={creditLimit}
-                    onChange={setCreditLimit}
+                    onValueChange={(val) => {
+                      setCreditLimit(String(val));
+                      if (errors.creditLimit) setErrors((prev) => ({ ...prev, creditLimit: undefined }));
+                    }}
+                    onChangeRaw={(raw) => setCreditLimit(raw)}
+                    error={errors.creditLimit}
                     placeholder="50,000,000"
+                    required
                   />
                 </div>
                 <div className="grid grid-cols-2 gap-2">
                   <div>
-                    <label className="block text-xs font-medium text-slate-300 mb-1.5">
-                      Ngày chốt sao kê
-                    </label>
                     <Input
+                      label="Ngày chốt sao kê"
                       type="number"
                       min={1}
                       max={31}
                       value={billingDay}
-                      onChange={(e) => setBillingDay(e.target.value)}
+                      onChange={(e) => {
+                        setBillingDay(e.target.value);
+                        if (errors.billingDay) setErrors((prev) => ({ ...prev, billingDay: undefined }));
+                      }}
+                      error={errors.billingDay}
                     />
                   </div>
                   <div>
-                    <label className="block text-xs font-medium text-slate-300 mb-1.5">
-                      Số ngày gia hạn
-                    </label>
                     <Input
+                      label="Số ngày gia hạn"
                       type="number"
                       min={0}
                       max={60}
                       value={gracePeriod}
-                      onChange={(e) => setGracePeriod(e.target.value)}
+                      onChange={(e) => {
+                        setGracePeriod(e.target.value);
+                        if (errors.gracePeriod) setErrors((prev) => ({ ...prev, gracePeriod: undefined }));
+                      }}
+                      error={errors.gracePeriod}
                     />
                   </div>
                 </div>
@@ -347,11 +370,8 @@ export const CreateAccountModal: React.FC<CreateAccountModalProps> = ({
           </div>
 
           <div>
-            <label className="block text-xs font-medium text-slate-300 mb-1.5">
-              Ghi chú
-            </label>
             <Input
-              type="text"
+              label="Ghi chú"
               placeholder="Ghi chú thêm về tài khoản này..."
               value={note}
               onChange={(e) => setNote(e.target.value)}

@@ -752,7 +752,7 @@ SELECT
     a.replaces_account_id,
     rep_a.card_number_masked AS replaced_by_card_number
 FROM accounts a
-JOIN institutions i ON a.institution_id = i.id
+LEFT JOIN institutions i ON a.institution_id = i.id
 LEFT JOIN accounts rep_a ON a.id = rep_a.replaces_account_id
 LEFT JOIN LATERAL (
     SELECT statement_balance, payment_due_date

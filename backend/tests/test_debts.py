@@ -5,6 +5,7 @@ import uuid
 import pytest
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.future import select
 
 from app.models.account import Account, AccountStatusEnum, AccountTypeEnum
 from app.models.category import Category, CategoryTypeEnum
@@ -33,32 +34,50 @@ async def test_create_borrow_debt_and_repay_with_extra_tip(db_session: AsyncSess
     db_session.add(acc)
 
     # Setup category for thank-you tip
-    cat = Category(
-        name="Quà tặng & Cảm ơn",
-        category_type=CategoryTypeEnum.EXPENSE,
-        is_system=True,
+    cat_res = await db_session.execute(
+        select(Category).where(Category.name == "Quà tặng & Cảm ơn", Category.parent_id.is_(None))
     )
-    cat_parent = Category(
-        id=uuid.UUID("cccccccc-3e4a-4be6-9333-18ebaf270e2e"),
-        name="Chuyển tiền & Trả nợ",
-        category_type=CategoryTypeEnum.TRANSFER,
-        is_system=True,
-    )
-    cat_borrow = Category(
-        id=uuid.UUID("cccccccc-3e4a-4be6-9333-18ebaf270004"),
-        parent_id=cat_parent.id,
-        name="Đi vay tiền",
-        category_type=CategoryTypeEnum.TRANSFER,
-        is_system=True,
-    )
-    cat_repay = Category(
-        id=uuid.UUID("cccccccc-3e4a-4be6-9333-18ebaf270005"),
-        parent_id=cat_parent.id,
-        name="Trả nợ vay",
-        category_type=CategoryTypeEnum.TRANSFER,
-        is_system=True,
-    )
-    db_session.add_all([cat, cat_parent, cat_borrow, cat_repay])
+    cat = cat_res.scalars().first()
+    if not cat:
+        cat = Category(
+            name="Quà tặng & Cảm ơn",
+            category_type=CategoryTypeEnum.EXPENSE,
+            is_system=True,
+        )
+        db_session.add(cat)
+
+    cat_parent = await db_session.get(Category, uuid.UUID("cccccccc-3e4a-4be6-9333-18ebaf270e2e"))
+    if not cat_parent:
+        cat_parent = Category(
+            id=uuid.UUID("cccccccc-3e4a-4be6-9333-18ebaf270e2e"),
+            name="Chuyển tiền & Trả nợ",
+            category_type=CategoryTypeEnum.TRANSFER,
+            is_system=True,
+        )
+        db_session.add(cat_parent)
+
+    cat_borrow = await db_session.get(Category, uuid.UUID("cccccccc-3e4a-4be6-9333-18ebaf270004"))
+    if not cat_borrow:
+        cat_borrow = Category(
+            id=uuid.UUID("cccccccc-3e4a-4be6-9333-18ebaf270004"),
+            parent_id=cat_parent.id,
+            name="Đi vay tiền",
+            category_type=CategoryTypeEnum.TRANSFER,
+            is_system=True,
+        )
+        db_session.add(cat_borrow)
+
+    cat_repay = await db_session.get(Category, uuid.UUID("cccccccc-3e4a-4be6-9333-18ebaf270005"))
+    if not cat_repay:
+        cat_repay = Category(
+            id=uuid.UUID("cccccccc-3e4a-4be6-9333-18ebaf270005"),
+            parent_id=cat_parent.id,
+            name="Trả nợ vay",
+            category_type=CategoryTypeEnum.TRANSFER,
+            is_system=True,
+        )
+        db_session.add(cat_repay)
+
     await db_session.flush()
 
     # 2. Create Borrow Debt (Vay bạn Nam 5tr)
@@ -81,9 +100,13 @@ async def test_create_borrow_debt_and_repay_with_extra_tip(db_session: AsyncSess
     assert created_debt.status == DebtStatusEnum.ACTIVE
 
     # Verify initial transaction has correct category_id (Đi vay tiền)
-    tx_borrow_stmt = select(Transaction).where(Transaction.transaction_type == TransactionTypeEnum.DEBT_BORROW)
+    tx_borrow_stmt = select(Transaction).where(
+        Transaction.account_id == acc.id,
+        Transaction.transaction_type == TransactionTypeEnum.DEBT_BORROW
+    )
     tx_borrow_res = await db_session.execute(tx_borrow_stmt)
-    tx_borrow = tx_borrow_res.scalar_one()
+    tx_borrow = tx_borrow_res.scalars().first()
+    assert tx_borrow is not None
     assert tx_borrow.category_id == cat_borrow.id
 
     # 3. Repay Period 1: 2,000,000 VND principal
@@ -105,9 +128,13 @@ async def test_create_borrow_debt_and_repay_with_extra_tip(db_session: AsyncSess
     assert len(debt_after_p1.repayments) == 1
 
     # Verify repayment transaction has correct category_id (Trả nợ vay)
-    tx_repay_stmt = select(Transaction).where(Transaction.transaction_type == TransactionTypeEnum.DEBT_REPAY)
+    tx_repay_stmt = select(Transaction).where(
+        Transaction.account_id == acc.id,
+        Transaction.transaction_type == TransactionTypeEnum.DEBT_REPAY
+    )
     tx_repay_res = await db_session.execute(tx_repay_stmt)
     tx_repay = tx_repay_res.scalars().first()
+    assert tx_repay is not None
     assert tx_repay.category_id == cat_repay.id
 
     # 4. Repay Period 2: 3,000,000 VND principal + 200,000 VND appreciation tip
@@ -146,19 +173,27 @@ async def test_create_lend_debt_and_collect_with_extra(db_session: AsyncSession)
         status=AccountStatusEnum.ACTIVE,
     )
     # Setup categories for lending and collecting
-    cat_lend = Category(
-        id=uuid.UUID("cccccccc-3e4a-4be6-9333-18ebaf270006"),
-        name="Cho vay tiền",
-        category_type=CategoryTypeEnum.TRANSFER,
-        is_system=True,
-    )
-    cat_collect = Category(
-        id=uuid.UUID("cccccccc-3e4a-4be6-9333-18ebaf270007"),
-        name="Thu hồi nợ",
-        category_type=CategoryTypeEnum.TRANSFER,
-        is_system=True,
-    )
-    db_session.add_all([acc, cat_lend, cat_collect])
+    cat_lend = await db_session.get(Category, uuid.UUID("cccccccc-3e4a-4be6-9333-18ebaf270006"))
+    if not cat_lend:
+        cat_lend = Category(
+            id=uuid.UUID("cccccccc-3e4a-4be6-9333-18ebaf270006"),
+            name="Cho vay tiền",
+            category_type=CategoryTypeEnum.TRANSFER,
+            is_system=True,
+        )
+        db_session.add(cat_lend)
+
+    cat_collect = await db_session.get(Category, uuid.UUID("cccccccc-3e4a-4be6-9333-18ebaf270007"))
+    if not cat_collect:
+        cat_collect = Category(
+            id=uuid.UUID("cccccccc-3e4a-4be6-9333-18ebaf270007"),
+            name="Thu hồi nợ",
+            category_type=CategoryTypeEnum.TRANSFER,
+            is_system=True,
+        )
+        db_session.add(cat_collect)
+
+    db_session.add(acc)
     await db_session.flush()
 
     # 1. Cho bạn Tuấn mượn 2,000,000 VND
@@ -176,9 +211,13 @@ async def test_create_lend_debt_and_collect_with_extra(db_session: AsyncSession)
     assert lend_debt.remaining_amount == Decimal("2000000.00")
 
     # Verify initial lend transaction has correct category_id (Cho vay tiền)
-    tx_lend_stmt = select(Transaction).where(Transaction.transaction_type == TransactionTypeEnum.DEBT_LEND)
+    tx_lend_stmt = select(Transaction).where(
+        Transaction.account_id == acc.id,
+        Transaction.transaction_type == TransactionTypeEnum.DEBT_LEND
+    )
     tx_lend_res = await db_session.execute(tx_lend_stmt)
-    tx_lend = tx_lend_res.scalar_one()
+    tx_lend = tx_lend_res.scalars().first()
+    assert tx_lend is not None
     assert tx_lend.category_id == cat_lend.id
 
     # 2. Tuấn trả lại 2,000,000 VND gốc + 100,000 VND cảm ơn
@@ -199,9 +238,13 @@ async def test_create_lend_debt_and_collect_with_extra(db_session: AsyncSession)
     assert collected_debt.status == DebtStatusEnum.PAID_OFF
 
     # Verify collect transaction has correct category_id (Thu hồi nợ)
-    tx_collect_stmt = select(Transaction).where(Transaction.transaction_type == TransactionTypeEnum.DEBT_COLLECT)
+    tx_collect_stmt = select(Transaction).where(
+        Transaction.account_id == acc.id,
+        Transaction.transaction_type == TransactionTypeEnum.DEBT_COLLECT
+    )
     tx_collect_res = await db_session.execute(tx_collect_stmt)
-    tx_collect = tx_collect_res.scalar_one()
+    tx_collect = tx_collect_res.scalars().first()
+    assert tx_collect is not None
     assert tx_collect.category_id == cat_collect.id
 
 

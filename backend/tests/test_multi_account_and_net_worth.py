@@ -172,14 +172,14 @@ async def test_wallet_transfer_with_fees(client: AsyncClient):
     )
     assert transfer_res.status_code == 201
     tx_data = transfer_res.json()
-    assert tx_data["amount"] == 500000.0
-    assert tx_data["fee"] == 1100.0
-    assert tx_data["total_amount"] == 501100.0
+    assert float(tx_data["amount"]) == 500000.0
+    assert float(tx_data["fee"]) == 1100.0
+    assert float(tx_data["total_amount"]) == 501100.0
 
     # 3. Check Live Balances
     live_res = await client.get("/api/v1/accounts/live-balance")
     assert live_res.status_code == 200
-    balances = {b["account_id"]: b["live_current_balance"] for b in live_res.json()}
+    balances = {b["account_id"]: float(b["live_current_balance"]) for b in live_res.json()}
 
     # Wallet A should have 5,000,000 - 501,100 = 4,498,900đ
     assert balances[wallet_a_id] == 4498900.0

@@ -61,7 +61,7 @@ class AccountRead(AccountBase):
 class AccountOverviewRead(BaseModel):
     account_id: UUID
     account_name: str
-    bank_name: str
+    bank_name: Optional[str] = None
     card_number_masked: str
     credit_limit: Decimal
     latest_statement_balance: Decimal

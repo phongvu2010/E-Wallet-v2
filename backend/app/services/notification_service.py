@@ -9,6 +9,7 @@ from sqlalchemy import func, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
+from app.core.transaction import atomic_transaction
 from app.models.notification import (
     Notification,
     NotificationSeverityEnum,
@@ -79,17 +80,19 @@ class NotificationService:
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Notification not found",
             )
-        notif.is_read = True
-        await db.commit()
+        async with atomic_transaction(db, error_prefix="Lỗi cập nhật trạng thái thông báo"):
+            notif.is_read = True
+            await db.flush()
         return True
 
     @staticmethod
     async def mark_all_as_read(db: AsyncSession) -> int:
         """Mark all unread notifications as read."""
-        stmt = text("UPDATE notifications SET is_read = TRUE WHERE is_read = FALSE;")
-        result = await db.execute(stmt)
-        await db.commit()
-        return result.rowcount
+        async with atomic_transaction(db, error_prefix="Lỗi đánh dấu đã đọc tất cả thông báo"):
+            stmt = text("UPDATE notifications SET is_read = TRUE WHERE is_read = FALSE;")
+            result = await db.execute(stmt)
+            await db.flush()
+            return result.rowcount
 
     @staticmethod
     async def create(db: AsyncSession, payload: NotificationCreate) -> Notification:
@@ -104,9 +107,10 @@ class NotificationService:
             metadata_json=payload.metadata_json or {},
             is_read=False,
         )
-        db.add(notif)
-        await db.commit()
-        await db.refresh(notif)
+        async with atomic_transaction(db, error_prefix="Lỗi tạo thông báo"):
+            db.add(notif)
+            await db.flush()
+            await db.refresh(notif)
 
         # Trigger Telegram push in background
         settings = await NotificationService.get_settings(db)
@@ -137,15 +141,16 @@ class NotificationService:
         res = await db.execute(select(NotificationSettings).limit(1))
         record = res.scalar_one_or_none()
         if not record:
-            record = NotificationSettings(
-                is_telegram_enabled=False,
-                is_in_app_enabled=True,
-                remind_days_before=3,
-                remind_utilization_threshold=70,
-            )
-            db.add(record)
-            await db.commit()
-            await db.refresh(record)
+            async with atomic_transaction(db, error_prefix="Lỗi khởi tạo cấu hình thông báo"):
+                record = NotificationSettings(
+                    is_telegram_enabled=False,
+                    is_in_app_enabled=True,
+                    remind_days_before=3,
+                    remind_utilization_threshold=70,
+                )
+                db.add(record)
+                await db.flush()
+                await db.refresh(record)
         return record
 
     @staticmethod
@@ -155,11 +160,12 @@ class NotificationService:
         """Update notification and Telegram configuration."""
         record = await NotificationService.get_settings(db)
         update_data = payload.model_dump(exclude_unset=True)
-        for k, v in update_data.items():
-            setattr(record, k, v)
-        record.updated_at = func.now()
-        await db.commit()
-        await db.refresh(record)
+        async with atomic_transaction(db, error_prefix="Lỗi cập nhật cấu hình thông báo"):
+            for k, v in update_data.items():
+                setattr(record, k, v)
+            record.updated_at = func.now()
+            await db.flush()
+            await db.refresh(record)
 
         # Signal TelegramBotService to reload configuration immediately
         try:

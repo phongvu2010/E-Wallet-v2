@@ -11,6 +11,7 @@ import { useAccounts } from "../../hooks/useFinanceQueries";
 import { Account } from "../../types/account";
 import { DebtType } from "../../types/debt";
 import { formatAccountLabel } from "../../utils/formatters";
+import { FormErrors, validateDebtForm } from "../../utils/validators";
 
 interface CreateDebtModalProps {
   isOpen: boolean;
@@ -31,6 +32,7 @@ export const CreateDebtModal: React.FC<CreateDebtModalProps> = ({
   const [dueDate, setDueDate] = useState("");
   const [accountId, setAccountId] = useState("");
   const [note, setNote] = useState("");
+  const [errors, setErrors] = useState<FormErrors>({});
   const [formError, setFormError] = useState<string | null>(null);
 
   const { data: accounts = [] } = useAccounts();
@@ -45,22 +47,30 @@ export const CreateDebtModal: React.FC<CreateDebtModalProps> = ({
     setDueDate("");
     setAccountId("");
     setNote("");
+    setErrors({});
     setFormError(null);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!counterpartyName.trim()) {
-      setFormError("Vui lòng nhập tên người vay / cho vay");
+    const validationErrors = validateDebtForm({
+      debtType,
+      counterpartyName,
+      counterpartyPhone,
+      principalAmount,
+      startDate,
+      dueDate,
+      accountId,
+      note,
+    });
+
+    if (Object.keys(validationErrors).length > 0) {
+      setErrors(validationErrors);
       return;
     }
 
-    if (!principalAmount || principalAmount <= 0) {
-      setFormError("Vui lòng nhập số tiền gốc hợp lệ (> 0)");
-      return;
-    }
-
+    setErrors({});
     setFormError(null);
 
     try {
@@ -68,7 +78,7 @@ export const CreateDebtModal: React.FC<CreateDebtModalProps> = ({
         counterparty_name: counterpartyName.trim(),
         counterparty_phone: counterpartyPhone.trim() || undefined,
         debt_type: debtType,
-        principal_amount: principalAmount,
+        principal_amount: Number(principalAmount),
         start_date: startDate,
         due_date: dueDate || undefined,
         account_id: accountId || undefined,
@@ -77,8 +87,8 @@ export const CreateDebtModal: React.FC<CreateDebtModalProps> = ({
 
       toast.success(
         debtType === "BORROW"
-          ? `Đã ghi nhận khoản vay ${principalAmount.toLocaleString("vi-VN")}đ từ ${counterpartyName}`
-          : `Đã ghi nhận khoản cho ${counterpartyName} vay ${principalAmount.toLocaleString("vi-VN")}đ`
+          ? `Đã ghi nhận khoản vay ${Number(principalAmount).toLocaleString("vi-VN")}đ từ ${counterpartyName}`
+          : `Đã ghi nhận khoản cho ${counterpartyName} vay ${Number(principalAmount).toLocaleString("vi-VN")}đ`
       );
 
       resetForm();
@@ -147,7 +157,11 @@ export const CreateDebtModal: React.FC<CreateDebtModalProps> = ({
                 type="text"
                 placeholder="VD: Bạn Nam, Anh Tuấn..."
                 value={counterpartyName}
-                onChange={(e) => setCounterpartyName(e.target.value)}
+                onChange={(e) => {
+                  setCounterpartyName(e.target.value);
+                  if (errors.counterpartyName) setErrors((prev) => ({ ...prev, counterpartyName: undefined }));
+                }}
+                error={errors.counterpartyName}
                 className="pl-9"
                 required
               />
@@ -164,7 +178,11 @@ export const CreateDebtModal: React.FC<CreateDebtModalProps> = ({
                 type="tel"
                 placeholder="09xx xxx xxx"
                 value={counterpartyPhone}
-                onChange={(e) => setCounterpartyPhone(e.target.value)}
+                onChange={(e) => {
+                  setCounterpartyPhone(e.target.value);
+                  if (errors.counterpartyPhone) setErrors((prev) => ({ ...prev, counterpartyPhone: undefined }));
+                }}
+                error={errors.counterpartyPhone}
                 className="pl-9"
               />
             </div>
@@ -178,7 +196,11 @@ export const CreateDebtModal: React.FC<CreateDebtModalProps> = ({
           </label>
           <CurrencyInput
             value={principalAmount}
-            onValueChange={(val) => setPrincipalAmount(val)}
+            onValueChange={(val) => {
+              setPrincipalAmount(val);
+              if (errors.principalAmount) setErrors((prev) => ({ ...prev, principalAmount: undefined }));
+            }}
+            error={errors.principalAmount}
             placeholder="VD: 5,000,000"
           />
         </div>
@@ -223,7 +245,11 @@ export const CreateDebtModal: React.FC<CreateDebtModalProps> = ({
               <Input
                 type="date"
                 value={startDate}
-                onChange={(e) => setStartDate(e.target.value)}
+                onChange={(e) => {
+                  setStartDate(e.target.value);
+                  if (errors.startDate) setErrors((prev) => ({ ...prev, startDate: undefined }));
+                }}
+                error={errors.startDate}
                 className="pl-9"
                 required
               />
@@ -239,7 +265,11 @@ export const CreateDebtModal: React.FC<CreateDebtModalProps> = ({
               <Input
                 type="date"
                 value={dueDate}
-                onChange={(e) => setDueDate(e.target.value)}
+                onChange={(e) => {
+                  setDueDate(e.target.value);
+                  if (errors.dueDate) setErrors((prev) => ({ ...prev, dueDate: undefined }));
+                }}
+                error={errors.dueDate}
                 className="pl-9"
               />
             </div>

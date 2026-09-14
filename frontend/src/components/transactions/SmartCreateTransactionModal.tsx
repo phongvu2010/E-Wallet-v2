@@ -47,6 +47,7 @@ import {
   inferTransactionTypeFromCategory,
   resolveCategoryHierarchy,
 } from "../../utils/categoryHelpers";
+import { FormErrors, validateTransactionForm } from "../../utils/validators";
 
 interface SmartCreateTransactionModalProps {
   isOpen: boolean;
@@ -251,7 +252,7 @@ export const SmartCreateTransactionModal: React.FC<
   const [settlesStatementId, setSettlesStatementId] = useState<string>("");
 
   const [note, setNote] = useState<string>("");
-  const [errors, setCreateErrors] = useState<Record<string, string>>({});
+  const [errors, setCreateErrors] = useState<FormErrors>({});
 
   // Autocomplete UI State
   const [isSearchingMerchant, setIsSearchingMerchant] =
@@ -565,25 +566,20 @@ export const SmartCreateTransactionModal: React.FC<
 
   // Validation
   const validateForm = () => {
-    const errs: Record<string, string> = {};
-    if (!selectedAccountId) {
-      errs.account_id = "Vui lòng chọn tài khoản nguồn";
-    }
-    if (!transactionDate) {
-      errs.transaction_date = "Vui lòng chọn ngày giao dịch";
-    }
-    if (!amountVND || parsedAmtVND <= 0) {
-      errs.amount = "Số tiền giao dịch phải lớn hơn 0 VNĐ";
-    }
-    if (isForeignCurrency && (!foreignAmount || parseFloat(foreignAmount) <= 0)) {
-      errs.foreign_amount = "Vui lòng nhập số tiền nguyên tệ hợp lệ";
-    }
-    if ((activeFlow === "TRANSFER" || activeFlow === "REPAYMENT") && !transferToAccountId) {
-      errs.transfer_to_account_id =
-        activeFlow === "TRANSFER"
-          ? "Vui lòng chọn tài khoản / ví nhận tiền"
-          : "Vui lòng chọn thẻ tín dụng cần thanh toán";
-    }
+    const errs = validateTransactionForm({
+      flow: activeFlow,
+      transactionType,
+      accountId: selectedAccountId,
+      transferToAccountId,
+      transactionDate,
+      amountVND,
+      feeVND,
+      isForeignCurrency,
+      foreignAmount,
+      exchangeRate,
+      rawDescription,
+      categoryId: effectiveCategoryId,
+    });
     setCreateErrors(errs);
     return Object.keys(errs).length === 0;
   };

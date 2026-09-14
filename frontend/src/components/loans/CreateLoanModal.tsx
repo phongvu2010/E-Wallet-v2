@@ -13,6 +13,7 @@ import { Account } from "../../types/account";
 import { Institution } from "../../types/institution";
 import { InterestMethod, LoanCreatePayload, LoanType } from "../../types/loan";
 import { formatAccountLabel, formatCurrency, formatDate, formatRate } from "../../utils/formatters";
+import { FormErrors, parseNumeric, validateLoanForm } from "../../utils/validators";
 
 interface CreateLoanModalProps {
   isOpen: boolean;
@@ -57,14 +58,14 @@ export const CreateLoanModal: React.FC<CreateLoanModalProps> = ({ isOpen, onClos
   const [note, setNote] = useState("");
 
   const [showPreview, setShowPreview] = useState(false);
-  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [errors, setErrors] = useState<FormErrors>({});
 
   // Calculation for live amortization preview
   const preview = useMemo(() => {
-    const p0 = Number(principalAmount) || 0;
-    const term = Number(termMonths) || 1;
-    const rate = Number(interestRate) || 0;
-    const fee = Number(monthlyFee) || 0;
+    const p0 = parseNumeric(principalAmount);
+    const term = parseNumeric(termMonths) || 1;
+    const rate = parseNumeric(interestRate);
+    const fee = parseNumeric(monthlyFee);
     const rMonthly = rate / 1200;
     const basePrincipal = Math.round(p0 / term);
 
@@ -126,20 +127,33 @@ export const CreateLoanModal: React.FC<CreateLoanModalProps> = ({ isOpen, onClos
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const newErrors: Record<string, string> = {};
 
-    if (!loanName.trim()) newErrors.loanName = "Vui lòng nhập tên gói vay";
-    const p = Number(principalAmount);
-    if (isNaN(p) || p <= 0) newErrors.principalAmount = "Số tiền vay phải lớn hơn 0";
-    const t = Number(termMonths);
-    if (isNaN(t) || t <= 0) newErrors.termMonths = "Thời hạn vay phải lớn hơn 0 tháng";
-    const r = Number(interestRate);
-    if (isNaN(r) || r < 0) newErrors.interestRate = "Lãi suất không hợp lệ";
+    const validationErrors = validateLoanForm({
+      loanName,
+      loanCode,
+      institutionId,
+      accountId,
+      loanType,
+      interestMethod,
+      principalAmount,
+      termMonths,
+      startDate,
+      billingDay,
+      interestRate,
+      monthlyFee,
+      note,
+    });
 
-    if (Object.keys(newErrors).length > 0) {
-      setErrors(newErrors);
+    if (Object.keys(validationErrors).length > 0) {
+      setErrors(validationErrors);
       return;
     }
+
+    setErrors({});
+
+    const p = parseNumeric(principalAmount);
+    const t = parseNumeric(termMonths);
+    const r = parseNumeric(interestRate);
 
     const payload: LoanCreatePayload = {
       loan_name: loanName.trim(),
@@ -150,9 +164,9 @@ export const CreateLoanModal: React.FC<CreateLoanModalProps> = ({ isOpen, onClos
       interest_method: interestMethod,
       principal_amount: p,
       term_months: t,
-      monthly_fee: Number(monthlyFee) || 0,
+      monthly_fee: parseNumeric(monthlyFee),
       start_date: startDate,
-      billing_day_of_month: Number(billingDay) || 15,
+      billing_day_of_month: parseNumeric(billingDay) || 15,
       current_interest_rate: r,
       note: note.trim() || undefined,
     };
@@ -191,7 +205,7 @@ export const CreateLoanModal: React.FC<CreateLoanModalProps> = ({ isOpen, onClos
               value={loanName}
               onChange={(e) => {
                 setLoanName(e.target.value);
-                if (errors.loanName) setErrors((prev) => ({ ...prev, loanName: "" }));
+                if (errors.loanName) setErrors((prev) => ({ ...prev, loanName: undefined }));
               }}
               error={errors.loanName}
               required
@@ -265,13 +279,13 @@ export const CreateLoanModal: React.FC<CreateLoanModalProps> = ({ isOpen, onClos
               </label>
               <CurrencyInput
                 value={principalAmount}
-                onChange={(val) => {
-                  setPrincipalAmount(val);
-                  if (errors.principalAmount) setErrors((prev) => ({ ...prev, principalAmount: "" }));
+                onValueChange={(val) => {
+                  setPrincipalAmount(val ?? "");
+                  if (errors.principalAmount) setErrors((prev) => ({ ...prev, principalAmount: undefined }));
                 }}
+                error={errors.principalAmount}
                 placeholder="100,000,000"
               />
-              {errors.principalAmount && <p className="text-xs text-rose-400 mt-1">{errors.principalAmount}</p>}
             </div>
 
             <div>
@@ -279,11 +293,11 @@ export const CreateLoanModal: React.FC<CreateLoanModalProps> = ({ isOpen, onClos
                 label="Thời Hạn Vay (Tháng)"
                 type="number"
                 min="1"
-                max="360"
+                max="600"
                 value={termMonths}
                 onChange={(e) => {
                   setTermMonths(e.target.value);
-                  if (errors.termMonths) setErrors((prev) => ({ ...prev, termMonths: "" }));
+                  if (errors.termMonths) setErrors((prev) => ({ ...prev, termMonths: undefined }));
                 }}
                 error={errors.termMonths}
                 required
@@ -301,7 +315,7 @@ export const CreateLoanModal: React.FC<CreateLoanModalProps> = ({ isOpen, onClos
                 value={interestRate}
                 onChange={(e) => {
                   setInterestRate(e.target.value);
-                  if (errors.interestRate) setErrors((prev) => ({ ...prev, interestRate: "" }));
+                  if (errors.interestRate) setErrors((prev) => ({ ...prev, interestRate: undefined }));
                 }}
                 error={errors.interestRate}
                 required
@@ -313,7 +327,11 @@ export const CreateLoanModal: React.FC<CreateLoanModalProps> = ({ isOpen, onClos
                 label="Ngày Giải Ngân / Bắt Đầu"
                 type="date"
                 value={startDate}
-                onChange={(e) => setStartDate(e.target.value)}
+                onChange={(e) => {
+                  setStartDate(e.target.value);
+                  if (errors.startDate) setErrors((prev) => ({ ...prev, startDate: undefined }));
+                }}
+                error={errors.startDate}
                 required
               />
             </div>
@@ -325,7 +343,11 @@ export const CreateLoanModal: React.FC<CreateLoanModalProps> = ({ isOpen, onClos
                 min="1"
                 max="31"
                 value={billingDay}
-                onChange={(e) => setBillingDay(e.target.value)}
+                onChange={(e) => {
+                  setBillingDay(e.target.value);
+                  if (errors.billingDay) setErrors((prev) => ({ ...prev, billingDay: undefined }));
+                }}
+                error={errors.billingDay}
                 placeholder="15"
                 required
               />
@@ -337,7 +359,11 @@ export const CreateLoanModal: React.FC<CreateLoanModalProps> = ({ isOpen, onClos
               </label>
               <CurrencyInput
                 value={monthlyFee}
-                onChange={(val) => setMonthlyFee(val)}
+                onValueChange={(val) => {
+                  setMonthlyFee(val ?? 0);
+                  if (errors.monthlyFee) setErrors((prev) => ({ ...prev, monthlyFee: undefined }));
+                }}
+                error={errors.monthlyFee}
                 placeholder="VD: 12,000"
               />
             </div>
@@ -352,88 +378,96 @@ export const CreateLoanModal: React.FC<CreateLoanModalProps> = ({ isOpen, onClos
                 options={INTEREST_METHODS}
               />
             </div>
+
+            <div className="sm:col-span-3">
+              <Input
+                label="Ghi Chú Gói Vay"
+                placeholder="VD: Ưu đãi 6.5% trong 12 tháng đầu, sau đó thả nổi = LSTK 12T + biên độ 3.5%..."
+                value={note}
+                onChange={(e) => setNote(e.target.value)}
+              />
+            </div>
           </div>
         </div>
 
-        {/* 3. Live Amortization Summary Card */}
-        <div className="p-4 rounded-2xl bg-gradient-to-br from-slate-900 to-slate-950 border border-slate-800 space-y-3">
+        {/* 3. Live Preview Card */}
+        <div className="p-4 rounded-2xl bg-slate-900 border border-slate-800 space-y-3">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-slate-300">Ước Tính Thanh Toán Kỳ Đầu & Tổng Tiền Lãi</span>
+            <span className="text-xs font-bold text-slate-200">Dự Tính Thanh Toán & Trả Nợ</span>
             <button
               type="button"
               onClick={() => setShowPreview(!showPreview)}
-              className="text-xs text-indigo-400 hover:text-indigo-300 flex items-center gap-1 font-semibold"
+              className="text-xs text-indigo-400 hover:text-indigo-300 flex items-center gap-1"
             >
-              {showPreview ? "Ẩn bảng lịch trình" : "Xem bảng lịch trình"}
-              {showPreview ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+              <span>{showPreview ? "Thu gọn bảng kỳ" : "Xem chi tiết bảng phân bổ kỳ"}</span>
+              {showPreview ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
             </button>
           </div>
 
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 pt-1">
-            <div className="p-3 rounded-xl bg-slate-950/80 border border-slate-800">
-              <span className="text-[11px] text-slate-400 block">Kỳ Đầu Phải Trả</span>
-              <span className="text-base font-bold font-mono text-emerald-400">
-                {formatCurrency(preview.firstPayment)}
-              </span>
+          <div className="grid grid-cols-3 gap-3 text-center">
+            <div className="p-2.5 rounded-xl bg-slate-950 border border-slate-800">
+              <span className="text-[10px] text-slate-400 block mb-0.5">Kỳ Đầu Tiên Ước Tính</span>
+              <span className="text-sm font-bold text-emerald-400">{formatCurrency(preview.firstPayment)}</span>
             </div>
-            <div className="p-3 rounded-xl bg-slate-950/80 border border-slate-800">
-              <span className="text-[11px] text-slate-400 block">Tiền Gốc / Tháng</span>
-              <span className="text-base font-bold font-mono text-slate-200">
-                {formatCurrency(Math.round(Number(principalAmount) / (Number(termMonths) || 1)))}
-              </span>
+            <div className="p-2.5 rounded-xl bg-slate-950 border border-slate-800">
+              <span className="text-[10px] text-slate-400 block mb-0.5">Tổng Lãi Dự Kiến</span>
+              <span className="text-sm font-bold text-amber-400">{formatCurrency(preview.totalInterest)}</span>
             </div>
-            <div className="p-3 rounded-xl bg-slate-950/80 border border-slate-800 col-span-2 sm:col-span-1">
-              <span className="text-[11px] text-slate-400 block">Tổng Lãi Dự Tính</span>
-              <span className="text-base font-bold font-mono text-amber-400">
-                {formatCurrency(preview.totalInterest)}
+            <div className="p-2.5 rounded-xl bg-slate-950 border border-slate-800">
+              <span className="text-[10px] text-slate-400 block mb-0.5">Tổng Gốc + Lãi + Phí</span>
+              <span className="text-sm font-bold text-indigo-400">
+                {formatCurrency(parseNumeric(principalAmount) + preview.totalInterest + preview.totalFee)}
               </span>
             </div>
           </div>
 
           {/* Collapsible preview table */}
-          {showPreview && (
-            <div className="mt-3 max-h-48 overflow-y-auto rounded-xl border border-slate-800 text-xs">
-              <table className="w-full text-left font-mono">
-                <thead className="bg-slate-950 text-slate-400 text-[10px] uppercase sticky top-0">
+          {showPreview && preview.schedules.length > 0 && (
+            <div className="mt-3 border border-slate-800 rounded-xl overflow-hidden max-h-48 overflow-y-auto">
+              <table className="w-full text-[11px] text-left">
+                <thead className="bg-slate-950 text-slate-400 sticky top-0">
                   <tr>
-                    <th className="py-2 px-2.5">Kỳ</th>
-                    <th className="py-2 px-2.5 text-right">Tiền Gốc</th>
-                    <th className="py-2 px-2.5 text-right">Lãi Suất</th>
-                    <th className="py-2 px-2.5 text-right">Tiền Lãi</th>
-                    <th className="py-2 px-2.5 text-right">Tổng Trả</th>
+                    <th className="p-2">Kỳ</th>
+                    <th className="p-2 text-right">Gốc</th>
+                    <th className="p-2 text-right">Lãi</th>
+                    <th className="p-2 text-right">Tổng kỳ</th>
+                    <th className="p-2 text-right">Dư nợ cuối</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-800/60">
-                  {preview.schedules.map((s) => (
+                  {preview.schedules.slice(0, 24).map((s) => (
                     <tr key={s.index} className="hover:bg-slate-800/40">
-                      <td className="py-1.5 px-2.5 text-slate-300">Kỳ {s.index}</td>
-                      <td className="py-1.5 px-2.5 text-right text-slate-200">{formatCurrency(s.principal)}</td>
-                      <td className="py-1.5 px-2.5 text-right text-amber-300">{formatRate(interestRate)}</td>
-                      <td className="py-1.5 px-2.5 text-right text-amber-400 font-medium">{formatCurrency(s.interest)}</td>
-                      <td className="py-1.5 px-2.5 text-right font-bold text-emerald-400">{formatCurrency(s.total)}</td>
+                      <td className="p-2 font-mono text-slate-300">#{s.index}</td>
+                      <td className="p-2 text-right font-mono text-slate-200">{formatCurrency(s.principal)}</td>
+                      <td className="p-2 text-right font-mono text-amber-300">{formatCurrency(s.interest)}</td>
+                      <td className="p-2 text-right font-mono font-bold text-emerald-300">{formatCurrency(s.total)}</td>
+                      <td className="p-2 text-right font-mono text-slate-400">{formatCurrency(s.endingBalance)}</td>
                     </tr>
                   ))}
+                  {preview.schedules.length > 24 && (
+                    <tr>
+                      <td colSpan={5} className="p-2 text-center text-slate-500 italic bg-slate-950/40">
+                        ... và {preview.schedules.length - 24} kỳ tiếp theo
+                      </td>
+                    </tr>
+                  )}
                 </tbody>
               </table>
             </div>
           )}
         </div>
 
-        {/* 4. Note */}
-        <Input
-          label="Ghi Chú Thêm (Tùy chọn)"
-          placeholder="VD: Vay thế chấp sổ đỏ kỳ hạn 3 năm, ưu đãi 1 năm đầu..."
-          value={note}
-          onChange={(e) => setNote(e.target.value)}
-        />
-
-        {/* Footer actions */}
-        <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-800">
-          <Button type="button" variant="outline" onClick={onClose}>
+        {/* Actions */}
+        <div className="flex items-center justify-end gap-3 pt-2">
+          <Button type="button" variant="ghost" onClick={onClose}>
             Hủy Bỏ
           </Button>
-          <Button type="submit" variant="primary" isLoading={createLoanMutation.isPending}>
-            Tạo Gói Vay & Sinh Lịch Trình
+          <Button
+            type="submit"
+            isLoading={createLoanMutation.isPending}
+            className="bg-indigo-600 hover:bg-indigo-500 text-white font-bold"
+          >
+            Khởi Tạo Gói Vay
           </Button>
         </div>
       </form>
