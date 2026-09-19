@@ -133,6 +133,9 @@ cache_sheet_path = "data/google_sheet_cache.xlsx"
 wb = None
 sheet_source_desc = ""
 
+import io
+import tempfile
+
 if target_sheet_id:
     print(f"[ETL Ingestion] Đang kết nối và tải dữ liệu từ Google Sheet (ID: {target_sheet_id})...")
     export_url = f"https://docs.google.com/spreadsheets/d/{target_sheet_id}/export?format=xlsx"
@@ -148,13 +151,25 @@ if target_sheet_id:
     try:
         with urllib.request.urlopen(req, timeout=30) as resp:
             content = resp.read()
-            Path(cache_sheet_path).parent.mkdir(parents=True, exist_ok=True)
-            with open(cache_sheet_path, "wb") as f:
-                f.write(content)
-            wb = openpyxl.load_workbook(cache_sheet_path, data_only=True)
+            # 1. Load directly into openpyxl in memory (Zero-disk, immune to file permissions)
+            wb = openpyxl.load_workbook(io.BytesIO(content), data_only=True)
             sheet_source_desc = f"Google Sheet (ID: {target_sheet_id})"
             print(f"[ETL Ingestion] ✅ Đã tải thành công {len(content):,} bytes từ Google Sheet!")
             print(f"[ETL Ingestion] Danh sách trang tính nhận diện: {wb.sheetnames}")
+
+            # 2. Non-blocking disk caching for offline recovery
+            cache_candidates = [
+                cache_sheet_path,
+                os.path.join(tempfile.gettempdir(), "google_sheet_cache.xlsx"),
+            ]
+            for c_path in cache_candidates:
+                try:
+                    Path(c_path).parent.mkdir(parents=True, exist_ok=True)
+                    with open(c_path, "wb") as f:
+                        f.write(content)
+                    break
+                except Exception:
+                    pass
     except urllib.error.HTTPError as e:
         print(f"\n[CẢNH BÁO / LỖI] ❌ Không thể tải Google Sheet (HTTP Error {e.code}: {e.reason})!")
         if e.code in (401, 403):
@@ -167,10 +182,15 @@ if target_sheet_id:
             print("   4. Bấm 'Xong' (Done) và chạy lại Đồng Bộ ETL!")
             print("=" * 70)
         # Fallback to cache or local excel file
+        tmp_cache = os.path.join(tempfile.gettempdir(), "google_sheet_cache.xlsx")
         if Path(cache_sheet_path).exists():
             print(f"[ETL Ingestion] ⚠️ Sử dụng tệp Google Sheet đã lưu cache trước đó: {cache_sheet_path}")
             wb = openpyxl.load_workbook(cache_sheet_path, data_only=True)
             sheet_source_desc = f"Google Sheet Cache ({cache_sheet_path})"
+        elif Path(tmp_cache).exists():
+            print(f"[ETL Ingestion] ⚠️ Sử dụng tệp Google Sheet đã lưu cache tạm: {tmp_cache}")
+            wb = openpyxl.load_workbook(tmp_cache, data_only=True)
+            sheet_source_desc = f"Google Sheet Cache ({tmp_cache})"
         elif Path(excel_file_path).exists():
             print(f"[ETL Ingestion] ⚠️ Chuyển sang nạp từ tệp Excel dự phòng cục bộ: {excel_file_path}")
             wb = openpyxl.load_workbook(excel_file_path, data_only=True)
@@ -181,10 +201,15 @@ if target_sheet_id:
             )
     except Exception as e:
         print(f"[ETL Ingestion] ❌ Lỗi kết nối Google Sheet: {str(e)}")
+        tmp_cache = os.path.join(tempfile.gettempdir(), "google_sheet_cache.xlsx")
         if Path(cache_sheet_path).exists():
             print(f"[ETL Ingestion] ⚠️ Sử dụng tệp Google Sheet đã lưu cache trước đó: {cache_sheet_path}")
             wb = openpyxl.load_workbook(cache_sheet_path, data_only=True)
             sheet_source_desc = f"Google Sheet Cache ({cache_sheet_path})"
+        elif Path(tmp_cache).exists():
+            print(f"[ETL Ingestion] ⚠️ Sử dụng tệp Google Sheet đã lưu cache tạm: {tmp_cache}")
+            wb = openpyxl.load_workbook(tmp_cache, data_only=True)
+            sheet_source_desc = f"Google Sheet Cache ({tmp_cache})"
         elif Path(excel_file_path).exists():
             print(f"[ETL Ingestion] ⚠️ Chuyển sang nạp từ tệp Excel cục bộ: {excel_file_path}")
             wb = openpyxl.load_workbook(excel_file_path, data_only=True)
@@ -199,6 +224,7 @@ if wb is None:
         sheet_source_desc = f"Tệp Excel cục bộ ({excel_file_path})"
     else:
         raise FileNotFoundError(f"Không tìm thấy nguồn dữ liệu ({excel_file_path})")
+
 
 
 def load_sheet(name: str) -> pd.DataFrame:

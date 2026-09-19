@@ -28,8 +28,13 @@ env/
 cron.log
 
 # Parquet & ML output files
+data/HSBC/*.pdf
+data/Sacombank/*.pdf
+data/Shinhan Bank/*.pdf
+data/*.pdf
 *.parquet
 *.json
+*.xlsx
 
 # Testing
 .pytest_cache/
