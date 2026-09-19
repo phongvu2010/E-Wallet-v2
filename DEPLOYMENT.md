@@ -231,3 +231,15 @@ docker compose -f docker-compose.prod.yml logs -f frontend
 ```bash
 gunzip -c /opt/backups/wallet/credit_wallet_20260919.sql.gz | docker exec -i credit_wallet_db_prod psql -U postgres -d credit_wallet
 ```
+
+### 4. Quản trị RLS Mode (Personal Single-User Mode vs Multi-Tenant)
+Hệ thống hỗ trợ 2 chế độ bảo mật phân quyền:
+* **Chế độ 1: Personal / Single-User Mode (Mặc định cho cá nhân nội bộ):** Vô hiệu hóa Row Level Security (RLS) để đọc ghi mượt mà trên cả Docker Local và Supabase mà không cần lớp Auth JWT.
+  ```bash
+  # Chạy script chuyển đổi sang Personal Mode trên container Postgres
+  docker exec -i credit_wallet_db_prod psql -U postgres -d credit_wallet < scripts/toggle_rls_mode.sql
+  ```
+* **Chế độ 2: Multi-Tenant / Supabase Auth Mode:** Tái kích hoạt RLS và các chính sách phân quyền `auth.uid() = user_id` khi triển khai thêm Auth Layer.
+
+> [!NOTE]
+> **Lưu ý Supabase Connection:** Đối với Background Service Coordinator (chạy PostgreSQL Advisory Lock), bạn cần kết nối qua cổng Direct Connection (`5432` Session Mode) thay vì Transaction Pooler (`6543` PgBouncer) để đảm bảo khóa bầu Leader hoạt động ổn định nhất.

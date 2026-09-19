@@ -36,9 +36,16 @@ class Settings(BaseSettings):
     # Google Sheets ETL Ingestion
     GOOGLE_SHEET_ID: str = "16kks0eL-j7SNxBAR3NlU5n1viIEvTjg-fAu9yWC9mAk"
 
-    # Automated Background Alert Scheduler
+    # Automated Background Alert Scheduler & Worker Coordination
     ENABLE_BACKGROUND_SCHEDULER: bool = True
     ALERT_SCAN_INTERVAL_HOURS: int = 6
+    RUN_BACKGROUND_SERVICES: str = "auto"  # "auto" (leader election via PostgreSQL advisory lock), "true", "false"
+    BACKGROUND_LOCK_ID: int = 88481234
+
+    # Optional External Integrations
+    GEMINI_API_KEY: Union[str, None] = None
+    TELEGRAM_BOT_TOKEN: Union[str, None] = None
+    TELEGRAM_CHAT_ID: Union[str, None] = None
 
     @model_validator(mode="after")
     def assemble_database_url(self) -> "Settings":

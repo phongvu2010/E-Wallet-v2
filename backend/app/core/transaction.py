@@ -12,8 +12,9 @@ Features:
 """
 
 from contextlib import asynccontextmanager
-from typing import AsyncGenerator, Optional
+import logging
 import re
+from typing import AsyncGenerator, Optional
 
 from fastapi import HTTPException, status
 from sqlalchemy.exc import (
@@ -24,6 +25,8 @@ from sqlalchemy.exc import (
     SQLAlchemyError,
 )
 from sqlalchemy.ext.asyncio import AsyncSession
+
+logger = logging.getLogger(__name__)
 
 
 def _format_db_error_detail(exc: Exception) -> str:
@@ -150,10 +153,12 @@ async def atomic_transaction(
             detail=f"{prefix_str}{detail}",
         ) from exc
     except Exception as exc:
+        # Unexpected non-database exceptions (e.g. ValueError, TypeError, AttributeError, bug code)
+        # Log traceback and re-raise so FastAPI global_exception_handler cleanly returns HTTP 500
         prefix_str = f"{error_prefix}: " if error_prefix else ""
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"{prefix_str}{str(exc)}",
-        ) from exc
+        logger.exception(
+            f"[atomic_transaction] Unexpected error occurred ({prefix_str}): {exc}"
+        )
+        raise
     finally:
         session.info["_atomic_depth"] = depth - 1

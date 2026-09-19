@@ -7,6 +7,7 @@ automatically dispatching In-App notifications and Telegram Bot alerts.
 
 import asyncio
 from datetime import datetime, timedelta
+import os
 from typing import Any, Dict, Optional
 
 from app.core.config import settings
@@ -43,6 +44,7 @@ class AlertSchedulerService:
         """Return real-time diagnostic status of the background monitoring scheduler."""
         inst = cls.get_instance()
         return {
+            "worker_pid": os.getpid(),
             "is_enabled": getattr(settings, "ENABLE_BACKGROUND_SCHEDULER", True),
             "is_running": inst._is_running,
             "interval_hours": inst._interval_seconds / 3600.0,

@@ -7,9 +7,8 @@ from sqlalchemy import text
 
 from app.api.v1.api import api_router
 from app.core.config import settings
+from app.core.background import BackgroundServiceCoordinator
 from app.core.database import async_engine
-from app.services.scheduler_service import AlertSchedulerService
-from app.services.telegram_bot_service import TelegramBotService
 
 
 @asynccontextmanager
@@ -22,19 +21,13 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         print(f"[FastAPI] Warning: Database connection failed during startup: {e}")
 
-    # Startup: Initialize background monitoring alert scheduler
-    AlertSchedulerService.start()
-
-    # Startup: Initialize 2-way Telegram Bot background polling service
-    TelegramBotService.start()
+    # Startup: Initialize background services via leader election coordinator
+    await BackgroundServiceCoordinator.start()
 
     yield
 
-    # Shutdown: Stop Telegram Bot service
-    await TelegramBotService.stop()
-
-    # Shutdown: Stop background monitoring scheduler
-    await AlertSchedulerService.stop()
+    # Shutdown: Stop background services & release advisory lock
+    await BackgroundServiceCoordinator.stop()
 
     # Shutdown: Dispose engine pool
     await async_engine.dispose()
@@ -97,12 +90,19 @@ async def health_check():
     }
 
 
+@app.get("/background/status", tags=["Background Tasks"], summary="Background Service Coordinator Status")
+async def background_status():
+    """Retrieve diagnostic information for multi-worker background service coordinator (Leader vs Standby)."""
+    return BackgroundServiceCoordinator.get_status()
+
+
 @app.get("/", tags=["Root"], include_in_schema=False)
 async def root():
     return {
         "message": f"Welcome to {settings.PROJECT_NAME}",
         "docs": "/docs",
         "health": "/health",
+        "background_status": "/background/status",
         "api_v1": settings.API_V1_STR,
     }
 

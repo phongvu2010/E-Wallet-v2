@@ -12,6 +12,7 @@ Supports:
 import asyncio
 from datetime import date, datetime
 from decimal import Decimal
+import os
 import time
 from typing import Any, Dict, List, Optional
 import uuid
@@ -56,6 +57,7 @@ class TelegramBotService:
         # Clean expired drafts
         inst._cleanup_expired_drafts()
         return {
+            "worker_pid": os.getpid(),
             "is_running": inst._is_running,
             "polling_active": inst._task is not None and not inst._task.done(),
             "active_drafts_count": len(inst._draft_cache),

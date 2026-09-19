@@ -178,3 +178,37 @@ async def test_atomic_transaction_foreign_key_error_translation(db_session: Asyn
     assert exc_info.value.status_code in [400, 404]
     detail = str(exc_info.value.detail)
     assert any(kw in detail.lower() for kw in ["tài khoản", "không tồn tại", "bản ghi"])
+
+
+@pytest.mark.asyncio
+async def test_atomic_transaction_reraises_unexpected_exceptions(db_session: AsyncSession):
+    """Test that atomic_transaction rolls back and re-raises non-database exceptions (e.g. ValueError) directly."""
+    acc = Account(
+        account_name="Atomicity Reraise Test Card",
+        account_type=AccountTypeEnum.CREDIT_CARD,
+        credit_limit=Decimal("10000000.00"),
+        status=AccountStatusEnum.ACTIVE,
+    )
+    db_session.add(acc)
+    await db_session.flush()
+
+    with pytest.raises(ValueError, match="Unexpected logic failure"):
+        async with atomic_transaction(db_session, error_prefix="Lỗi thử nghiệm"):
+            tx = Transaction(
+                account_id=acc.id,
+                transaction_date=datetime.date(2026, 9, 1),
+                amount=Decimal("100000.00"),
+                total_amount=Decimal("100000.00"),
+                transaction_type=TransactionTypeEnum.PURCHASE,
+                raw_description="Giao dịch thử nghiệm rollback do ValueError",
+            )
+            db_session.add(tx)
+            await db_session.flush()
+            # Simulate an unexpected non-database exception
+            raise ValueError("Unexpected logic failure")
+
+    # Verify transaction was rolled back
+    tx_check = await db_session.execute(
+        select(Transaction).where(Transaction.account_id == acc.id)
+    )
+    assert tx_check.scalars().first() is None

@@ -1155,6 +1155,13 @@ ORDER BY month DESC;
 -- ====================================================================
 -- 6. SUPABASE & DOCKER ROW LEVEL SECURITY (RLS) POLICIES
 -- ====================================================================
+-- LƯU Ý VẬN HÀNH (OPERATIONAL NOTE):
+-- Các chính sách RLS dưới đây được thiết kế sẵn cho chế độ Multi-Tenant (Supabase Auth).
+-- Đối với ứng dụng cá nhân nội bộ (Personal / Single-User Mode) chưa có Auth Layer,
+-- hệ thống chạy mượt mà trên Docker Local (superuser postgres).
+-- Nếu triển khai lên Supabase với tài khoản non-superuser, bạn có thể thực thi
+-- tệp script: `scripts/toggle_rls_mode.sql` để vô hiệu hóa RLS trên 18 bảng.
+-- ====================================================================
 
 -- 6.1. Gắn khóa ngoại tới bảng auth.users(id)
 ALTER TABLE accounts

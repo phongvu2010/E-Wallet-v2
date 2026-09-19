@@ -11,6 +11,7 @@ import {
   Trash2,
   TrendingDown,
   TrendingUp,
+  X,
 } from "lucide-react";
 import { Badge } from "../components/common/Badge";
 import { Button } from "../components/common/Button";
@@ -23,6 +24,7 @@ import { SmartCreateTransactionModal } from "../components/transactions/SmartCre
 import { TransactionDetailModal } from "../components/transactions/TransactionDetailModal";
 import { useToast } from "../context/ToastContext";
 import { useDeleteTransaction } from "../hooks/useFinanceMutations";
+import { useDebounce } from "../hooks/useDebounce";
 import {
   useAccounts,
   useCategoryTree,
@@ -68,12 +70,18 @@ export const TransactionsPage: React.FC = () => {
   const [page, setPage] = useState(1);
   const [pageSize] = useState(25);
   const [search, setSearch] = useState("");
+  const debouncedSearch = useDebounce(search, 300);
   const [selectedAccountId, setSelectedAccountId] = useState<string>("");
   const [selectedType, setSelectedType] = useState<string>("");
   const [selectedCategoryId, setSelectedCategoryId] = useState<string>("");
   const [startDate, setStartDate] = useState<string>("");
   const [endDate, setEndDate] = useState<string>("");
   const [showMobileFilters, setShowMobileFilters] = useState(false);
+
+  // Auto-reset to page 1 whenever debounced search input changes
+  useEffect(() => {
+    setPage(1);
+  }, [debouncedSearch]);
 
   // Modal states
   const [isCreateOpen, setIsCreateOpen] = useState(false);
@@ -99,7 +107,7 @@ export const TransactionsPage: React.FC = () => {
     category_id: selectedCategoryId || undefined,
     start_date: startDate || undefined,
     end_date: endDate || undefined,
-    search: search || undefined,
+    search: debouncedSearch || undefined,
   };
 
   const {
@@ -239,13 +247,24 @@ export const TransactionsPage: React.FC = () => {
         <form onSubmit={handleSearchSubmit} className="space-y-3">
           {/* Quick search & Mobile filter toggle */}
           <div className="flex items-center gap-2">
-            <div className="flex-1">
+            <div className="flex-1 relative">
               <Input
                 placeholder="Tìm nội dung, đơn vị, ghi chú..."
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 leftIcon={<Search className="w-4 h-4" />}
+                className={search ? "pr-9" : ""}
               />
+              {search && (
+                <button
+                  type="button"
+                  onClick={() => setSearch("")}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-slate-200 transition-colors"
+                  title="Xóa nội dung tìm kiếm"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
             </div>
             <button
               type="button"
