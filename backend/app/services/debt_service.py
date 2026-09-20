@@ -4,7 +4,7 @@ from typing import List, Optional
 from uuid import UUID
 
 from fastapi import HTTPException, status
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -75,6 +75,7 @@ class DebtService:
             id=debt.id,
             user_id=debt.user_id,
             account_id=debt.account_id,
+            origin_transaction_id=debt.origin_transaction_id,
             account_name=account_name,
             account_bank_name=account_bank_name,
             counterparty_name=debt.counterparty_name,
@@ -236,6 +237,8 @@ class DebtService:
                         note=payload.note or f"Cho {payload.counterparty_name.strip()} vay tiền",
                     )
                 db.add(tx_init)
+                await db.flush()
+                debt.origin_transaction_id = tx_init.id
                 await db.flush()
 
         return await DebtService.get_by_id(db, debt.id)
@@ -428,9 +431,13 @@ class DebtService:
 
     @staticmethod
     async def delete(db: AsyncSession, debt_id: UUID) -> bool:
-        """Delete a debt record and all its associated repayments."""
+        """Delete a debt record, all its associated repayments, and linked transactions."""
         async with atomic_transaction(db, error_prefix="Lỗi khi xóa khoản nợ"):
-            query = select(Debt).where(Debt.id == debt_id)
+            query = (
+                select(Debt)
+                .options(selectinload(Debt.repayments))
+                .where(Debt.id == debt_id)
+            )
             result = await db.execute(query)
             debt = result.scalar_one_or_none()
             if not debt:
@@ -439,5 +446,27 @@ class DebtService:
                     detail=f"Khoản nợ với ID {debt_id} không tồn tại",
                 )
 
+            # Collect all linked transaction IDs (initial borrowing/lending + repayment transactions)
+            tx_ids_to_delete = []
+            if debt.origin_transaction_id:
+                tx_ids_to_delete.append(debt.origin_transaction_id)
+
+            if debt.repayments:
+                for rep in debt.repayments:
+                    if rep.transaction_id:
+                        tx_ids_to_delete.append(rep.transaction_id)
+                    if rep.extra_transaction_id:
+                        tx_ids_to_delete.append(rep.extra_transaction_id)
+
+            # Delete the debt record (cascades to debt_repayments)
             await db.delete(debt)
+            await db.flush()
+
+            # Clean up all linked ledger transactions to prevent orphaned records
+            if tx_ids_to_delete:
+                await db.execute(
+                    delete(Transaction).where(Transaction.id.in_(tx_ids_to_delete))
+                )
+                await db.flush()
+
         return True

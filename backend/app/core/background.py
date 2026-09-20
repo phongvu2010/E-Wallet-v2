@@ -14,26 +14,36 @@ import os
 from typing import Any, Dict, Optional
 
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncConnection
+from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine, create_async_engine
+from sqlalchemy.pool import NullPool
 
 from app.core.config import settings
-from app.core.database import async_engine
+from app.core.database import async_connect_args
 from app.services.scheduler_service import AlertSchedulerService
 from app.services.telegram_bot_service import TelegramBotService
 
 
 class BackgroundServiceCoordinator:
-    """Coordinates singleton background tasks across multiple Gunicorn worker processes."""
+    """Coordinates singleton background tasks across multiple Gunicorn worker processes.
+
+    Uses a dedicated NullPool connection for PostgreSQL session advisory lock (`pg_try_advisory_lock`),
+    avoiding connection pool depletion from the main API pool.
+    Includes active Lock Heartbeat loop: if the leader connection is dropped silently, it detects
+    the lost lock, demotes itself to Standby immediately, and triggers failover without split-brain.
+    """
 
     _instance: Optional["BackgroundServiceCoordinator"] = None
 
     def __init__(self):
+        self._lock_engine: Optional[AsyncEngine] = None
         self._lock_conn: Optional[AsyncConnection] = None
         self._is_leader: bool = False
         self._is_running: bool = False
         self._watchdog_task: Optional[asyncio.Task] = None
+        self._heartbeat_task: Optional[asyncio.Task] = None
         self._worker_pid: int = os.getpid()
         self._started_at: Optional[datetime] = None
+        self._last_heartbeat_at: Optional[datetime] = None
         self._mode: str = str(getattr(settings, "RUN_BACKGROUND_SERVICES", "auto")).lower()
         self._lock_id: int = int(getattr(settings, "BACKGROUND_LOCK_ID", 88481234))
 
@@ -58,6 +68,7 @@ class BackgroundServiceCoordinator:
             "mode": inst._mode,
             "lock_id": inst._lock_id,
             "started_at": inst._started_at.isoformat() if inst._started_at else None,
+            "last_heartbeat_at": inst._last_heartbeat_at.isoformat() if inst._last_heartbeat_at else None,
             "services": {
                 "scheduler": AlertSchedulerService.get_status(),
                 "telegram": TelegramBotService.get_status(),
@@ -76,14 +87,27 @@ class BackgroundServiceCoordinator:
         inst = cls.get_instance()
         await inst._stop_coordinator()
 
+    def _get_lock_engine(self) -> AsyncEngine:
+        """Create or retrieve a dedicated NullPool engine specifically for the advisory lock connection."""
+        if self._lock_engine is None:
+            self._lock_engine = create_async_engine(
+                settings.async_database_url,
+                connect_args=async_connect_args,
+                poolclass=NullPool,
+                echo=False,
+                future=True,
+            )
+        return self._lock_engine
+
     async def _try_acquire_lock(self) -> bool:
-        """Attempt to acquire a PostgreSQL session-level advisory lock."""
+        """Attempt to acquire a PostgreSQL session-level advisory lock on a dedicated connection."""
         if "sqlite" in settings.async_database_url:
             return True
 
         try:
             if self._lock_conn is None or self._lock_conn.closed:
-                self._lock_conn = await async_engine.connect()
+                engine = self._get_lock_engine()
+                self._lock_conn = await engine.connect()
 
             res = await self._lock_conn.execute(
                 text("SELECT pg_try_advisory_lock(:lock_id);"),
@@ -132,13 +156,7 @@ class BackgroundServiceCoordinator:
         # Attempt to acquire leader role
         acquired = await self._try_acquire_lock()
         if acquired:
-            self._is_leader = True
-            print(
-                f"[BackgroundCoordinator] Worker (PID {self._worker_pid}) ACQUIRED leader lock ({self._lock_id}). "
-                f"Starting AlertScheduler and TelegramBot polling as LEADER."
-            )
-            AlertSchedulerService.start()
-            TelegramBotService.start()
+            self._promote_to_leader()
         else:
             self._is_leader = False
             print(
@@ -148,6 +166,76 @@ class BackgroundServiceCoordinator:
             # Start watchdog loop to take over if leader terminates
             if self._watchdog_task is None or self._watchdog_task.done():
                 self._watchdog_task = asyncio.create_task(self._watchdog_loop())
+
+    def _promote_to_leader(self):
+        """Promote current worker process to Background Leader and launch services."""
+        self._is_leader = True
+        self._last_heartbeat_at = datetime.now()
+        print(
+            f"[BackgroundCoordinator] Worker (PID {self._worker_pid}) ACQUIRED leader lock ({self._lock_id}). "
+            f"Starting AlertScheduler and TelegramBot polling as LEADER."
+        )
+        AlertSchedulerService.start()
+        TelegramBotService.start()
+
+        # Start active heartbeat verification loop to prevent split-brain on silent disconnects
+        if self._heartbeat_task is None or self._heartbeat_task.done():
+            self._heartbeat_task = asyncio.create_task(self._heartbeat_loop())
+
+    async def _heartbeat_loop(self):
+        """Periodic heartbeat loop verifying that this connection still owns the advisory lock."""
+        while self._is_running and self._is_leader:
+            try:
+                await asyncio.sleep(12)
+                if not self._is_running or not self._is_leader:
+                    break
+
+                if "sqlite" in settings.async_database_url:
+                    self._last_heartbeat_at = datetime.now()
+                    continue
+
+                if self._lock_conn is None or self._lock_conn.closed:
+                    raise ConnectionError("Dedicated lock connection is closed or None.")
+
+                # Check lock ownership on pg_locks
+                check_res = await self._lock_conn.execute(
+                    text("""
+                        SELECT 1 FROM pg_locks
+                        WHERE locktype = 'advisory'
+                          AND (objid = :lock_id OR classid = :lock_id)
+                          AND pid = pg_backend_pid();
+                    """),
+                    {"lock_id": self._lock_id},
+                )
+                still_held = bool(check_res.scalar())
+
+                if not still_held:
+                    raise RuntimeError("Advisory lock no longer owned by this connection backend PID.")
+
+                self._last_heartbeat_at = datetime.now()
+            except asyncio.CancelledError:
+                break
+            except Exception as exc:
+                print(
+                    f"[BackgroundCoordinator] CRITICAL: Lock Heartbeat failed on Leader Worker (PID {self._worker_pid}): {exc}. "
+                    f"Demoting to STANDBY immediately to prevent Split-Brain dual leaders!"
+                )
+                self._is_leader = False
+                # Stop services immediately
+                await TelegramBotService.stop()
+                await AlertSchedulerService.stop()
+
+                if self._lock_conn and not self._lock_conn.closed:
+                    try:
+                        await self._lock_conn.close()
+                    except Exception:
+                        pass
+                    self._lock_conn = None
+
+                # Restart watchdog loop so it can attempt re-election when connection recovers
+                if self._is_running and (self._watchdog_task is None or self._watchdog_task.done()):
+                    self._watchdog_task = asyncio.create_task(self._watchdog_loop())
+                break
 
     async def _watchdog_loop(self):
         """Periodic loop attempting to acquire leadership if active leader terminates."""
@@ -159,13 +247,11 @@ class BackgroundServiceCoordinator:
 
                 acquired = await self._try_acquire_lock()
                 if acquired:
-                    self._is_leader = True
                     print(
                         f"[BackgroundCoordinator] Standby Worker (PID {self._worker_pid}) "
                         f"PROMOTED to BACKGROUND LEADER! Starting services."
                     )
-                    AlertSchedulerService.start()
-                    TelegramBotService.start()
+                    self._promote_to_leader()
                     break
             except asyncio.CancelledError:
                 break
@@ -174,6 +260,14 @@ class BackgroundServiceCoordinator:
 
     async def _stop_coordinator(self):
         self._is_running = False
+
+        if self._heartbeat_task and not self._heartbeat_task.done():
+            self._heartbeat_task.cancel()
+            try:
+                await self._heartbeat_task
+            except asyncio.CancelledError:
+                pass
+            self._heartbeat_task = None
 
         if self._watchdog_task and not self._watchdog_task.done():
             self._watchdog_task.cancel()
@@ -190,3 +284,7 @@ class BackgroundServiceCoordinator:
             await AlertSchedulerService.stop()
             await self._release_lock()
             print(f"[BackgroundCoordinator] Leader lock released for Worker PID {self._worker_pid}.")
+
+        if self._lock_engine:
+            await self._lock_engine.dispose()
+            self._lock_engine = None

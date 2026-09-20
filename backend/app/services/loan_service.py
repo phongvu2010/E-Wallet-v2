@@ -1,6 +1,6 @@
 import calendar
 import datetime
-from decimal import Decimal
+from decimal import Decimal, ROUND_HALF_UP
 from typing import List, Optional
 from uuid import UUID
 
@@ -46,24 +46,24 @@ def add_months_to_date(
 
 
 def calculate_equal_installment_pmt(principal: Decimal, annual_rate: Decimal, term_months: int) -> Decimal:
-    """Calculate fixed monthly payment (PMT / Equal Monthly Installment / Annuity).
+    """Calculate fixed monthly payment (PMT / Equal Monthly Installment / Annuity) in pure Decimal arithmetic.
     
     Formula: PMT = P * [r_m * (1 + r_m)^N] / [(1 + r_m)^N - 1]
-    where r_m = (annual_rate / 100) / 12
+    where r_m = (annual_rate / 100) / 12 = annual_rate / 1200
+    Eliminates IEEE 754 binary floating-point drift across long terms (e.g. 240-360 months).
     """
     if term_months <= 0:
         return principal
     if annual_rate <= Decimal("0.00"):
-        return round(principal / Decimal(term_months), 2)
+        return (principal / Decimal(term_months)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
     
-    r_m = float(annual_rate / Decimal("1200.00"))
-    p = float(principal)
-    n = term_months
-    factor = (1.0 + r_m) ** n
-    if factor == 1.0:
-        return round(principal / Decimal(term_months), 2)
-    pmt = p * (r_m * factor) / (factor - 1.0)
-    return Decimal(str(round(pmt, 2)))
+    r_m = annual_rate / Decimal("1200.00")
+    one = Decimal("1")
+    factor = (one + r_m) ** term_months
+    if factor == one:
+        return (principal / Decimal(term_months)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    pmt = (principal * r_m * factor) / (factor - one)
+    return pmt.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
 
 class LoanService:

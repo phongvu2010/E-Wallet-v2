@@ -120,7 +120,8 @@ class Transaction(Base):
         "InstallmentPlan",
         foreign_keys=[installment_plan_id],
         back_populates="transactions",
+        lazy="selectin",
     )
     transfer_to_account = relationship("Account", foreign_keys=[transfer_to_account_id])
-    merchant = relationship("Merchant", back_populates="transactions")
-    category = relationship("Category", back_populates="transactions")
+    merchant = relationship("Merchant", back_populates="transactions", lazy="selectin")
+    category = relationship("Category", back_populates="transactions", lazy="selectin")

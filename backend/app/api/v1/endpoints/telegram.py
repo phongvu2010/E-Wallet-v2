@@ -1,9 +1,9 @@
-"""Telegram Bot Router for Webhook updates, service status, and configuration reloads."""
-
+import hmac
 from typing import Any, Dict
 
-from fastapi import APIRouter, BackgroundTasks, Request, status
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Request, status
 
+from app.core.config import settings
 from app.services.telegram_bot_service import TelegramBotService
 
 router = APIRouter()
@@ -41,7 +41,16 @@ async def telegram_webhook(
     request: Request,
     background_tasks: BackgroundTasks,
 ):
-    """Receive and dispatch webhook events directly from Telegram Bot API."""
+    """Receive and dispatch webhook events directly from Telegram Bot API with optional secret token verification."""
+    # Security: Verify secret token if configured
+    if settings.TELEGRAM_WEBHOOK_SECRET:
+        secret_header = request.headers.get("X-Telegram-Bot-Api-Secret-Token") or ""
+        if not hmac.compare_digest(secret_header, settings.TELEGRAM_WEBHOOK_SECRET):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Invalid or missing Telegram webhook secret token",
+            )
+
     try:
         update_data: Dict[str, Any] = await request.json()
     except Exception:

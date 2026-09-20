@@ -63,7 +63,12 @@ class TransactionService:
         conditions = []
 
         if filter_params.account_id:
-            conditions.append(Transaction.account_id == filter_params.account_id)
+            conditions.append(
+                or_(
+                    Transaction.account_id == filter_params.account_id,
+                    Transaction.transfer_to_account_id == filter_params.account_id,
+                )
+            )
         if filter_params.statement_id:
             conditions.append(Transaction.statement_id == filter_params.statement_id)
         if filter_params.category_id:
@@ -549,21 +554,65 @@ class TransactionService:
         Returns:
             TransactionSummaryRead: Statistical summary of spending, repayments, and net balance.
         """
-        sql = """
-        SELECT
-            COUNT(id) AS total_transactions,
-            COALESCE(SUM(CASE WHEN transaction_type = 'INCOME' THEN total_amount ELSE 0 END), 0) AS total_income,
-            COALESCE(SUM(CASE WHEN transaction_type IN ('PURCHASE', 'INSTALLMENT_MONTHLY', 'CASH_ADVANCE') THEN total_amount ELSE 0 END), 0) AS total_spending,
-            COALESCE(SUM(CASE WHEN transaction_type IN ('REPAYMENT', 'CASHBACK_CREDIT') THEN ABS(total_amount) ELSE 0 END), 0) AS total_repayments,
-            COALESCE(SUM(CASE WHEN transaction_type IN ('FEE', 'INTEREST') THEN total_amount ELSE 0 END), 0) AS total_fees_interest,
-            COALESCE(SUM(total_amount), 0) AS net_flow
-        FROM transactions
-        WHERE 1=1
-        """
         params = {}
         if account_id:
-            sql += " AND account_id = :account_id"
+            sql = """
+            SELECT
+                COUNT(id) AS total_transactions,
+                COALESCE(SUM(CASE
+                    WHEN transaction_type = 'INCOME' AND account_id = :account_id THEN total_amount
+                    WHEN transaction_type = 'TRANSFER' AND transfer_to_account_id = :account_id THEN ABS(total_amount)
+                    WHEN transaction_type = 'DEBT_BORROW' AND account_id = :account_id THEN total_amount
+                    WHEN transaction_type = 'DEBT_COLLECT' AND account_id = :account_id THEN ABS(total_amount)
+                    ELSE 0
+                END), 0) AS total_income,
+                COALESCE(SUM(CASE
+                    WHEN transaction_type IN ('PURCHASE', 'INSTALLMENT_MONTHLY', 'CASH_ADVANCE', 'DEBT_REPAY', 'DEBT_LEND') AND account_id = :account_id THEN total_amount
+                    WHEN transaction_type = 'TRANSFER' AND account_id = :account_id THEN ABS(total_amount)
+                    ELSE 0
+                END), 0) AS total_spending,
+                COALESCE(SUM(CASE
+                    WHEN transaction_type IN ('REPAYMENT', 'CASHBACK_CREDIT', 'REFUND') AND account_id = :account_id THEN ABS(total_amount)
+                    ELSE 0
+                END), 0) AS total_repayments,
+                COALESCE(SUM(CASE
+                    WHEN transaction_type IN ('FEE', 'INTEREST') AND account_id = :account_id THEN total_amount
+                    ELSE 0
+                END), 0) AS total_fees_interest,
+                COALESCE(SUM(CASE
+                    WHEN transfer_to_account_id = :account_id THEN ABS(total_amount)
+                    ELSE total_amount
+                END), 0) AS net_flow
+            FROM transactions
+            WHERE (account_id = :account_id OR transfer_to_account_id = :account_id)
+            """
             params["account_id"] = str(account_id)
+        else:
+            sql = """
+            SELECT
+                COUNT(id) AS total_transactions,
+                COALESCE(SUM(CASE
+                    WHEN transaction_type IN ('INCOME', 'DEBT_BORROW') THEN total_amount
+                    WHEN transaction_type = 'DEBT_COLLECT' THEN ABS(total_amount)
+                    ELSE 0
+                END), 0) AS total_income,
+                COALESCE(SUM(CASE
+                    WHEN transaction_type IN ('PURCHASE', 'INSTALLMENT_MONTHLY', 'CASH_ADVANCE', 'DEBT_REPAY', 'DEBT_LEND') THEN total_amount
+                    ELSE 0
+                END), 0) AS total_spending,
+                COALESCE(SUM(CASE
+                    WHEN transaction_type IN ('REPAYMENT', 'CASHBACK_CREDIT', 'REFUND') THEN ABS(total_amount)
+                    ELSE 0
+                END), 0) AS total_repayments,
+                COALESCE(SUM(CASE
+                    WHEN transaction_type IN ('FEE', 'INTEREST') THEN total_amount
+                    ELSE 0
+                END), 0) AS total_fees_interest,
+                COALESCE(SUM(total_amount), 0) AS net_flow
+            FROM transactions
+            WHERE 1=1
+            """
+
         if statement_id:
             sql += " AND statement_id = :statement_id"
             params["statement_id"] = str(statement_id)

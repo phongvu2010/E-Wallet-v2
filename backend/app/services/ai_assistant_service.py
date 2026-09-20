@@ -126,7 +126,29 @@ class AIAssistantService:
                 return obj.isoformat()
             return obj
 
+        today_date = date.today()
+        now_dt = datetime.now()
+        yesterday_date = today_date - timedelta(days=1)
+        vn_weekdays = {
+            0: "Thứ Hai",
+            1: "Thứ Ba",
+            2: "Thứ Tư",
+            3: "Thứ Năm",
+            4: "Thứ Sáu",
+            5: "Thứ Bảy",
+            6: "Chủ Nhật",
+        }
+
         ctx = {
+            "temporal_context": {
+                "current_date": today_date.isoformat(),
+                "current_time": now_dt.strftime("%H:%M:%S"),
+                "current_weekday": vn_weekdays.get(today_date.weekday(), ""),
+                "current_day": today_date.day,
+                "current_month": today_date.month,
+                "current_year": today_date.year,
+                "yesterday_date": yesterday_date.isoformat(),
+            },
             "net_worth_overview": {k: sanitize(v) for k, v in nw_dict.items()},
             "accounts_and_cards": [{k: sanitize(v) for k, v in c.items()} for c in cards],
             "upcoming_obligations_30d": [
@@ -786,9 +808,20 @@ class AIAssistantService:
             return AIAssistantService._generate_rule_based_reply(payload.message, ctx)
 
         # Gemini API System Prompt
+        temp_ctx = ctx.get("temporal_context", {})
+        today_str = temp_ctx.get("current_date") or date.today().isoformat()
+        yesterday_str = temp_ctx.get("yesterday_date") or (date.today() - timedelta(days=1)).isoformat()
+        weekday_str = temp_ctx.get("current_weekday", "")
+        current_year = temp_ctx.get("current_year", date.today().year)
+
         system_prompt = f"""
 Bạn là AI Financial Advisor & Copilot cao cấp trong ứng dụng Credit Wallet 2.0.
 Nhiệm vụ của bạn là hỗ trợ người dùng quản lý tài chính thẻ tín dụng, nhắc nợ, phân tích chi tiêu và THÊM GIAO DỊCH MỚI TỰ ĐỘNG khi người dùng yêu cầu.
+
+THÔNG TIN THỜI GIAN HỆ THỐNG THỰC TẾ:
+- Hôm nay là: {today_str} ({weekday_str})
+- Hôm qua là: {yesterday_str}
+- Năm hiện tại: {current_year}
 
 Dữ liệu tài chính thời gian thực của người dùng hiện tại:
 ```json
@@ -809,7 +842,7 @@ Hãy trả về DUY NHẤT một khối JSON hợp lệ theo định dạng sau 
     "transaction_type": "PURCHASE" | "INCOME" | "TRANSFER" | "REPAYMENT" | "FEE" | "INTEREST" | "CASHBACK_CREDIT" | "REFUND",
     "amount": 45000,
     "fee": 0,
-    "transaction_date": "2026-09-06",
+    "transaction_date": "{today_str}",
     "category_id": "<UUID danh mục phù hợp trong context>",
     "category_name": "<Tên danh mục>",
     "parent_category_name": "<Tên danh mục cha>",
@@ -820,6 +853,12 @@ Hãy trả về DUY NHẤT một khối JSON hợp lệ theo định dạng sau 
   }},
   "suggested_followups": ["Xem số dư sau khi thêm", "Cơ cấu chi tiêu tháng này"]
 }}
+
+QUY TẮC XÁC ĐỊNH NGÀY GIAO DỊCH (transaction_date):
+- MẶC ĐỊNH: Khi người dùng ghi chép chi tiêu/thu nhập mà không chỉ định rõ ngày (hoặc dùng các từ 'vừa', 'mới', 'hôm nay'), bạn BẮT BUỘC phải gán transaction_date là '{today_str}'.
+- Nếu người dùng nói 'hôm qua', hãy gán transaction_date là '{yesterday_str}'.
+- Nếu người dùng chỉ định rõ ngày cụ thể (ví dụ 'ngày 15/9', 'thứ 2 tuần trước'), hãy tính toán chính xác theo lịch năm {current_year}.
+- TUYỆT ĐỐI KHÔNG tự ý bịa ngày hoặc sử dụng ngày cũ trong quá khứ nếu người dùng không yêu cầu.
 
 2. Nếu là câu hỏi tư vấn tài chính, hỏi số dư, nợ đến hạn, phân tích chi tiêu:
 Trả lời bằng Markdown tiếng Việt tự nhiên, lịch sự, chuyên nghiệp, chính xác theo số liệu thực tế trong context, đính kèm 2-3 câu hỏi gợi ý tiếp theo.

@@ -75,6 +75,7 @@ class DebtRead(BaseModel):
     id: UUID
     user_id: Optional[UUID] = None
     account_id: Optional[UUID] = None
+    origin_transaction_id: Optional[UUID] = None
     account_name: Optional[str] = None
     account_bank_name: Optional[str] = None
     counterparty_name: str

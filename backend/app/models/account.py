@@ -80,7 +80,9 @@ class Account(Base):
     )
 
     # Relationships
-    institution = relationship("Institution", back_populates="accounts")
+    institution = relationship(
+        "Institution", back_populates="accounts", lazy="selectin"
+    )
     replaces_account = relationship("Account", remote_side=[id], backref="replaced_by")
     statements = relationship(
         "Statement", back_populates="account", cascade="all, delete-orphan"

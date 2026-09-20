@@ -622,6 +622,7 @@ CREATE TABLE debts (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID,
     account_id UUID REFERENCES accounts(id) ON DELETE SET NULL, -- Tài khoản nhận tiền (khi đi vay) hoặc xuất tiền (khi cho vay)
+    origin_transaction_id UUID REFERENCES transactions(id) ON DELETE SET NULL, -- Giao dịch sổ cái giải ngân ban đầu (DEBT_BORROW hoặc DEBT_LEND)
     counterparty_name VARCHAR(150) NOT NULL, -- Tên người vay / người cho vay ("Bạn Nam", "Anh Tuấn", "Chị Mai")
     counterparty_phone VARCHAR(20),
     debt_type debt_type_enum NOT NULL DEFAULT 'BORROW', -- BORROW (Tôi đi vay) | LEND (Tôi cho vay)
@@ -649,6 +650,23 @@ CREATE TABLE debt_repayments (
     extra_transaction_id UUID REFERENCES transactions(id) ON DELETE SET NULL, -- Transaction cho phần tiền bồi dưỡng/cảm ơn
     note TEXT,
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 3.13. TELEGRAM DRAFT SESSIONS (ĐỒNG BỘ BẢN THẢO GIAO DỊCH TELEGRAM WEBHOOK MULTI-WORKER)
+CREATE TABLE IF NOT EXISTS telegram_draft_sessions (
+    id VARCHAR(32) PRIMARY KEY,
+    chat_id VARCHAR(100) NOT NULL,
+    draft_data JSONB NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    expires_at TIMESTAMPTZ NOT NULL
+);
+
+-- 3.14. DISTRIBUTED RATE LIMIT RECORDS (GIỚI HẠN TẦN SUẤT GỌI API ĐA TIẾN TRÌNH GUNICORN)
+CREATE TABLE IF NOT EXISTS rate_limit_records (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    client_key VARCHAR(150) NOT NULL,
+    endpoint_tag VARCHAR(50) NOT NULL,
+    request_timestamp TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 -- ====================================================================
@@ -709,6 +727,15 @@ CREATE INDEX idx_tx_repayments ON transactions (account_id, transaction_date, to
 CREATE INDEX idx_statements_latest_lookup ON statements (account_id, statement_date DESC, statement_balance);
 -- Tối ưu sắp xếp và phân trang danh sách giao dịch
 CREATE INDEX idx_tx_date_desc ON transactions (transaction_date DESC, created_at DESC);
+
+-- Tối ưu quản lý Telegram Draft Sessions & Distributed Rate Limits
+CREATE INDEX IF NOT EXISTS idx_telegram_draft_expires ON telegram_draft_sessions (expires_at);
+CREATE INDEX IF NOT EXISTS idx_rate_limit_lookup ON rate_limit_records (client_key, endpoint_tag, request_timestamp DESC);
+
+-- Tối ưu hoá dòng tiền tài sản & chuyển tiền cho view v_account_live_balance
+CREATE INDEX IF NOT EXISTS idx_accounts_type ON accounts (account_type);
+CREATE INDEX IF NOT EXISTS idx_tx_transfer_flows ON transactions (transfer_to_account_id, amount) WHERE transfer_to_account_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_tx_asset_flows ON transactions (account_id, transaction_type, total_amount, amount);
 
 -- ====================================================================
 -- 5. ANALYTIC VIEWS (BÁO CÁO & ĐỐI SOÁT TÀI CHÍNH)
@@ -931,7 +958,7 @@ WHERE p.status = 'ACTIVE' AND sch.is_billed = FALSE
 GROUP BY TO_CHAR(sch.due_date, 'YYYY-MM')
 ORDER BY billing_month ASC;
 
--- View 8: Dư nợ Thực tế Tức thời & Số dư Khả dụng Đa Tài khoản (Tích hợp Nợ & Chuyển tiền)
+-- View 8: Dư nợ Thực tế Tức thời & Số dư Khả dụng Đa Tài khoản (Tối ưu hóa Partitioned CTEs)
 CREATE OR REPLACE VIEW v_account_live_balance WITH (security_invoker = true) AS
 WITH latest_statement_per_account AS (
     SELECT DISTINCT ON (s.account_id)
@@ -943,20 +970,19 @@ WITH latest_statement_per_account AS (
     FROM statements s
     ORDER BY s.account_id, s.statement_date DESC
 ),
+-- Tối ưu 1: Chỉ tính giao dịch chưa lên sao kê cho THẺ TÍN DỤNG (Credit Cards only)
+-- Tận dụng triệt để partial index idx_tx_unbilled_live
 unbilled_transactions_summary AS (
     SELECT
         a.id AS account_id,
-        -- Tổng chi tiêu, phí, lãi chưa lên sao kê (mang dấu dương)
         COALESCE(SUM(CASE
             WHEN t.total_amount > 0 AND t.transaction_type != 'INCOME' THEN t.total_amount
             ELSE 0
         END), 0.00) AS unbilled_charges,
-        -- Tổng thanh toán, hoàn tiền chưa lên sao kê (lấy trị tuyệt đối)
         COALESCE(SUM(CASE
             WHEN t.total_amount < 0 THEN ABS(t.total_amount)
             ELSE 0
         END), 0.00) AS unbilled_credits,
-        -- Chênh lệch ròng chưa lên sao kê
         COALESCE(SUM(t.total_amount), 0.00) AS unbilled_net_amount,
         COUNT(t.id) AS unbilled_transaction_count
     FROM accounts a
@@ -967,45 +993,50 @@ unbilled_transactions_summary AS (
             ls.latest_statement_date IS NULL
             OR COALESCE(t.post_date, t.transaction_date) > ls.latest_statement_date
         )
+    WHERE a.account_type = 'CREDIT_CARD'
     GROUP BY a.id
+),
+-- Tối ưu 2: Chỉ tính dòng tiền trực tiếp cho TÀI KHOẢN TÀI SẢN (Tiền mặt, Ngân hàng, Ví, Tiết kiệm)
+-- Loại bỏ hoàn toàn hàng chục nghìn giao dịch chi tiêu thẻ tín dụng ra khỏi phép tính
+asset_direct_flows AS (
+    SELECT
+        t.account_id,
+        COALESCE(SUM(CASE
+            WHEN t.transaction_type IN ('INCOME', 'DEBT_BORROW') THEN t.amount
+            WHEN t.transaction_type = 'DEBT_COLLECT' THEN ABS(t.amount)
+            WHEN t.transaction_type IN ('REFUND', 'CASHBACK_CREDIT') THEN ABS(t.amount)
+            ELSE 0.00
+        END), 0.00) AS direct_inflows,
+        COALESCE(SUM(CASE
+            WHEN t.transaction_type IN ('PURCHASE', 'FEE', 'INTEREST', 'CASH_ADVANCE', 'DEBT_REPAY', 'DEBT_LEND') THEN t.total_amount
+            WHEN t.transaction_type IN ('TRANSFER', 'REPAYMENT') OR t.transfer_to_account_id IS NOT NULL THEN ABS(t.total_amount)
+            ELSE 0.00
+        END), 0.00) AS direct_outflows
+    FROM transactions t
+    JOIN accounts a ON t.account_id = a.id
+    WHERE a.account_type != 'CREDIT_CARD'
+    GROUP BY t.account_id
+),
+-- Tối ưu 3: Chỉ tính luồng tiền chuyển vào cho các tài khoản đích là TÀI SẢN
+asset_transfer_in_flows AS (
+    SELECT
+        t.transfer_to_account_id AS account_id,
+        COALESCE(SUM(ABS(t.amount)), 0.00) AS transfer_inflows
+    FROM transactions t
+    JOIN accounts a ON t.transfer_to_account_id = a.id
+    WHERE t.transfer_to_account_id IS NOT NULL
+      AND a.account_type != 'CREDIT_CARD'
+    GROUP BY t.transfer_to_account_id
 ),
 asset_account_flows AS (
     SELECT
         a.id AS account_id,
-        -- Tiền vào (Inflows): Thu nhập + Hoàn tiền + Tiền chuyển đến + Đi vay nhận về (DEBT_BORROW) + Thu hồi nợ cho mượn (DEBT_COLLECT)
-        COALESCE((
-            SELECT SUM(t_in.amount)
-            FROM transactions t_in
-            WHERE t_in.account_id = a.id AND t_in.transaction_type IN ('INCOME', 'DEBT_BORROW')
-        ), 0.00) +
-        COALESCE((
-            SELECT SUM(ABS(t_in_neg.amount))
-            FROM transactions t_in_neg
-            WHERE t_in_neg.account_id = a.id AND t_in_neg.transaction_type = 'DEBT_COLLECT'
-        ), 0.00) +
-        COALESCE((
-            SELECT SUM(ABS(t_ref.amount))
-            FROM transactions t_ref
-            WHERE t_ref.account_id = a.id AND t_ref.transaction_type IN ('REFUND', 'CASHBACK_CREDIT')
-        ), 0.00) +
-        COALESCE((
-            SELECT SUM(ABS(t_trans.amount))
-            FROM transactions t_trans
-            WHERE t_trans.transfer_to_account_id = a.id
-        ), 0.00) AS total_inflows,
-
-        -- Tiền ra (Outflows): Chi tiêu mua sắm + Phí + Chuyển đi + Trả nợ cá nhân (DEBT_REPAY) + Xuất tiền cho mượn (DEBT_LEND)
-        COALESCE((
-            SELECT SUM(t_out.total_amount)
-            FROM transactions t_out
-            WHERE t_out.account_id = a.id AND t_out.transaction_type IN ('PURCHASE', 'FEE', 'INTEREST', 'CASH_ADVANCE', 'DEBT_REPAY', 'DEBT_LEND')
-        ), 0.00) +
-        COALESCE((
-            SELECT SUM(ABS(t_trans_out.total_amount))
-            FROM transactions t_trans_out
-            WHERE t_trans_out.account_id = a.id AND (t_trans_out.transaction_type IN ('TRANSFER', 'REPAYMENT') OR t_trans_out.transfer_to_account_id IS NOT NULL)
-        ), 0.00) AS total_outflows
+        COALESCE(adf.direct_inflows, 0.00) + COALESCE(atif.transfer_inflows, 0.00) AS total_inflows,
+        COALESCE(adf.direct_outflows, 0.00) AS total_outflows
     FROM accounts a
+    LEFT JOIN asset_direct_flows adf ON a.id = adf.account_id
+    LEFT JOIN asset_transfer_in_flows atif ON a.id = atif.account_id
+    WHERE a.account_type != 'CREDIT_CARD'
 )
 SELECT
     a.id AS account_id,
@@ -1024,16 +1055,16 @@ SELECT
     a.credit_limit,
     COALESCE(ls.latest_statement_date, a.opened_date) AS latest_statement_date,
     COALESCE(ls.latest_statement_balance, 0.00) AS latest_statement_balance,
-    uts.unbilled_charges,
-    uts.unbilled_credits,
-    uts.unbilled_net_amount,
-    uts.unbilled_transaction_count,
+    COALESCE(uts.unbilled_charges, 0.00) AS unbilled_charges,
+    COALESCE(uts.unbilled_credits, 0.00) AS unbilled_credits,
+    COALESCE(uts.unbilled_net_amount, 0.00) AS unbilled_net_amount,
+    COALESCE(uts.unbilled_transaction_count, 0) AS unbilled_transaction_count,
     -- Số dư hiện tại (Live Current Balance):
     --   - Đối với Thẻ tín dụng: Là dư nợ cần trả (Liability Debt)
     --   - Đối với Tài sản (Ngân hàng, Tiền mặt, Ví): Là số tiền khả dụng hiện có (Asset Balance)
     CASE
         WHEN a.account_type = 'CREDIT_CARD' THEN
-            GREATEST(0.00, COALESCE(ls.latest_statement_balance, 0.00) + uts.unbilled_net_amount)
+            GREATEST(0.00, COALESCE(ls.latest_statement_balance, 0.00) + COALESCE(uts.unbilled_net_amount, 0.00))
         ELSE
             GREATEST(0.00, COALESCE(a.initial_balance, 0.00) + COALESCE(aaf.total_inflows, 0.00) - COALESCE(aaf.total_outflows, 0.00))
     END AS live_current_balance,
@@ -1041,7 +1072,7 @@ SELECT
     -- Hạn mức khả dụng / Số dư khả dụng (Live Available Limit / Balance):
     CASE
         WHEN a.account_type = 'CREDIT_CARD' THEN
-            GREATEST(0.00, a.credit_limit - GREATEST(0.00, COALESCE(ls.latest_statement_balance, 0.00) + uts.unbilled_net_amount))
+            GREATEST(0.00, a.credit_limit - GREATEST(0.00, COALESCE(ls.latest_statement_balance, 0.00) + COALESCE(uts.unbilled_net_amount, 0.00)))
         ELSE
             GREATEST(0.00, COALESCE(a.initial_balance, 0.00) + COALESCE(aaf.total_inflows, 0.00) - COALESCE(aaf.total_outflows, 0.00))
     END AS live_available_limit,
@@ -1049,7 +1080,7 @@ SELECT
     -- Tỷ lệ sử dụng hạn mức (Live Utilization Percentage - chỉ áp dụng cho Thẻ tín dụng):
     CASE
         WHEN a.account_type = 'CREDIT_CARD' AND a.credit_limit > 0 THEN
-            ROUND((GREATEST(0.00, COALESCE(ls.latest_statement_balance, 0.00) + uts.unbilled_net_amount) / a.credit_limit) * 100.0, 2)
+            ROUND((GREATEST(0.00, COALESCE(ls.latest_statement_balance, 0.00) + COALESCE(uts.unbilled_net_amount, 0.00)) / a.credit_limit) * 100.0, 2)
         ELSE 0.00
     END AS live_utilization_percentage,
 
@@ -1057,9 +1088,9 @@ SELECT
     CASE
         WHEN a.account_type != 'CREDIT_CARD' THEN 'OPTIMAL (<30%)'
         WHEN a.credit_limit = 0 THEN 'NO_LIMIT'
-        WHEN (GREATEST(0.00, COALESCE(ls.latest_statement_balance, 0.00) + uts.unbilled_net_amount) / a.credit_limit) > 0.70 THEN 'CRITICAL (>70%)'
-        WHEN (GREATEST(0.00, COALESCE(ls.latest_statement_balance, 0.00) + uts.unbilled_net_amount) / a.credit_limit) > 0.50 THEN 'HIGH (>50%)'
-        WHEN (GREATEST(0.00, COALESCE(ls.latest_statement_balance, 0.00) + uts.unbilled_net_amount) / a.credit_limit) > 0.30 THEN 'MODERATE (>30%)'
+        WHEN (GREATEST(0.00, COALESCE(ls.latest_statement_balance, 0.00) + COALESCE(uts.unbilled_net_amount, 0.00)) / a.credit_limit) > 0.70 THEN 'CRITICAL (>70%)'
+        WHEN (GREATEST(0.00, COALESCE(ls.latest_statement_balance, 0.00) + COALESCE(uts.unbilled_net_amount, 0.00)) / a.credit_limit) > 0.50 THEN 'HIGH (>50%)'
+        WHEN (GREATEST(0.00, COALESCE(ls.latest_statement_balance, 0.00) + COALESCE(uts.unbilled_net_amount, 0.00)) / a.credit_limit) > 0.30 THEN 'MODERATE (>30%)'
         ELSE 'OPTIMAL (<30%)'
     END AS live_risk_level,
     ls.next_payment_due_date,

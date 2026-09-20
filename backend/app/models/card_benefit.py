@@ -50,5 +50,5 @@ class CardBenefit(Base):
     )
 
     # Relationships
-    account = relationship("Account", backref="benefits")
-    category = relationship("Category")
+    account = relationship("Account", backref="benefits", lazy="selectin")
+    category = relationship("Category", lazy="selectin")

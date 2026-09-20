@@ -120,7 +120,7 @@ class AIStatementParserService:
             credit_limit=credit_limit,
             statement_balance=stmt_balance,
             minimum_payment=min_payment,
-            transactions=transactions[:50],  # Sample transactions
+            transactions=transactions,
             parsing_notes=f"Trích xuất thành công {len(transactions)} giao dịch từ tệp {filename}",
         )
 
@@ -148,12 +148,14 @@ class AIStatementParserService:
             # 2. Check if Gemini API available for advanced extraction
             gemini_api_key = os.getenv("GEMINI_API_KEY")
             if gemini_api_key and len(full_text.strip()) > 50:
+                # Retain up to 150,000 characters (accommodates 15-20 page statements while well within Gemini 1M context)
+                text_payload = full_text[:150000] if len(full_text) > 150000 else full_text
                 prompt = f"""
 Trích xuất toàn bộ thông tin sao kê thẻ tín dụng từ nội dung văn bản sau thành định dạng JSON:
-Nội dung:
-\"\"\"{full_text[:4000]}\"\"\"
+Nội dung sao kê ngân hàng:
+\"\"\"{text_payload}\"\"\"
 
-Yêu cầu trả về đúng JSON Schema:
+Yêu cầu trích xuất ĐẦY ĐỦ TẤT CẢ các giao dịch xuất hiện trong sao kê và trả về đúng JSON Schema:
 {{
   "bank_detected": "SHINHAN" | "HSBC" | "SACOMBANK",
   "statement_date": "YYYY-MM-DD",
@@ -164,16 +166,22 @@ Yêu cầu trả về đúng JSON Schema:
   "transactions": [
     {{
       "transaction_date": "YYYY-MM-DD",
-      "raw_description": "STARBUCKS...",
+      "post_date": "YYYY-MM-DD",
+      "raw_description": "Tên đơn vị chấp nhận thẻ / nội dung giao dịch",
       "amount": 120000.0,
-      "total_amount": 120000.0
+      "fee": 0.0,
+      "total_amount": 120000.0,
+      "original_amount": 120000.0,
+      "original_currency": "VND",
+      "category_hint": "Gợi ý danh mục chi tiêu",
+      "transaction_type_hint": "PURCHASE" | "FEE" | "INTEREST" | "REPAYMENT" | "REFUND" | "INSTALLMENT_MONTHLY"
     }}
   ]
 }}
 """
                 url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={gemini_api_key}"
                 try:
-                    async with httpx.AsyncClient(timeout=25.0) as client:
+                    async with httpx.AsyncClient(timeout=60.0) as client:
                         resp = await client.post(
                             url,
                             json={
@@ -181,15 +189,22 @@ Yêu cầu trả về đúng JSON Schema:
                                     {"role": "user", "parts": [{"text": prompt}]}
                                 ],
                                 "generationConfig": {
-                                    "responseMimeType": "application/json"
+                                    "responseMimeType": "application/json",
+                                    "maxOutputTokens": 8192,
+                                    "temperature": 0.1,
                                 },
                             },
                         )
                         if resp.status_code == 200:
                             data = resp.json()
                             candidate_text = data["candidates"][0]["content"]["parts"][0]["text"]
+                            # Clean possible markdown fences
+                            clean_json_str = candidate_text.strip()
+                            if clean_json_str.startswith("```"):
+                                clean_json_str = re.sub(r"^```(?:json)?\s*", "", clean_json_str)
+                                clean_json_str = re.sub(r"\s*```$", "", clean_json_str)
                             parsed_json = AIParsedStatementResult.model_validate_json(
-                                candidate_text
+                                clean_json_str
                             )
                             return AIPdfExtractionResponse(
                                 success=True,

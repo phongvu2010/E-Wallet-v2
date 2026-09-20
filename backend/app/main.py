@@ -19,7 +19,7 @@ async def lifespan(app: FastAPI):
             await conn.execute(text("SELECT 1;"))
         print("[FastAPI] Successfully connected to PostgreSQL Database.")
     except Exception as e:
-        print(f"[FastAPI] Warning: Database connection failed during startup: {e}")
+        print(f"[FastAPI] Warning: Database connectivity check failed during startup: {e}")
 
     # Startup: Initialize background services via leader election coordinator
     await BackgroundServiceCoordinator.start()

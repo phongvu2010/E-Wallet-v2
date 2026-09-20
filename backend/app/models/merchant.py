@@ -24,9 +24,14 @@ class Merchant(Base):
     )
 
     # Relationships
-    default_category = relationship("Category", back_populates="merchants")
+    default_category = relationship(
+        "Category", back_populates="merchants", lazy="selectin"
+    )
     aliases = relationship(
-        "MerchantAlias", back_populates="merchant", cascade="all, delete-orphan"
+        "MerchantAlias",
+        back_populates="merchant",
+        cascade="all, delete-orphan",
+        lazy="selectin",
     )
     transactions = relationship("Transaction", back_populates="merchant")
     installment_plans = relationship("InstallmentPlan", back_populates="merchant")

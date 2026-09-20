@@ -12,12 +12,14 @@ Supports:
 import asyncio
 from datetime import date, datetime
 from decimal import Decimal
+import json
 import os
 import time
 from typing import Any, Dict, List, Optional
 import uuid
 
 import httpx
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import AsyncSessionLocal
@@ -97,11 +99,11 @@ class TelegramBotService:
             inst._task = None
 
     # -------------------------------------------------------------------------
-    # Draft Cache Management
+    # Draft Cache Management (Multi-Worker Safe via PostgreSQL telegram_draft_sessions)
     # -------------------------------------------------------------------------
 
     def _cleanup_expired_drafts(self):
-        """Purge drafts older than TTL."""
+        """Purge in-memory drafts older than TTL."""
         now = time.time()
         expired_keys = [
             k for k, v in self._draft_cache.items()
@@ -110,25 +112,103 @@ class TelegramBotService:
         for k in expired_keys:
             self._draft_cache.pop(k, None)
 
-    def _store_draft(self, draft: AITransactionDraft, chat_id: str) -> str:
-        """Store draft in memory and return unique draft ID."""
+    async def _cleanup_expired_drafts_db(self):
+        """Purge expired draft sessions from database table."""
+        self._cleanup_expired_drafts()
+        try:
+            async with AsyncSessionLocal() as session:
+                await session.execute(
+                    text("DELETE FROM telegram_draft_sessions WHERE expires_at <= CURRENT_TIMESTAMP;")
+                )
+                await session.commit()
+        except Exception:
+            pass
+
+    async def _store_draft(self, draft: AITransactionDraft, chat_id: str) -> str:
+        """Store draft in database (and in-memory L1 cache) and return unique draft ID."""
         self._cleanup_expired_drafts()
         draft_id = str(uuid.uuid4())[:8]  # Short 8-char UUID for Telegram callback_data size limits
+        now = time.time()
+
+        # 1. Update in-memory L1 cache
         self._draft_cache[draft_id] = {
             "draft": draft,
             "chat_id": str(chat_id),
-            "created_at": time.time(),
+            "created_at": now,
         }
+
+        # 2. Persist to PostgreSQL table for Multi-Worker Webhook sync
+        try:
+            draft_dict = draft.model_dump(mode="json")
+            async with AsyncSessionLocal() as session:
+                await session.execute(
+                    text("""
+                        INSERT INTO telegram_draft_sessions (id, chat_id, draft_data, created_at, expires_at)
+                        VALUES (:id, :chat_id, :draft_data, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP + INTERVAL '15 minutes')
+                        ON CONFLICT (id) DO UPDATE SET
+                            draft_data = EXCLUDED.draft_data,
+                            expires_at = EXCLUDED.expires_at;
+                    """),
+                    {
+                        "id": draft_id,
+                        "chat_id": str(chat_id),
+                        "draft_data": json.dumps(draft_dict),
+                    },
+                )
+                await session.commit()
+        except Exception as exc:
+            print(f"[TelegramBot] Warning: Failed to persist draft session to DB: {exc}")
+
         return draft_id
 
-    def _get_draft(self, draft_id: str) -> Optional[Dict[str, Any]]:
-        """Retrieve active draft by ID."""
+    async def _get_draft(self, draft_id: str) -> Optional[Dict[str, Any]]:
+        """Retrieve active draft by ID from in-memory cache or database table across workers."""
         self._cleanup_expired_drafts()
-        return self._draft_cache.get(draft_id)
+        cached = self._draft_cache.get(draft_id)
+        if cached and cached.get("draft"):
+            return cached
 
-    def _remove_draft(self, draft_id: str):
-        """Remove draft from cache."""
+        # Fallback to PostgreSQL table (essential when callback arrives at a different worker)
+        try:
+            async with AsyncSessionLocal() as session:
+                res = await session.execute(
+                    text("""
+                        SELECT chat_id, draft_data
+                        FROM telegram_draft_sessions
+                        WHERE id = :id AND expires_at > CURRENT_TIMESTAMP;
+                    """),
+                    {"id": draft_id},
+                )
+                row = res.mappings().one_or_none()
+                if row:
+                    raw_data = row["draft_data"]
+                    if isinstance(raw_data, str):
+                        raw_data = json.loads(raw_data)
+                    draft_obj = AITransactionDraft(**raw_data)
+                    cached_data = {
+                        "draft": draft_obj,
+                        "chat_id": row["chat_id"],
+                        "created_at": time.time(),
+                    }
+                    self._draft_cache[draft_id] = cached_data
+                    return cached_data
+        except Exception as exc:
+            print(f"[TelegramBot] Warning: Failed to query draft from DB table: {exc}")
+
+        return None
+
+    async def _remove_draft(self, draft_id: str):
+        """Remove draft from both in-memory cache and database table."""
         self._draft_cache.pop(draft_id, None)
+        try:
+            async with AsyncSessionLocal() as session:
+                await session.execute(
+                    text("DELETE FROM telegram_draft_sessions WHERE id = :id;"),
+                    {"id": draft_id},
+                )
+                await session.commit()
+        except Exception as exc:
+            print(f"[TelegramBot] Warning: Failed to delete draft from DB table: {exc}")
 
     # -------------------------------------------------------------------------
     # Background Polling Loop
@@ -236,14 +316,25 @@ class TelegramBotService:
 
         configured_chat_id = (settings.telegram_chat_id or "").strip()
 
-        # Security check: verify if sender matches configured Chat ID
-        if configured_chat_id and str(chat_id) != configured_chat_id:
+        # Security check 1: reject if system has not configured any authorized Chat ID yet
+        if not configured_chat_id:
             msg = (
-                "🔒 *Tài khoản Telegram chưa được phân quyền!*\n\n"
+                "🔒 *Hệ thống Credit Wallet 2.0 chưa được liên kết Telegram!*\n\n"
                 f"• Chat ID hiện tại của bạn: `{chat_id}`\n\n"
                 "👉 Để kích hoạt tính năng ra lệnh thêm giao dịch và tra cứu tài chính từ Telegram, "
                 "vui lòng copy **Chat ID** trên và dán vào mục **Cài đặt (Settings) > Telegram Bot** "
                 "trên ứng dụng Credit Wallet 2.0."
+            )
+            await NotificationService.send_telegram_message(bot_token, chat_id, msg)
+            return
+
+        # Security check 2: reject if sender does not match configured Chat ID
+        if str(chat_id) != configured_chat_id:
+            msg = (
+                "🔒 *Tài khoản Telegram chưa được phân quyền!*\n\n"
+                f"• Chat ID của bạn: `{chat_id}`\n\n"
+                "👉 Chat ID này không trùng khớp với tài khoản đã được cấp quyền trong hệ thống. "
+                "Vui lòng kiểm tra lại trong mục **Cài đặt (Settings) > Telegram Bot**."
             )
             await NotificationService.send_telegram_message(bot_token, chat_id, msg)
             return
@@ -383,7 +474,7 @@ class TelegramBotService:
 
         if parsed_intent and parsed_intent.transaction_draft:
             draft = parsed_intent.transaction_draft
-            draft_id = self._store_draft(draft, chat_id)
+            draft_id = await self._store_draft(draft, chat_id)
 
             type_labels = {
                 TransactionTypeEnum.PURCHASE: "Chi tiêu 💸",
@@ -438,7 +529,7 @@ class TelegramBotService:
 
         if ai_resp.transaction_draft:
             draft = ai_resp.transaction_draft
-            draft_id = self._store_draft(draft, chat_id)
+            draft_id = await self._store_draft(draft, chat_id)
             type_str = draft.transaction_type.value if hasattr(draft.transaction_type, "value") else str(draft.transaction_type)
             reply_markup = {
                 "inline_keyboard": [
@@ -478,7 +569,7 @@ class TelegramBotService:
             return
 
         configured_chat_id = (settings.telegram_chat_id or "").strip()
-        if configured_chat_id and sender_id != configured_chat_id and chat_id != configured_chat_id:
+        if not configured_chat_id or (sender_id != configured_chat_id and chat_id != configured_chat_id):
             await NotificationService.answer_telegram_callback_query(
                 bot_token, cb_id, text="⚠️ Bạn không có quyền thao tác trên tài khoản này.", show_alert=True
             )
@@ -487,7 +578,7 @@ class TelegramBotService:
         # 1. Confirm Transaction
         if data.startswith("confirm_tx:"):
             draft_id = data.split(":", 1)[1]
-            cached = self._get_draft(draft_id)
+            cached = await self._get_draft(draft_id)
 
             if not cached or not cached.get("draft"):
                 await NotificationService.answer_telegram_callback_query(
@@ -522,8 +613,8 @@ class TelegramBotService:
                 )
 
                 created_tx = await TransactionService.create(db, payload)
-                # Remove from cache
-                self._remove_draft(draft_id)
+                # Remove from cache and database
+                await self._remove_draft(draft_id)
 
                 # Acknowledge callback
                 await NotificationService.answer_telegram_callback_query(
@@ -575,7 +666,7 @@ class TelegramBotService:
         # 2. Cancel Transaction
         elif data.startswith("cancel_tx:"):
             draft_id = data.split(":", 1)[1]
-            self._remove_draft(draft_id)
+            await self._remove_draft(draft_id)
 
             await NotificationService.answer_telegram_callback_query(
                 bot_token, cb_id, text="❌ Đã hủy giao dịch nháp."

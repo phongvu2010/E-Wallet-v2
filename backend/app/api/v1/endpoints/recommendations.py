@@ -53,5 +53,4 @@ async def create_card_benefit(
     db: AsyncSession = Depends(get_db),
 ):
     """Register a new reward/cashback rule for a card."""
-    created = await CardRecommendationService.create_benefit(db, payload)
-    return CardBenefitRead.model_validate(created)
+    return await CardRecommendationService.create_benefit(db, payload)

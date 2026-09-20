@@ -41,6 +41,11 @@ class Debt(Base):
         ForeignKey("accounts.id", ondelete="SET NULL"),
         nullable=True,
     )
+    origin_transaction_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("transactions.id", ondelete="SET NULL"),
+        nullable=True,
+    )
     counterparty_name = Column(String(150), nullable=False)
     counterparty_phone = Column(String(20), nullable=True)
     debt_type = Column(
@@ -72,6 +77,7 @@ class Debt(Base):
 
     # Relationships
     account = relationship("Account", foreign_keys=[account_id], lazy="joined")
+    origin_transaction = relationship("Transaction", foreign_keys=[origin_transaction_id])
     repayments = relationship(
         "DebtRepayment",
         back_populates="debt",

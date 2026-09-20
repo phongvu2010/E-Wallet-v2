@@ -69,8 +69,12 @@ class InstallmentPlan(Base):
     )
 
     # Relationships
-    account = relationship("Account", back_populates="installment_plans")
-    merchant = relationship("Merchant", back_populates="installment_plans")
+    account = relationship(
+        "Account", back_populates="installment_plans", lazy="selectin"
+    )
+    merchant = relationship(
+        "Merchant", back_populates="installment_plans", lazy="selectin"
+    )
     origin_transaction = relationship(
         "Transaction",
         foreign_keys=[origin_transaction_id],
@@ -81,6 +85,7 @@ class InstallmentPlan(Base):
         back_populates="plan",
         cascade="all, delete-orphan",
         order_by="InstallmentSchedule.installment_index",
+        lazy="selectin",
     )
     transactions = relationship(
         "Transaction",

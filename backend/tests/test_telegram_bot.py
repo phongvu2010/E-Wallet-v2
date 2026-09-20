@@ -9,6 +9,7 @@ from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
+from app.core.config import settings as app_settings
 from app.models.account import Account
 from app.models.notification import NotificationSettings
 from app.models.transaction import Transaction, TransactionTypeEnum
@@ -296,4 +297,131 @@ async def test_telegram_transaction_cancel_flow(db_session: AsyncSession):
         assert mock_edit.called
         edited_text = mock_edit.call_args[0][3]
         assert "ĐÃ HỦY GIAO DỊCH NHÁP" in edited_text
-        assert inst._get_draft(draft_id) is None
+        cached_after = await inst._get_draft(draft_id)
+        assert cached_after is None
+
+
+@pytest.mark.asyncio
+async def test_telegram_unconfigured_chat_id_blocked(db_session: AsyncSession):
+    """Test that if telegram_chat_id is empty/unconfigured, any incoming message is blocked."""
+    inst = TelegramBotService.get_instance()
+
+    settings = await NotificationService.get_settings(db_session)
+    settings.telegram_bot_token = "123456:FAKE_TOKEN"
+    settings.telegram_chat_id = None  # Unconfigured
+    settings.is_telegram_enabled = True
+    await db_session.commit()
+
+    with patch.object(NotificationService, "send_telegram_message", new_callable=AsyncMock) as mock_send:
+        mock_send.return_value = {"success": True}
+
+        msg = {
+            "message_id": 999,
+            "chat": {"id": 123456789},
+            "from": {"id": 123456789},
+            "text": "/du_no",
+        }
+        await inst._handle_message(db_session, "FAKE_TOKEN", settings, msg)
+
+        assert mock_send.called
+        sent_text = mock_send.call_args[0][2]
+        assert "chưa được liên kết Telegram" in sent_text
+        assert "123456789" in sent_text
+
+
+@pytest.mark.asyncio
+async def test_telegram_mismatched_chat_id_blocked(db_session: AsyncSession):
+    """Test that if sender chat_id does not match configured chat_id, command is rejected."""
+    inst = TelegramBotService.get_instance()
+
+    settings = await NotificationService.get_settings(db_session)
+    settings.telegram_bot_token = "123456:FAKE_TOKEN"
+    settings.telegram_chat_id = "555555555"
+    settings.is_telegram_enabled = True
+    await db_session.commit()
+
+    with patch.object(NotificationService, "send_telegram_message", new_callable=AsyncMock) as mock_send:
+        mock_send.return_value = {"success": True}
+
+        msg = {
+            "message_id": 998,
+            "chat": {"id": 999999999},  # Intruder
+            "from": {"id": 999999999},
+            "text": "Ăn trưa 50k",
+        }
+        await inst._handle_message(db_session, "FAKE_TOKEN", settings, msg)
+
+        assert mock_send.called
+        sent_text = mock_send.call_args[0][2]
+        assert "chưa được phân quyền" in sent_text
+
+
+@pytest.mark.asyncio
+async def test_telegram_callback_query_unauthorized_blocked(db_session: AsyncSession):
+    """Test that callback query from unauthorized sender is blocked with popup alert."""
+    inst = TelegramBotService.get_instance()
+
+    settings = await NotificationService.get_settings(db_session)
+    settings.telegram_bot_token = "123456:FAKE_TOKEN"
+    settings.telegram_chat_id = "555555555"
+    settings.is_telegram_enabled = True
+    await db_session.commit()
+
+    with patch.object(NotificationService, "answer_telegram_callback_query", new_callable=AsyncMock) as mock_answer:
+        mock_answer.return_value = {"success": True}
+
+        callback_query = {
+            "id": "cb_intruder_123",
+            "data": "confirm_tx:draft123",
+            "from": {"id": 888888888},  # Intruder
+            "message": {
+                "message_id": 997,
+                "chat": {"id": 888888888},
+            },
+        }
+        await inst._handle_callback_query(db_session, "FAKE_TOKEN", settings, callback_query)
+
+        assert mock_answer.called
+        alert_text = mock_answer.call_args[1].get("text") or mock_answer.call_args[0][2]
+        assert "không có quyền thao tác" in alert_text
+
+
+@pytest.mark.asyncio
+async def test_telegram_webhook_secret_token_verification(client: AsyncClient):
+    """Test webhook verification with X-Telegram-Bot-Api-Secret-Token."""
+    original_secret = app_settings.TELEGRAM_WEBHOOK_SECRET
+
+    try:
+        app_settings.TELEGRAM_WEBHOOK_SECRET = "super_secret_webhook_key_123"
+        fake_update = {
+            "update_id": 20001,
+            "message": {
+                "message_id": 1,
+                "chat": {"id": 123456789},
+                "text": "Hello",
+            },
+        }
+
+        # 1. Missing secret header -> 403 Forbidden
+        res_missing = await client.post("/api/v1/telegram/webhook", json=fake_update)
+        assert res_missing.status_code == 403
+
+        # 2. Incorrect secret header -> 403 Forbidden
+        res_wrong = await client.post(
+            "/api/v1/telegram/webhook",
+            json=fake_update,
+            headers={"X-Telegram-Bot-Api-Secret-Token": "wrong_key"},
+        )
+        assert res_wrong.status_code == 403
+
+        # 3. Correct secret header -> 200 OK
+        res_ok = await client.post(
+            "/api/v1/telegram/webhook",
+            json=fake_update,
+            headers={"X-Telegram-Bot-Api-Secret-Token": "super_secret_webhook_key_123"},
+        )
+        assert res_ok.status_code == 200
+        assert res_ok.json() == {"ok": True}
+    finally:
+        app_settings.TELEGRAM_WEBHOOK_SECRET = original_secret
+

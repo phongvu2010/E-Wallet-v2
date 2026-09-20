@@ -9,6 +9,7 @@ from sqlalchemy.future import select
 from sqlalchemy.orm import selectinload
 
 from app.core.transaction import atomic_transaction
+from app.models.account import Account
 from app.models.card_benefit import CardBenefit
 from app.models.reward import RewardTypeEnum
 from app.schemas.card_recommendation import (
@@ -28,12 +29,61 @@ class CardRecommendationService:
     """
 
     @staticmethod
+    def _serialize_benefit(b: CardBenefit) -> CardBenefitRead:
+        """Safely serialize CardBenefit ORM instance with loaded relationships."""
+        acc_name = b.account.account_name if b.account else None
+        bank_name = (
+            b.account.institution.name
+            if b.account and getattr(b.account, "institution", None)
+            else None
+        )
+        cat_name = b.category.name if b.category else None
+
+        return CardBenefitRead(
+            id=b.id,
+            account_id=b.account_id,
+            account_name=acc_name,
+            bank_name=bank_name,
+            category_id=b.category_id,
+            category_name=cat_name,
+            category_keyword=b.category_keyword,
+            merchant_pattern=b.merchant_pattern,
+            reward_type=b.reward_type,
+            reward_rate_percent=b.reward_rate_percent,
+            point_multiplier=b.point_multiplier,
+            min_spend_per_txn=b.min_spend_per_txn,
+            max_reward_monthly=b.max_reward_monthly,
+            description=b.description,
+            is_active=b.is_active,
+        )
+
+    @staticmethod
+    async def get_benefit_by_id(db: AsyncSession, benefit_id: UUID) -> CardBenefit:
+        """Fetch a single card benefit by UUID with eager loaded account and category."""
+        query = (
+            select(CardBenefit)
+            .options(
+                selectinload(CardBenefit.account).selectinload(Account.institution),
+                selectinload(CardBenefit.category),
+            )
+            .where(CardBenefit.id == benefit_id)
+        )
+        result = await db.execute(query)
+        benefit = result.scalar_one_or_none()
+        if not benefit:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Quy tắc ưu đãi thẻ với ID {benefit_id} không tồn tại",
+            )
+        return benefit
+
+    @staticmethod
     async def get_all_benefits(
         db: AsyncSession, account_id: Optional[UUID] = None
     ) -> List[CardBenefitRead]:
         """Fetch all card benefit policies with relational metadata."""
         query = select(CardBenefit).options(
-            selectinload(CardBenefit.account),
+            selectinload(CardBenefit.account).selectinload(Account.institution),
             selectinload(CardBenefit.category),
         )
         if account_id:
@@ -44,44 +94,20 @@ class CardRecommendationService:
         result = await db.execute(query)
         benefits = result.scalars().all()
 
-        output = []
-        for b in benefits:
-            output.append(
-                CardBenefitRead(
-                    id=b.id,
-                    account_id=b.account_id,
-                    account_name=b.account.account_name if b.account else None,
-                    bank_name=(
-                        b.account.institution.name
-                        if b.account and b.account.institution
-                        else None
-                    ),
-                    category_id=b.category_id,
-                    category_name=b.category.name if b.category else None,
-                    category_keyword=b.category_keyword,
-                    merchant_pattern=b.merchant_pattern,
-                    reward_type=b.reward_type,
-                    reward_rate_percent=b.reward_rate_percent,
-                    point_multiplier=b.point_multiplier,
-                    min_spend_per_txn=b.min_spend_per_txn,
-                    max_reward_monthly=b.max_reward_monthly,
-                    description=b.description,
-                    is_active=b.is_active,
-                )
-            )
-        return output
+        return [CardRecommendationService._serialize_benefit(b) for b in benefits]
 
     @staticmethod
     async def create_benefit(
         db: AsyncSession, payload: CardBenefitCreate
-    ) -> CardBenefit:
-        """Register a new card benefit rule."""
+    ) -> CardBenefitRead:
+        """Register a new card benefit rule and return serialized model with loaded relationships."""
         benefit = CardBenefit(**payload.model_dump())
         async with atomic_transaction(db, error_prefix="Lỗi tạo quyền lợi thẻ"):
             db.add(benefit)
             await db.flush()
-            await db.refresh(benefit)
-            return benefit
+
+        full_benefit = await CardRecommendationService.get_benefit_by_id(db, benefit.id)
+        return CardRecommendationService._serialize_benefit(full_benefit)
 
     @staticmethod
     async def recommend_best_card(
