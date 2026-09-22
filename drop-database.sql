@@ -77,14 +77,8 @@ DROP TABLE IF EXISTS accounts CASCADE;
 DROP TABLE IF EXISTS institutions CASCADE;
 
 -- --------------------------------------------------------------------
--- 3. XÓA CÁC TRIGGERS & FUNCTIONS / STORED PROCEDURES
+-- 3. XÓA CÁC STORED PROCEDURES & BUSINESS FUNCTIONS
 -- --------------------------------------------------------------------
-
--- 3.1. Xóa Triggers tường minh (nếu bảng chưa bị xóa bằng cascade)
-DROP TRIGGER IF EXISTS trg_generate_tx_fingerprint ON transactions CASCADE;
-DROP TRIGGER IF EXISTS trg_update_installment_remaining_balance ON installment_schedules CASCADE;
-
--- 3.2. Xóa Stored Procedures & Business Functions
 DROP FUNCTION IF EXISTS fn_early_settle_installment_plan(UUID, UUID, DECIMAL, DECIMAL) CASCADE;
 DROP FUNCTION IF EXISTS fn_early_settle_installment_plan CASCADE;
 
@@ -123,18 +117,9 @@ DROP TYPE IF EXISTS account_type_enum CASCADE;
 -- thì mới xóa hàm và bảng shim, tuyệt đối không gây lỗi hay xóa nhầm trên Supabase.
 DO $$
 BEGIN
-    -- Chỉ xóa hàm auth.uid() nếu tồn tại
-    IF EXISTS (
-        SELECT 1 FROM pg_proc p 
-        JOIN pg_namespace n ON p.pronamespace = n.oid 
-        WHERE n.nspname = 'auth' AND p.proname = 'uid'
-    ) THEN
-        -- Kiểm tra nếu bảng auth.users chỉ có cột email/created_at (dấu hiệu của local shim)
-        -- thì mới drop hàm shim để có thể tái tạo lại sạch sẽ khi chạy 01-schema.sql
-        DROP FUNCTION IF EXISTS auth.uid() CASCADE;
-    END IF;
-
-    -- Xóa bảng auth.users giả lập nếu là local docker shim (chỉ chứa 3 cột id, email, created_at)
+    -- Chỉ dọn dẹp schema auth nếu đây là shim giả lập của môi trường Docker Local.
+    -- Nhận diện Docker Local shim: Bảng auth.users tồn tại nhưng KHÔNG có cột encrypted_password (cột chuẩn của Supabase Auth).
+    -- Trên Supabase Cloud: Khối lệnh này sẽ tự động bỏ qua (Skip), không động đến schema auth hay hàm auth.uid() của hệ thống.
     IF EXISTS (
         SELECT 1 FROM information_schema.tables 
         WHERE table_schema = 'auth' AND table_name = 'users'
@@ -142,6 +127,7 @@ BEGIN
         SELECT 1 FROM information_schema.columns 
         WHERE table_schema = 'auth' AND table_name = 'users' AND column_name = 'encrypted_password'
     ) THEN
+        DROP FUNCTION IF EXISTS auth.uid() CASCADE;
         DROP TABLE IF EXISTS auth.users CASCADE;
         DROP SCHEMA IF EXISTS auth CASCADE;
     END IF;
