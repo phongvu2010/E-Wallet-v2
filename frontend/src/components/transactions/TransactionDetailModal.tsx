@@ -524,7 +524,8 @@ export const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({
                   <span className="text-slate-400">Đơn Vị (Merchant):</span>
                   <strong className="text-slate-200">
                     {transaction.merchant?.cleaned_name ||
-                      transaction.raw_description}
+                      (transaction.is_installment && transaction.installment_plan?.product_name) ||
+                      "-"}
                   </strong>
                 </div>
 

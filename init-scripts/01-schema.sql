@@ -405,13 +405,14 @@ DECLARE
     v_product_name VARCHAR(150);
     v_status installment_status_enum;
     v_remaining_balance DECIMAL(15, 2);
+    v_merchant_id UUID;
     v_fee_amount DECIMAL(15, 2) := 0.00;
     v_installment_category_id UUID;
     v_fee_category_id UUID;
 BEGIN
     -- 1. Trích xuất thông tin gói trả góp (bao gồm user_id cho Multi-tenancy / RLS)
-    SELECT account_id, user_id, installment_plans.product_name, status, remaining_balance
-    INTO v_account_id, v_user_id, v_product_name, v_status, v_remaining_balance
+    SELECT account_id, user_id, installment_plans.product_name, status, remaining_balance, merchant_id
+    INTO v_account_id, v_user_id, v_product_name, v_status, v_remaining_balance, v_merchant_id
     FROM installment_plans
     WHERE id = p_plan_id;
 
@@ -449,11 +450,11 @@ BEGIN
 
     -- Ghi nợ dư nợ tiền gốc tất toán còn lại vào bảng transactions
     INSERT INTO transactions (
-        user_id, account_id, statement_id, installment_plan_id, category_id,
+        user_id, account_id, statement_id, installment_plan_id, merchant_id, category_id,
         transaction_date, post_date, raw_description,
         transaction_type, amount, fee, total_amount, note, is_installment
     ) VALUES (
-        v_user_id, v_account_id, p_statement_id, p_plan_id, v_installment_category_id,
+        v_user_id, v_account_id, p_statement_id, p_plan_id, v_merchant_id, v_installment_category_id,
         CURRENT_DATE, CURRENT_DATE, 'Tất toán trả góp trước hạn: ' || v_product_name,
         'INSTALLMENT_MONTHLY', v_remaining_balance, 0.00, v_remaining_balance,
         'Ghi nợ tất toán toàn bộ dư nợ trả góp trước hạn', TRUE
@@ -462,11 +463,11 @@ BEGIN
     -- Ghi nợ Phí Tất toán trước hạn vào bảng transactions (nếu có)
     IF v_fee_amount > 0 THEN
         INSERT INTO transactions (
-            user_id, account_id, statement_id, installment_plan_id, category_id,
+            user_id, account_id, statement_id, installment_plan_id, merchant_id, category_id,
             transaction_date, post_date, raw_description,
             transaction_type, amount, fee, total_amount, note, is_installment
         ) VALUES (
-            v_user_id, v_account_id, p_statement_id, p_plan_id, v_fee_category_id,
+            v_user_id, v_account_id, p_statement_id, p_plan_id, v_merchant_id, v_fee_category_id,
             CURRENT_DATE, CURRENT_DATE, 'Phí tất toán trả góp trước hạn (' || p_fee_percent || '%): ' || v_product_name,
             'FEE', v_fee_amount, 0.00, v_fee_amount,
             'Phí phạt tất toán trả góp trước hạn', FALSE

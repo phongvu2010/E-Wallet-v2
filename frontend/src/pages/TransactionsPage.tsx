@@ -63,6 +63,27 @@ const TRANSACTION_TYPES: { value: TransactionType; label: string; defaultKeyword
   { value: "DEBT_COLLECT", label: "Thu hồi nợ gốc đã cho mượn", defaultKeywords: ["Thu nợ", "Nhận tiền trả"] },
 ];
 
+const isNoteRedundant = (desc?: string, note?: string): boolean => {
+  if (!note || !note.trim()) return true;
+  if (!desc || !desc.trim()) return false;
+  const d = desc.trim().toLowerCase();
+  const n = note.trim().toLowerCase();
+  if (d === n) return true;
+  const cleanD = d.replace(/[^a-zA-Z0-9\u00C0-\u1EF9]/g, "");
+  const cleanN = n.replace(/[^a-zA-Z0-9\u00C0-\u1EF9]/g, "");
+  if (cleanD === cleanN || cleanD.includes(cleanN) || cleanN.includes(cleanD)) return true;
+
+  // Check token overlap between description and note
+  const dWords = new Set(d.split(/[\s,.-]+/).filter((w) => w.length > 2));
+  const nWords = new Set(n.split(/[\s,.-]+/).filter((w) => w.length > 2));
+  if (dWords.size > 0 && nWords.size > 0) {
+    const intersection = [...dWords].filter((w) => nWords.has(w));
+    const overlapRatio = intersection.length / Math.min(dWords.size, nWords.size);
+    if (overlapRatio >= 0.7) return true;
+  }
+  return false;
+};
+
 export const TransactionsPage: React.FC = () => {
   const { toast } = useToast();
 
@@ -448,7 +469,7 @@ export const TransactionsPage: React.FC = () => {
                       <div className="font-semibold text-slate-100 text-sm line-clamp-2">
                         {tx.raw_description || tx.category?.name || tx.note || "Giao dịch chi tiêu"}
                       </div>
-                      {tx.note && (
+                      {tx.note && !isNoteRedundant(tx.raw_description, tx.note) && (
                         <div className="text-xs text-slate-400 italic mt-0.5 line-clamp-1">
                           {tx.note}
                         </div>
@@ -597,7 +618,7 @@ export const TransactionsPage: React.FC = () => {
                           >
                             {tx.raw_description || tx.category?.name || tx.note || "Giao dịch chi tiêu"}
                           </div>
-                          {tx.note && (
+                          {tx.note && !isNoteRedundant(tx.raw_description, tx.note) && (
                             <div className="text-[11px] text-slate-400 truncate italic">
                               {tx.note}
                             </div>

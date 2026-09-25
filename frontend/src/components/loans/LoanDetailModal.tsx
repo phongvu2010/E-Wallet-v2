@@ -502,7 +502,7 @@ export const LoanDetailModal: React.FC<LoanDetailModalProps> = ({
               label="Ghi chú giao dịch"
               value={payNote}
               onChange={(e) => setPayNote(e.target.value)}
-              placeholder="VD: Trích tiền tự động từ VCB..."
+              placeholder="Để trống để tự động lưu chi tiết Gốc & Lãi..."
             />
 
             <div className="flex justify-end gap-3 pt-3 border-t border-slate-800">

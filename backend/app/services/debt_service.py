@@ -11,6 +11,7 @@ from sqlalchemy.orm import selectinload
 from app.models.account import Account
 from app.models.category import Category, CategoryTypeEnum
 from app.models.debt import Debt, DebtRepayment, DebtStatusEnum, DebtTypeEnum
+from app.models.merchant import Merchant
 from app.models.transaction import Transaction, TransactionTypeEnum
 from app.core.transaction import atomic_transaction
 from app.schemas.debt import (
@@ -36,6 +37,30 @@ class DebtService:
             if cat_id:
                 return cat_id
         return None
+
+    @staticmethod
+    async def _resolve_or_create_merchant(
+        db: AsyncSession, counterparty_name: str, default_category_id: Optional[UUID] = None
+    ) -> Optional[UUID]:
+        """Auto-resolve or register clean Merchant entity for a peer-to-peer debt counterparty."""
+        if not counterparty_name or not counterparty_name.strip():
+            return None
+
+        clean_name = counterparty_name.strip()
+        find_m = await db.execute(
+            select(Merchant).where(Merchant.cleaned_name.ilike(clean_name))
+        )
+        existing = find_m.scalar_one_or_none()
+        if existing:
+            return existing.id
+
+        new_m = Merchant(
+            cleaned_name=clean_name,
+            default_category_id=default_category_id,
+        )
+        db.add(new_m)
+        await db.flush()
+        return new_m.id
 
     @staticmethod
     def _serialize_debt(debt: Debt) -> DebtRead:
@@ -207,9 +232,13 @@ class DebtService:
                     cat_id = await DebtService._resolve_category_id(
                         db, ["Đi vay tiền", "Đi vay", "Nhận tiền vay", "Chuyển tiền & Trả nợ"]
                     )
+                    merch_id = await DebtService._resolve_or_create_merchant(
+                        db, payload.counterparty_name, cat_id
+                    )
                     tx_init = Transaction(
                         account_id=payload.account_id,
                         category_id=cat_id,
+                        merchant_id=merch_id,
                         transaction_date=payload.start_date,
                         post_date=payload.start_date,
                         transaction_type=TransactionTypeEnum.DEBT_BORROW,
@@ -224,9 +253,13 @@ class DebtService:
                     cat_id = await DebtService._resolve_category_id(
                         db, ["Cho vay tiền", "Cho vay", "Cho mượn tiền", "Chuyển tiền & Trả nợ"]
                     )
+                    merch_id = await DebtService._resolve_or_create_merchant(
+                        db, payload.counterparty_name, cat_id
+                    )
                     tx_init = Transaction(
                         account_id=payload.account_id,
                         category_id=cat_id,
+                        merchant_id=merch_id,
                         transaction_date=payload.start_date,
                         post_date=payload.start_date,
                         transaction_type=TransactionTypeEnum.DEBT_LEND,
@@ -310,6 +343,8 @@ class DebtService:
         acc_id = payload.account_id or debt.account_id
 
         async with atomic_transaction(db, error_prefix="Lỗi khi ghi nhận trả nợ"):
+            merch_id = await DebtService._resolve_or_create_merchant(db, debt.counterparty_name)
+
             # 1. Transaction cho phần nợ gốc (Principal)
             tx_principal = None
             if acc_id:
@@ -321,6 +356,7 @@ class DebtService:
                     tx_principal = Transaction(
                         account_id=acc_id,
                         category_id=cat_id,
+                        merchant_id=merch_id,
                         transaction_date=payload.repayment_date,
                         post_date=payload.repayment_date,
                         transaction_type=TransactionTypeEnum.DEBT_REPAY,
@@ -338,6 +374,7 @@ class DebtService:
                     tx_principal = Transaction(
                         account_id=acc_id,
                         category_id=cat_id,
+                        merchant_id=merch_id,
                         transaction_date=payload.repayment_date,
                         post_date=payload.repayment_date,
                         transaction_type=TransactionTypeEnum.DEBT_COLLECT,
@@ -376,6 +413,7 @@ class DebtService:
                     tx_extra = Transaction(
                         account_id=acc_id,
                         category_id=cat_id,
+                        merchant_id=merch_id,
                         transaction_date=payload.repayment_date,
                         post_date=payload.repayment_date,
                         transaction_type=TransactionTypeEnum.PURCHASE,
@@ -390,6 +428,7 @@ class DebtService:
                     tx_extra = Transaction(
                         account_id=acc_id,
                         category_id=cat_id,
+                        merchant_id=merch_id,
                         transaction_date=payload.repayment_date,
                         post_date=payload.repayment_date,
                         transaction_type=TransactionTypeEnum.INCOME,

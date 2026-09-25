@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.models.category import Category
+from app.models.merchant import Merchant
 from app.models.loan import (
     InterestMethodEnum,
     Loan,
@@ -72,6 +73,39 @@ class LoanService:
     Provides amortized schedule calculation, floating interest rate recalculation,
     periodic payment processing, and loan settlement.
     """
+
+    @staticmethod
+    async def _resolve_repayment_category_id(db: AsyncSession) -> Optional[UUID]:
+        """Auto-resolve Category ID for Loan Repayment in priority order."""
+        for target in ["Trả nợ vay", "Trả nợ", "Thanh toán nợ", "Chuyển tiền & Trả nợ"]:
+            cat_query = select(Category.id).where(Category.name.ilike(f"%{target}%")).limit(1)
+            cat_res = await db.execute(cat_query)
+            cat_id = cat_res.scalar_one_or_none()
+            if cat_id:
+                return cat_id
+        return None
+
+    @staticmethod
+    async def _resolve_or_create_merchant(
+        db: AsyncSession, merchant_name: str, default_category_id: Optional[UUID] = None
+    ) -> Optional[UUID]:
+        """Auto-resolve or register clean Merchant entity for a loan."""
+        if not merchant_name or not merchant_name.strip():
+            return None
+        clean_name = merchant_name.strip()
+        find_m = await db.execute(
+            select(Merchant).where(Merchant.cleaned_name.ilike(clean_name))
+        )
+        existing = find_m.scalar_one_or_none()
+        if existing:
+            return existing.id
+        new_m = Merchant(
+            cleaned_name=clean_name,
+            default_category_id=default_category_id,
+        )
+        db.add(new_m)
+        await db.flush()
+        return new_m.id
 
     @staticmethod
     async def get_all(
@@ -395,16 +429,13 @@ class LoanService:
 
             # Create repayment transaction if source account is provided
             if payload.payment_account_id:
-                # Find category for loan repayment
-                cat_query = select(Category).where(
-                    Category.name.ilike("%thanh toán%") | Category.name.ilike("%chuyển tiền%")
-                ).limit(1)
-                cat_res = await db.execute(cat_query)
-                cat = cat_res.scalar_one_or_none()
+                cat_id = await LoanService._resolve_repayment_category_id(db)
+                merch_id = await LoanService._resolve_or_create_merchant(db, loan.loan_name, cat_id)
 
                 tx = Transaction(
                     account_id=payload.payment_account_id,
-                    category_id=cat.id if cat else None,
+                    category_id=cat_id,
+                    merchant_id=merch_id,
                     transaction_date=paid_date,
                     post_date=paid_date,
                     raw_description=f"Thanh toán nợ vay kỳ {schedule.period_index}/{schedule.total_periods} - {loan.loan_name}",
@@ -488,15 +519,13 @@ class LoanService:
 
             # Create settlement transaction if source account is provided
             if payload.settlement_account_id:
-                cat_query = select(Category.id).where(
-                    Category.name.ilike("%thanh toán%") | Category.name.ilike("%chuyển tiền%")
-                ).limit(1)
-                cat_res = await db.execute(cat_query)
-                cat_id = cat_res.scalar_one_or_none()
+                cat_id = await LoanService._resolve_repayment_category_id(db)
+                merch_id = await LoanService._resolve_or_create_merchant(db, loan.loan_name, cat_id)
 
                 tx = Transaction(
                     account_id=payload.settlement_account_id,
                     category_id=cat_id,
+                    merchant_id=merch_id,
                     transaction_date=settle_date,
                     post_date=settle_date,
                     raw_description=f"Tất toán trước hạn toàn bộ gói vay: {loan.loan_name}",
