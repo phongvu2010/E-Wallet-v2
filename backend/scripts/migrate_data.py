@@ -410,18 +410,26 @@ def ensure_database_schema(cursor, connection):
             SELECT
                 a.id AS account_id,
                 COALESCE(SUM(CASE
-                    WHEN t.total_amount > 0 AND t.transaction_type != 'INCOME' THEN t.total_amount
+                    WHEN t.account_id = a.id AND t.total_amount > 0 AND t.transaction_type != 'INCOME' THEN t.total_amount
                     ELSE 0
                 END), 0.00) AS unbilled_charges,
                 COALESCE(SUM(CASE
-                    WHEN t.total_amount < 0 THEN ABS(t.total_amount)
+                    WHEN t.account_id = a.id AND t.total_amount < 0 THEN ABS(t.total_amount)
+                    WHEN t.transfer_to_account_id = a.id AND t.transaction_type = 'REPAYMENT' THEN ABS(t.total_amount)
                     ELSE 0
                 END), 0.00) AS unbilled_credits,
-                COALESCE(SUM(t.total_amount), 0.00) AS unbilled_net_amount,
+                COALESCE(SUM(CASE
+                    WHEN t.account_id = a.id THEN t.total_amount
+                    WHEN t.transfer_to_account_id = a.id AND t.transaction_type = 'REPAYMENT' THEN -ABS(t.total_amount)
+                    ELSE 0
+                END), 0.00) AS unbilled_net_amount,
                 COUNT(t.id) AS unbilled_transaction_count
             FROM accounts a
             LEFT JOIN latest_statement_per_account ls ON a.id = ls.account_id
-            LEFT JOIN transactions t ON t.account_id = a.id
+            LEFT JOIN transactions t ON (
+                    t.account_id = a.id
+                    OR (t.transfer_to_account_id = a.id AND t.transaction_type = 'REPAYMENT')
+                )
                 AND t.statement_id IS NULL
                 AND (
                     ls.latest_statement_date IS NULL
@@ -523,6 +531,62 @@ def ensure_database_schema(cursor, connection):
         LEFT JOIN unbilled_transactions_summary uts ON a.id = uts.account_id
         LEFT JOIN asset_account_flows aaf ON a.id = aaf.account_id
         ORDER BY (a.account_type = 'CREDIT_CARD') DESC, live_current_balance DESC;
+
+        -- Ensure v_statement_payment_status accounts for REPAYMENT via transfer_to_account_id
+        CREATE OR REPLACE VIEW v_statement_payment_status WITH (security_invoker = true) AS
+        WITH statement_windows AS (
+            SELECT
+                s.id AS statement_id,
+                s.account_id,
+                s.statement_date,
+                s.payment_due_date,
+                s.statement_balance AS billed_amount,
+                s.minimum_payment,
+                s.statement_date AS payment_window_start,
+                COALESCE(
+                    LEAD(s.statement_date) OVER (PARTITION BY s.account_id ORDER BY s.statement_date ASC),
+                    s.payment_due_date + 10
+                ) AS payment_window_end
+            FROM statements s
+        ),
+        repayment_allocations AS (
+            SELECT
+                sw.statement_id,
+                COALESCE(ABS(SUM(t.total_amount)), 0.00) AS total_paid_amount
+            FROM statement_windows sw
+            LEFT JOIN transactions t ON (t.account_id = sw.account_id OR t.transfer_to_account_id = sw.account_id)
+                AND t.transaction_type = 'REPAYMENT'
+                AND (
+                    t.settles_statement_id = sw.statement_id
+                    OR
+                    (t.settles_statement_id IS NULL
+                     AND t.transaction_date > sw.payment_window_start
+                     AND t.transaction_date <= sw.payment_window_end)
+                )
+            GROUP BY sw.statement_id
+        )
+        SELECT
+            s.id AS statement_id,
+            a.id AS account_id,
+            a.account_name,
+            a.card_number_masked,
+            s.statement_date,
+            s.payment_due_date,
+            s.statement_balance AS billed_amount,
+            s.minimum_payment,
+            COALESCE(ra.total_paid_amount, 0.00) AS total_paid_amount,
+            GREATEST(0.00, s.statement_balance - COALESCE(ra.total_paid_amount, 0.00)) AS remaining_balance_to_pay,
+            CASE
+                WHEN s.statement_balance <= 0.00 THEN 'PAID'
+                WHEN COALESCE(ra.total_paid_amount, 0.00) >= s.statement_balance THEN 'PAID'
+                WHEN COALESCE(ra.total_paid_amount, 0.00) > 0.00 THEN 'PARTIALLY_PAID'
+                WHEN CURRENT_DATE > s.payment_due_date THEN 'OVERDUE'
+                ELSE 'BILLED'
+            END AS payment_status,
+            (s.payment_due_date - CURRENT_DATE) AS days_until_due
+        FROM statements s
+        JOIN accounts a ON s.account_id = a.id
+        LEFT JOIN repayment_allocations ra ON ra.statement_id = s.id;
     """)
     connection.commit()
     print("[ETL Ingestion] Cấu trúc database & bảng điều phối đã sẵn sàng.")
@@ -1018,15 +1082,19 @@ try:
     # 6. Migrate Transactions (Smart 2-Tier Matching: SHA-256 Fingerprint + Fuzzy Heuristic for Manual Transactions)
     print("Loading existing transactions from database for smart reconciliation...")
     cur.execute("""
-        SELECT id, account_id, transaction_date, post_date, raw_description, 
-               total_amount, amount, original_amount, original_currency, 
-               statement_id, settles_statement_id, merchant_id, category_id, tx_fingerprint, note
-        FROM transactions;
+        SELECT t.id, t.account_id, t.transaction_date, t.post_date, t.raw_description, 
+               t.total_amount, t.amount, t.original_amount, t.original_currency, 
+               t.statement_id, t.settles_statement_id, t.merchant_id, t.category_id,
+               t.tx_fingerprint, t.note, t.transfer_to_account_id,
+               t.transaction_type::text, a.account_type::text
+        FROM transactions t
+        LEFT JOIN accounts a ON t.account_id = a.id;
     """)
     existing_tx_rows = cur.fetchall()
 
     # Fast lookups for existing transactions
     db_tx_by_fp = {}
+    db_tx_by_id = {}
     db_tx_candidates = []
     for r in existing_tx_rows:
         row_dict = {
@@ -1045,9 +1113,13 @@ try:
             "category_id": r[12],
             "tx_fingerprint": r[13],
             "note": r[14],
+            "transfer_to_account_id": r[15],
+            "transaction_type": r[16],
+            "source_account_type": r[17],
         }
         if r[13]:
             db_tx_by_fp[r[13]] = row_dict
+        db_tx_by_id[str(r[0])] = row_dict
         db_tx_candidates.append(row_dict)
 
     def is_desc_similar(d1: Optional[str], d2: Optional[str]) -> bool:
@@ -1166,6 +1238,10 @@ try:
 
         return c_det or "Chi tiêu khác"
 
+    # First pass: Parse all Excel rows and compute deterministic SHA-256 fingerprints
+    parsed_excel_rows = []
+    all_excel_fps = set()
+
     for _, row in df_transactions.iterrows():
         acc_num = str(row["Account Number"]).strip()
         acc_id = account_id_map.get(acc_num)
@@ -1175,9 +1251,10 @@ try:
         t_date = parse_date(row["Transaction Date"]) or sp
         p_date = parse_date(row["Post Date"]) or t_date
 
-        raw_desc = (
+        raw_excel_detail = (
             str(row["Transaction Detail"]).strip()
             if not pd.isna(row["Transaction Detail"])
+            and str(row["Transaction Detail"]).strip()
             else None
         )
         merch_name = (
@@ -1202,7 +1279,7 @@ try:
             tx_type = "REFUND"
         elif (
             cat_det in ["Hoàn tiền Cashback", "Chương trình ưu đãi"]
-            or (raw_desc and any(k in raw_desc.upper() for k in ["BCCTKM", "DAM CHAT"]))
+            or (raw_excel_detail and any(k in raw_excel_detail.upper() for k in ["BCCTKM", "DAM CHAT"]))
         ):
             tx_type = "CASHBACK_CREDIT"
         elif cat_str == "Phí & Lãi":
@@ -1211,9 +1288,8 @@ try:
             else:
                 tx_type = "FEE"
 
-        # Fallback raw_description if missing (e.g. Repayment / Income transactions)
-        if not raw_desc:
-            raw_desc = cat_det or merch_name or "Giao dịch thẻ"
+        # Canonical raw_description for deterministic fingerprint hashing
+        raw_desc = raw_excel_detail or cat_det or merch_name or "Giao dịch thẻ"
 
         resolved_cat_name = resolve_tx_category(raw_desc, merch_name, cat_det, tx_type)
         cat_id = cat_map.get(resolved_cat_name)
@@ -1273,7 +1349,7 @@ try:
 
         excel_note = (
             str(row["Note"]).strip()
-            if "Note" in row and not pd.isna(row["Note"])
+            if "Note" in row and not pd.isna(row["Note"]) and str(row["Note"]).strip()
             else None
         )
 
@@ -1285,6 +1361,7 @@ try:
         tx_fp = calculate_tx_fingerprint(
             acc_id, t_date, p_date, raw_desc, total_amt, orig_amt, orig_curr, occ_idx
         )
+        all_excel_fps.add(tx_fp)
 
         # Mapping settles_statement_id for REPAYMENT transactions
         settles_stmt_id = None
@@ -1298,6 +1375,57 @@ try:
                 preceding_stmts.sort(key=lambda x: x[0], reverse=True)
                 settles_stmt_id = preceding_stmts[0][1]
 
+        parsed_excel_rows.append(
+            {
+                "acc_num": acc_num,
+                "acc_id": acc_id,
+                "stmt_id": stmt_id,
+                "settles_stmt_id": settles_stmt_id,
+                "t_date": t_date,
+                "p_date": p_date,
+                "raw_excel_detail": raw_excel_detail,
+                "raw_desc": raw_desc,
+                "merch_name": merch_name,
+                "merch_id": merch_id,
+                "cat_det": cat_det,
+                "cat_id": cat_id,
+                "tx_type": tx_type,
+                "orig_amt": orig_amt,
+                "orig_curr": orig_curr,
+                "ex_rate": ex_rate,
+                "for_fee": for_fee,
+                "amt": amt,
+                "fee": fee,
+                "total_amt": total_amt,
+                "excel_note": excel_note,
+                "tx_fp": tx_fp,
+            }
+        )
+
+    # Second pass: 2-Tier Smart Reconciliation (Tier 1 Exact Fingerprint -> Tier 2 Fuzzy Manual Match)
+    recreate_upstream_transfers = []
+    for item in parsed_excel_rows:
+        acc_id = item["acc_id"]
+        stmt_id = item["stmt_id"]
+        settles_stmt_id = item["settles_stmt_id"]
+        t_date = item["t_date"]
+        p_date = item["p_date"]
+        raw_excel_detail = item["raw_excel_detail"]
+        raw_desc = item["raw_desc"]
+        merch_name = item["merch_name"]
+        merch_id = item["merch_id"]
+        cat_id = item["cat_id"]
+        tx_type = item["tx_type"]
+        orig_amt = item["orig_amt"]
+        orig_curr = item["orig_curr"]
+        ex_rate = item["ex_rate"]
+        for_fee = item["for_fee"]
+        amt = item["amt"]
+        fee = item["fee"]
+        total_amt = item["total_amt"]
+        excel_note = item["excel_note"]
+        tx_fp = item["tx_fp"]
+
         # ---------------------------------------------------------
         # SMART 2-TIER MATCHING LOGIC
         # ---------------------------------------------------------
@@ -1310,77 +1438,147 @@ try:
             updated_existing_count += 1
         else:
             # Tier 2: Fuzzy Heuristic Match for Manually-Entered Transactions
-            # Find all candidates on the same account with matching amount and within 1 day
-            candidates_for_acc = [
-                cand
-                for cand in db_tx_candidates
-                if str(cand["id"]) not in matched_db_tx_ids
-                and str(cand["account_id"]).lower() == str(acc_id).lower()
-                and (
-                    abs(cand["total_amount"] - total_amt) < 1.0
-                    or abs(abs(cand["amount"]) - abs(amt)) < 1.0
-                    or (orig_curr != "VND" and abs(cand["original_amount"] - orig_amt) < 0.1)
-                )
-                and cand["transaction_date"]
-                and abs((cand["transaction_date"] - t_date).days) <= 1
-            ]
+            # Only consider DB rows that do NOT already belong to another exact Excel fingerprint
+            candidates_for_acc = []
+            for cand in db_tx_candidates:
+                if str(cand["id"]) in matched_db_tx_ids:
+                    continue
+                if cand.get("tx_fingerprint") and cand["tx_fingerprint"] in all_excel_fps:
+                    continue
+                if not cand.get("transaction_date") or not t_date:
+                    continue
 
-            if len(candidates_for_acc) == 1:
-                # Exactly 1 candidate exists with identical amount and date on this card -> 100% Unambiguous Match!
+                same_acc = (
+                    str(cand["account_id"]).lower() == str(acc_id).lower()
+                    and cand.get("transfer_to_account_id") is None
+                )
+                transfer_repay_acc = (
+                    tx_type == "REPAYMENT"
+                    and cand.get("transaction_type") == "REPAYMENT"
+                    and cand.get("transfer_to_account_id") is not None
+                    and str(cand["transfer_to_account_id"]).lower() == str(acc_id).lower()
+                )
+                if not (same_acc or transfer_repay_acc):
+                    continue
+
+                # Date tolerance: within 3 days of transaction_date or 2 days of post_date
+                date_diff = abs((cand["transaction_date"] - t_date).days)
+                post_diff = abs((cand["transaction_date"] - p_date).days) if p_date else 999
+                if date_diff > 3 and post_diff > 2:
+                    continue
+
+                # Amount matching (strictly preserving sign so +TRANSFER never matches -REPAYMENT)
+                amt_matched = (
+                    abs(cand["total_amount"] - total_amt) < 1.0
+                    or (
+                        cand["total_amount"] * total_amt > 0
+                        and abs(abs(cand["amount"]) - abs(amt)) < 1.0
+                    )
+                    or (
+                        orig_curr != "VND"
+                        and abs(cand["original_amount"] - orig_amt) < 0.1
+                    )
+                )
+
+                if amt_matched:
+                    candidates_for_acc.append(cand)
+
+            if candidates_for_acc:
+                def _candidate_score(cand: dict) -> tuple:
+                    d_diff = abs((cand["transaction_date"] - t_date).days)
+                    exact_date = 1 if d_diff == 0 else 0
+                    type_match = 1 if cand.get("transaction_type") == tx_type else 0
+                    merchant_match = 1 if (cand["merchant_id"] and cand["merchant_id"] == merch_id) else 0
+                    desc_match = 1 if (
+                        is_desc_similar(cand.get("raw_description"), raw_desc)
+                        or is_desc_similar(cand.get("raw_description"), merch_name)
+                    ) else 0
+                    return (exact_date, type_match, merchant_match, desc_match, -d_diff)
+
+                candidates_for_acc.sort(key=_candidate_score, reverse=True)
                 matched_db_id = candidates_for_acc[0]["id"]
                 is_manual_match = True
                 matched_manual_count += 1
-            elif len(candidates_for_acc) > 1:
-                # Multiple candidates -> filter by description or merchant or payment type
-                for cand in candidates_for_acc:
-                    merchant_match = (
-                        cand["merchant_id"] and cand["merchant_id"] == merch_id
-                    )
-                    desc_match = is_desc_similar(cand["raw_description"], raw_desc)
-                    repay_match = (
-                        tx_type == "REPAYMENT"
-                        and (
-                            cand["total_amount"] < 0
-                            or "thanh toán" in (cand["raw_description"] or "").lower()
-                            or "sacombank" in (cand["raw_description"] or "").lower()
-                        )
-                    )
-                    inst_match = (
-                        tx_type in ["INSTALLMENT_MONTHLY", "INSTALLMENT_PRINCIPAL"]
-                        and (
-                            "install" in (cand["raw_description"] or "").lower()
-                            or "trả góp" in (cand["raw_description"] or "").lower()
-                            or "shopee" in (cand["raw_description"] or "").lower()
-                        )
-                    )
-                    if merchant_match or desc_match or repay_match or inst_match:
-                        matched_db_id = cand["id"]
-                        is_manual_match = True
-                        matched_manual_count += 1
-                        break
-                # Fallback to first candidate if no specific match
-                if not matched_db_id:
-                    matched_db_id = candidates_for_acc[0]["id"]
-                    is_manual_match = True
-                    matched_manual_count += 1
 
         if matched_db_id:
             matched_db_tx_ids.add(str(matched_db_id))
-            # Find candidate note if any to preserve custom manual notes if Excel note is empty
+            matched_cand = db_tx_by_id.get(str(matched_db_id))
+
+            # Preserve custom manual note if Excel note is empty
             merged_note = excel_note
-            for cand in db_tx_candidates:
-                if str(cand["id"]) == str(matched_db_id):
-                    if not merged_note and cand.get("note"):
-                        merged_note = cand["note"]
-                    break
+            if not merged_note and matched_cand and matched_cand.get("note"):
+                merged_note = matched_cand["note"]
+
+            # Preserve manual raw_description when Excel Transaction Detail cell is empty
+            merged_raw_desc = raw_desc
+            if (
+                not raw_excel_detail
+                and matched_cand
+                and matched_cand.get("raw_description")
+                and str(matched_cand["raw_description"]).strip()
+            ):
+                merged_raw_desc = str(matched_cand["raw_description"]).strip()
+
+            # Preserve manual settles_statement_id if already linked
+            merged_settles_stmt_id = settles_stmt_id
+            if not merged_settles_stmt_id and matched_cand and matched_cand.get("settles_statement_id"):
+                merged_settles_stmt_id = matched_cand["settles_statement_id"]
+
+            # Preserve source asset account linkage for REPAYMENT if paid from an internal asset account
+            merged_acc_id = acc_id
+            merged_transfer_to_id = None
+            if matched_cand:
+                cand_acc_id = matched_cand.get("account_id")
+                cand_transfer_id = matched_cand.get("transfer_to_account_id")
+                if (
+                    cand_transfer_id
+                    and str(cand_transfer_id).lower() == str(acc_id).lower()
+                ):
+                    if matched_cand.get("source_account_type") not in (None, "CREDIT_CARD"):
+                        merged_acc_id = cand_acc_id
+                        merged_transfer_to_id = acc_id
+                elif (
+                    tx_type == "REPAYMENT"
+                    and cand_transfer_id
+                    and str(cand_transfer_id).lower() != str(acc_id).lower()
+                    and str(cand_acc_id).lower() != str(acc_id).lower()
+                ):
+                    # Self-heal previously collapsed 2-hop chain (Hop 1: cand_acc_id -> cand_transfer_id, Hop 2: cand_transfer_id -> acc_id)
+                    merged_acc_id = cand_transfer_id
+                    merged_transfer_to_id = acc_id
+                    recreate_upstream_transfers.append(
+                        {
+                            "source_acc_id": cand_acc_id,
+                            "dest_acc_id": cand_transfer_id,
+                            "t_date": t_date,
+                            "p_date": p_date,
+                            "raw_desc": merged_raw_desc,
+                            "merch_id": merch_id,
+                            "cat_id": cat_map.get("Chuyển khoản nội bộ") or cat_id,
+                            "orig_amt": abs(orig_amt),
+                            "orig_curr": orig_curr,
+                            "ex_rate": ex_rate,
+                            "for_fee": for_fee,
+                            "amt": abs(amt),
+                            "fee": fee,
+                            "total_amt": abs(total_amt),
+                        }
+                    )
+                elif (
+                    str(cand_acc_id).lower() == str(acc_id).lower()
+                    and cand_transfer_id
+                ):
+                    merged_transfer_to_id = cand_transfer_id
 
             tx_records_to_update.append(
                 (
+                    merged_acc_id,
+                    merged_transfer_to_id,
                     stmt_id,
-                    settles_stmt_id,
+                    merged_settles_stmt_id,
                     t_date,
                     p_date,
-                    raw_desc,
+                    merged_raw_desc,
                     merch_id,
                     cat_id,
                     tx_type,
@@ -1429,6 +1627,8 @@ try:
             """
             UPDATE transactions AS t
             SET 
+                account_id = v.account_id::uuid,
+                transfer_to_account_id = v.transfer_to_account_id::uuid,
                 statement_id = v.statement_id::uuid,
                 settles_statement_id = v.settles_statement_id::uuid,
                 transaction_date = v.transaction_date::date,
@@ -1448,7 +1648,8 @@ try:
                 is_installment = v.is_installment::boolean,
                 tx_fingerprint = v.tx_fingerprint
             FROM (VALUES %s) AS v(
-                statement_id, settles_statement_id, transaction_date, post_date, raw_description,
+                account_id, transfer_to_account_id, statement_id, settles_statement_id,
+                transaction_date, post_date, raw_description,
                 merchant_id, category_id, transaction_type, original_amount, original_currency,
                 exchange_rate, foreign_fee, amount, fee, total_amount, note, is_installment,
                 tx_fingerprint, id
@@ -1458,6 +1659,58 @@ try:
             tx_records_to_update,
             page_size=1000,
         )
+
+    # Self-heal: Recreate any upstream internal TRANSFER hops that were previously collapsed
+    for up_tr in recreate_upstream_transfers:
+        cur.execute(
+            """
+            SELECT id FROM transactions
+            WHERE account_id = %s::uuid
+              AND transfer_to_account_id = %s::uuid
+              AND transaction_type = 'TRANSFER'
+              AND abs(transaction_date - %s::date) <= 3
+              AND abs(abs(total_amount) - %s::numeric) < 1.0
+            LIMIT 1;
+            """,
+            (
+                str(up_tr["source_acc_id"]),
+                str(up_tr["dest_acc_id"]),
+                up_tr["t_date"],
+                up_tr["total_amt"],
+            ),
+        )
+        if not cur.fetchone():
+            cur.execute(
+                """
+                INSERT INTO transactions (
+                    account_id, transfer_to_account_id, transaction_date, post_date,
+                    raw_description, merchant_id, category_id, transaction_type,
+                    original_amount, original_currency, exchange_rate, foreign_fee,
+                    amount, fee, total_amount, is_installment
+                ) VALUES (
+                    %s::uuid, %s::uuid, %s::date, %s::date,
+                    %s, %s::uuid, %s::uuid, 'TRANSFER',
+                    %s::numeric, %s, %s::numeric, %s::numeric,
+                    %s::numeric, %s::numeric, %s::numeric, FALSE
+                );
+                """,
+                (
+                    str(up_tr["source_acc_id"]),
+                    str(up_tr["dest_acc_id"]),
+                    up_tr["t_date"],
+                    up_tr["p_date"],
+                    up_tr["raw_desc"],
+                    str(up_tr["merch_id"]) if up_tr["merch_id"] else None,
+                    str(up_tr["cat_id"]) if up_tr["cat_id"] else None,
+                    up_tr["orig_amt"],
+                    up_tr["orig_curr"],
+                    up_tr["ex_rate"],
+                    up_tr["for_fee"],
+                    up_tr["amt"],
+                    up_tr["fee"],
+                    up_tr["total_amt"],
+                ),
+            )
 
     # Execute Bulk Insert for New Transactions
     if tx_records_to_insert:
@@ -1472,14 +1725,14 @@ try:
             ) VALUES %s
             ON CONFLICT (tx_fingerprint) DO UPDATE SET
                 statement_id = EXCLUDED.statement_id,
-                settles_statement_id = EXCLUDED.settles_statement_id,
+                settles_statement_id = COALESCE(EXCLUDED.settles_statement_id, transactions.settles_statement_id),
                 post_date = EXCLUDED.post_date,
                 category_id = EXCLUDED.category_id,
                 merchant_id = EXCLUDED.merchant_id,
                 amount = EXCLUDED.amount,
                 fee = EXCLUDED.fee,
                 total_amount = EXCLUDED.total_amount,
-                note = EXCLUDED.note,
+                note = COALESCE(EXCLUDED.note, transactions.note),
                 is_installment = EXCLUDED.is_installment;
             """,
             tx_records_to_insert,
@@ -1493,7 +1746,7 @@ try:
             statement_id = s.id,
             post_date = COALESCE(t.post_date, t.transaction_date)
         FROM statements s
-        WHERE t.account_id = s.account_id
+        WHERE (t.account_id = s.account_id OR (t.transfer_to_account_id = s.account_id AND t.transaction_type = 'REPAYMENT'))
           AND t.statement_id IS NULL
           AND t.transaction_date >= s.start_date
           AND t.transaction_date <= s.end_date;
@@ -1503,64 +1756,200 @@ try:
     # 7. AUTOMATIC DEDUPLICATION & ORPHAN DUPLICATE PURGE
     # ---------------------------------------------------------
     print("Running automatic deduplication and orphan duplicate purge...")
-    cur.execute("""
-        WITH duplicate_pairs AS (
-            SELECT 
-                t_excel.id AS excel_id,
-                t_manual.id AS manual_id,
-                t_manual.note AS manual_note,
-                t_manual.installment_plan_id AS manual_plan_id,
-                ROW_NUMBER() OVER (
-                    PARTITION BY t_manual.id 
-                    ORDER BY 
-                        (t_excel.transaction_date = t_manual.transaction_date) DESC,
-                        (t_excel.raw_description = t_manual.raw_description) DESC,
-                        t_excel.created_at ASC
-                ) as rn
-            FROM transactions t_excel
-            JOIN transactions t_manual ON t_excel.account_id = t_manual.account_id
-                                      AND abs(t_excel.transaction_date - t_manual.transaction_date) <= 1
-                                      AND abs(t_excel.total_amount - t_manual.total_amount) < 1.0
-                                      AND t_excel.id != t_manual.id
-            WHERE t_excel.statement_id IS NOT NULL
-              AND (
-                  t_manual.statement_id IS NULL
-                  OR t_manual.created_at > t_excel.created_at
-                  OR t_manual.id > t_excel.id
-              )
-        )
-        SELECT excel_id, manual_id, manual_note, manual_plan_id
-        FROM duplicate_pairs
-        WHERE rn = 1;
-    """)
-    dup_rows = cur.fetchall()
-
     purged_count = 0
-    for ex_id, man_id, man_note, man_plan_id in dup_rows:
-        # Transfer custom manual note if excel row note is empty
-        if man_note:
-            cur.execute("""
-                UPDATE transactions 
-                SET note = COALESCE(NULLIF(note, ''), %s)
-                WHERE id = %s;
-            """, (man_note, ex_id))
+    if all_excel_fps:
+        excel_fp_list = list(all_excel_fps)
+        cur.execute(
+            """
+            WITH duplicate_pairs AS (
+                SELECT 
+                    t_excel.id AS excel_id,
+                    t_manual.id AS manual_id,
+                    t_manual.note AS manual_note,
+                    t_manual.raw_description AS manual_raw_desc,
+                    t_manual.settles_statement_id AS manual_settles_stmt_id,
+                    t_manual.installment_plan_id AS manual_plan_id,
+                    t_manual.account_id AS manual_account_id,
+                    t_manual.transfer_to_account_id AS manual_transfer_to_id,
+                    a_man.account_type::text AS manual_account_type,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY t_manual.id 
+                        ORDER BY 
+                            (t_excel.transaction_date = t_manual.transaction_date) DESC,
+                            (t_excel.raw_description = t_manual.raw_description) DESC,
+                            abs(t_excel.transaction_date - t_manual.transaction_date) ASC,
+                            t_excel.created_at ASC
+                    ) AS rn,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY t_excel.id 
+                        ORDER BY 
+                            (t_excel.transaction_date = t_manual.transaction_date) DESC,
+                            (t_excel.raw_description = t_manual.raw_description) DESC,
+                            abs(t_excel.transaction_date - t_manual.transaction_date) ASC,
+                            t_manual.created_at ASC
+                    ) AS rn_excel
+                FROM transactions t_excel
+                JOIN transactions t_manual ON (
+                    t_excel.transaction_type = t_manual.transaction_type
+                    AND (
+                        (
+                            t_manual.transfer_to_account_id IS NULL
+                            AND t_manual.account_id = COALESCE(t_excel.transfer_to_account_id, t_excel.account_id)
+                        )
+                        OR (
+                            t_excel.transaction_type = 'REPAYMENT'
+                            AND t_manual.transaction_type = 'REPAYMENT'
+                            AND t_manual.transfer_to_account_id IS NOT NULL
+                            AND t_manual.transfer_to_account_id = COALESCE(t_excel.transfer_to_account_id, t_excel.account_id)
+                        )
+                    )
+                )
+                AND (
+                    abs(t_excel.transaction_date - t_manual.transaction_date) <= 3
+                    OR (t_excel.post_date IS NOT NULL AND abs(t_excel.post_date - t_manual.transaction_date) <= 2)
+                )
+                AND abs(t_excel.total_amount - t_manual.total_amount) < 1.0
+                AND t_excel.id != t_manual.id
+                LEFT JOIN accounts a_man ON t_manual.account_id = a_man.id
+                WHERE t_excel.tx_fingerprint = ANY(%s)
+                  AND (
+                      t_manual.tx_fingerprint IS NULL
+                      OR NOT (t_manual.tx_fingerprint = ANY(%s))
+                  )
+            )
+            SELECT excel_id, manual_id, manual_note, manual_raw_desc,
+                   manual_settles_stmt_id, manual_plan_id,
+                   manual_account_id, manual_transfer_to_id, manual_account_type
+            FROM duplicate_pairs
+            WHERE rn = 1 AND rn_excel = 1;
+            """,
+            (excel_fp_list, excel_fp_list),
+        )
+        dup_rows = cur.fetchall()
 
-        # Transfer installment plan linkage if any
-        if man_plan_id:
-            cur.execute("""
-                UPDATE transactions 
-                SET installment_plan_id = COALESCE(installment_plan_id, %s)
-                WHERE id = %s;
-            """, (man_plan_id, ex_id))
-            cur.execute("""
+        generic_fallbacks = (
+            "Thanh toán dư nợ",
+            "Giao dịch thẻ",
+            "Nạp tiền",
+            "Thanh toán nợ thẻ",
+            "Chi tiêu",
+            "Chi tiêu mua sắm",
+        )
+
+        for (
+            ex_id,
+            man_id,
+            man_note,
+            man_raw_desc,
+            man_settles_stmt_id,
+            man_plan_id,
+            man_acc_id,
+            man_transfer_to_id,
+            man_acc_type,
+        ) in dup_rows:
+            # 1. Transfer custom manual note if excel row note is empty
+            if man_note:
+                cur.execute(
+                    """
+                    UPDATE transactions 
+                    SET note = COALESCE(NULLIF(note, ''), %s)
+                    WHERE id = %s;
+                    """,
+                    (man_note, ex_id),
+                )
+
+            # 2. Preserve custom manual raw_description if excel row only has a generic fallback
+            if man_raw_desc and str(man_raw_desc).strip():
+                cur.execute(
+                    """
+                    UPDATE transactions
+                    SET raw_description = CASE
+                        WHEN raw_description IS NULL OR raw_description = ANY(%s) THEN %s
+                        ELSE raw_description
+                    END
+                    WHERE id = %s;
+                    """,
+                    (list(generic_fallbacks), str(man_raw_desc).strip(), ex_id),
+                )
+
+            # 3. Preserve settles_statement_id linkage
+            if man_settles_stmt_id:
+                cur.execute(
+                    """
+                    UPDATE transactions
+                    SET settles_statement_id = COALESCE(settles_statement_id, %s)
+                    WHERE id = %s;
+                    """,
+                    (man_settles_stmt_id, ex_id),
+                )
+
+            # 4. Preserve internal asset account linkage ONLY when man_transfer_to_id targets the credit card itself
+            if man_transfer_to_id and man_acc_type not in (None, "CREDIT_CARD"):
+                cur.execute(
+                    """
+                    UPDATE transactions
+                    SET account_id = %s,
+                        transfer_to_account_id = %s
+                    WHERE id = %s
+                      AND COALESCE(transfer_to_account_id, account_id) = %s;
+                    """,
+                    (man_acc_id, man_transfer_to_id, ex_id, man_transfer_to_id),
+                )
+
+            # 5. Transfer installment plan & foreign key linkages if any
+            if man_plan_id:
+                cur.execute(
+                    """
+                    UPDATE transactions 
+                    SET installment_plan_id = COALESCE(installment_plan_id, %s)
+                    WHERE id = %s;
+                    """,
+                    (man_plan_id, ex_id),
+                )
+            cur.execute(
+                """
                 UPDATE installment_plans 
                 SET origin_transaction_id = %s 
                 WHERE origin_transaction_id = %s;
-            """, (ex_id, man_id))
+                """,
+                (ex_id, man_id),
+            )
+            cur.execute(
+                """
+                UPDATE debts
+                SET origin_transaction_id = %s
+                WHERE origin_transaction_id = %s;
+                """,
+                (ex_id, man_id),
+            )
+            cur.execute(
+                """
+                UPDATE debt_repayments
+                SET transaction_id = %s
+                WHERE transaction_id = %s;
+                """,
+                (ex_id, man_id),
+            )
+            cur.execute(
+                """
+                UPDATE debt_repayments
+                SET extra_transaction_id = %s
+                WHERE extra_transaction_id = %s;
+                """,
+                (ex_id, man_id),
+            )
+            cur.execute(
+                """
+                UPDATE loan_schedules
+                SET transaction_id = %s
+                WHERE transaction_id = %s;
+                """,
+                (ex_id, man_id),
+            )
 
-        # Safely delete duplicate record
-        cur.execute("DELETE FROM transactions WHERE id = %s;", (man_id,))
-        purged_count += 1
+            # 6. Safely delete duplicate manual record
+            cur.execute("DELETE FROM transactions WHERE id = %s;", (man_id,))
+            purged_count += 1
 
     print(
         f"Transactions Migration Summary:\n"

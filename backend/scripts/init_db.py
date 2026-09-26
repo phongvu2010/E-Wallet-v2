@@ -118,18 +118,26 @@ def ensure_compatibility_schema(cursor, connection):
             SELECT
                 a.id AS account_id,
                 COALESCE(SUM(CASE
-                    WHEN t.total_amount > 0 AND t.transaction_type != 'INCOME' THEN t.total_amount
+                    WHEN t.account_id = a.id AND t.total_amount > 0 AND t.transaction_type != 'INCOME' THEN t.total_amount
                     ELSE 0
                 END), 0.00) AS unbilled_charges,
                 COALESCE(SUM(CASE
-                    WHEN t.total_amount < 0 THEN ABS(t.total_amount)
+                    WHEN t.account_id = a.id AND t.total_amount < 0 THEN ABS(t.total_amount)
+                    WHEN t.transfer_to_account_id = a.id AND t.transaction_type = 'REPAYMENT' THEN ABS(t.total_amount)
                     ELSE 0
                 END), 0.00) AS unbilled_credits,
-                COALESCE(SUM(t.total_amount), 0.00) AS unbilled_net_amount,
+                COALESCE(SUM(CASE
+                    WHEN t.account_id = a.id THEN t.total_amount
+                    WHEN t.transfer_to_account_id = a.id AND t.transaction_type = 'REPAYMENT' THEN -ABS(t.total_amount)
+                    ELSE 0
+                END), 0.00) AS unbilled_net_amount,
                 COUNT(t.id) AS unbilled_transaction_count
             FROM accounts a
             LEFT JOIN latest_statement_per_account ls ON a.id = ls.account_id
-            LEFT JOIN transactions t ON t.account_id = a.id
+            LEFT JOIN transactions t ON (
+                    t.account_id = a.id
+                    OR (t.transfer_to_account_id = a.id AND t.transaction_type = 'REPAYMENT')
+                )
                 AND t.statement_id IS NULL
                 AND (
                     ls.latest_statement_date IS NULL
@@ -231,6 +239,61 @@ def ensure_compatibility_schema(cursor, connection):
         LEFT JOIN unbilled_transactions_summary uts ON a.id = uts.account_id
         LEFT JOIN asset_account_flows aaf ON a.id = aaf.account_id
         ORDER BY (a.account_type = 'CREDIT_CARD') DESC, live_current_balance DESC;
+
+        CREATE OR REPLACE VIEW v_statement_payment_status WITH (security_invoker = true) AS
+        WITH statement_windows AS (
+            SELECT
+                s.id AS statement_id,
+                s.account_id,
+                s.statement_date,
+                s.payment_due_date,
+                s.statement_balance AS billed_amount,
+                s.minimum_payment,
+                s.statement_date AS payment_window_start,
+                COALESCE(
+                    LEAD(s.statement_date) OVER (PARTITION BY s.account_id ORDER BY s.statement_date ASC),
+                    s.payment_due_date + 10
+                ) AS payment_window_end
+            FROM statements s
+        ),
+        repayment_allocations AS (
+            SELECT
+                sw.statement_id,
+                COALESCE(ABS(SUM(t.total_amount)), 0.00) AS total_paid_amount
+            FROM statement_windows sw
+            LEFT JOIN transactions t ON (t.account_id = sw.account_id OR t.transfer_to_account_id = sw.account_id)
+                AND t.transaction_type = 'REPAYMENT'
+                AND (
+                    t.settles_statement_id = sw.statement_id
+                    OR
+                    (t.settles_statement_id IS NULL
+                     AND t.transaction_date > sw.payment_window_start
+                     AND t.transaction_date <= sw.payment_window_end)
+                )
+            GROUP BY sw.statement_id
+        )
+        SELECT
+            s.id AS statement_id,
+            a.id AS account_id,
+            a.account_name,
+            a.card_number_masked,
+            s.statement_date,
+            s.payment_due_date,
+            s.statement_balance AS billed_amount,
+            s.minimum_payment,
+            COALESCE(ra.total_paid_amount, 0.00) AS total_paid_amount,
+            GREATEST(0.00, s.statement_balance - COALESCE(ra.total_paid_amount, 0.00)) AS remaining_balance_to_pay,
+            CASE
+                WHEN s.statement_balance <= 0.00 THEN 'PAID'
+                WHEN COALESCE(ra.total_paid_amount, 0.00) >= s.statement_balance THEN 'PAID'
+                WHEN COALESCE(ra.total_paid_amount, 0.00) > 0.00 THEN 'PARTIALLY_PAID'
+                WHEN CURRENT_DATE > s.payment_due_date THEN 'OVERDUE'
+                ELSE 'BILLED'
+            END AS payment_status,
+            (s.payment_due_date - CURRENT_DATE) AS days_until_due
+        FROM statements s
+        JOIN accounts a ON s.account_id = a.id
+        LEFT JOIN repayment_allocations ra ON ra.statement_id = s.id;
     """)
     connection.commit()
     print("[init_db] Database schema compatibility verified successfully.")

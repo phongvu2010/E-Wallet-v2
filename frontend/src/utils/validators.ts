@@ -70,8 +70,8 @@ export interface TransactionFormValues {
 export function validateTransactionForm(values: TransactionFormValues): FormErrors<TransactionFormValues> {
   const errors: FormErrors<TransactionFormValues> = {};
 
-  // 1. Source Account
-  if (isEmpty(values.accountId)) {
+  // 1. Source Account (Optional for REPAYMENT when paying from an external bank account)
+  if (values.flow !== "REPAYMENT" && isEmpty(values.accountId)) {
     const msg = "Vui lòng chọn tài khoản nguồn";
     errors.accountId = msg;
     errors.account_id = msg;
@@ -107,19 +107,19 @@ export function validateTransactionForm(values: TransactionFormValues): FormErro
   }
 
   // 5. Transfer / Repayment Destination Account
-  if (values.flow === "TRANSFER" || values.flow === "REPAYMENT") {
+  if (values.flow === "TRANSFER") {
     if (isEmpty(values.transferToAccountId)) {
-      const msg =
-        values.flow === "TRANSFER"
-          ? "Vui lòng chọn tài khoản / ví nhận tiền"
-          : "Vui lòng chọn thẻ tín dụng cần thanh toán";
+      const msg = "Vui lòng chọn tài khoản / ví nhận tiền";
       errors.transferToAccountId = msg;
       errors.transfer_to_account_id = msg;
     } else if (values.transferToAccountId === values.accountId) {
-      const msg =
-        values.flow === "TRANSFER"
-          ? "Tài khoản nhận tiền phải khác tài khoản nguồn chuyển đi"
-          : "Thẻ nhận thanh toán phải khác tài khoản trích tiền";
+      const msg = "Tài khoản nhận tiền phải khác tài khoản nguồn chuyển đi";
+      errors.transferToAccountId = msg;
+      errors.transfer_to_account_id = msg;
+    }
+  } else if (values.flow === "REPAYMENT") {
+    if (isEmpty(values.transferToAccountId) && isEmpty(values.accountId)) {
+      const msg = "Vui lòng chọn thẻ tín dụng cần thanh toán";
       errors.transferToAccountId = msg;
       errors.transfer_to_account_id = msg;
     }

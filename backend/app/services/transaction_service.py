@@ -573,6 +573,7 @@ class TransactionService:
                 END), 0) AS total_spending,
                 COALESCE(SUM(CASE
                     WHEN transaction_type IN ('REPAYMENT', 'CASHBACK_CREDIT', 'REFUND') AND account_id = :account_id THEN ABS(total_amount)
+                    WHEN transaction_type = 'REPAYMENT' AND transfer_to_account_id = :account_id THEN ABS(total_amount)
                     ELSE 0
                 END), 0) AS total_repayments,
                 COALESCE(SUM(CASE
@@ -580,6 +581,7 @@ class TransactionService:
                     ELSE 0
                 END), 0) AS total_fees_interest,
                 COALESCE(SUM(CASE
+                    WHEN transaction_type = 'REPAYMENT' AND transfer_to_account_id = :account_id THEN -ABS(total_amount)
                     WHEN transfer_to_account_id = :account_id THEN ABS(total_amount)
                     ELSE total_amount
                 END), 0) AS net_flow

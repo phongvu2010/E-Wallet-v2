@@ -286,9 +286,13 @@ export const SmartCreateTransactionModal: React.FC<
     selectedAccountId || undefined
   );
 
-  // Statements for selected account
+  // Statements for selected account (or target credit card in REPAYMENT flow)
+  const statementTargetAccountId =
+    activeFlow === "REPAYMENT"
+      ? transferToAccountId || selectedAccountId
+      : selectedAccountId;
   const { data: paymentStatuses = [] } = useStatementPaymentStatus(
-    selectedAccountId || undefined
+    statementTargetAccountId || undefined
   );
   const pendingStatements = useMemo(
     () =>
@@ -303,7 +307,7 @@ export const SmartCreateTransactionModal: React.FC<
   useEffect(() => {
     if (defaultAccountId) {
       setSelectedAccountId(defaultAccountId);
-    } else if (activeAccounts.length > 0 && !selectedAccountId) {
+    } else if (activeAccounts.length > 0 && !selectedAccountId && activeFlow !== "REPAYMENT") {
       if (activeFlow === "INCOME" && assetAccounts.length > 0) {
         setSelectedAccountId(assetAccounts[0].id);
       } else if (activeFlow === "EXPENSE" && creditAccounts.length > 0) {
@@ -446,10 +450,15 @@ export const SmartCreateTransactionModal: React.FC<
         setSubCategoryId(hierarchy.subId);
       }
       if (creditAccounts.length > 0 && !transferToAccountId) {
-        setTransferToAccountId(creditAccounts[0].id);
+        const defaultCredit = creditAccounts.find((a) => a.id === selectedAccountId) || creditAccounts[0];
+        setTransferToAccountId(defaultCredit.id);
       }
-      if (assetAccounts.length > 0 && (!selectedAccountId || !assetAccounts.some(a => a.id === selectedAccountId))) {
-        setSelectedAccountId(assetAccounts[0].id);
+      if (assetAccounts.length > 0) {
+        if (!selectedAccountId || !assetAccounts.some((a) => a.id === selectedAccountId)) {
+          setSelectedAccountId(assetAccounts[0].id);
+        }
+      } else {
+        setSelectedAccountId("");
       }
     }
   };
@@ -520,7 +529,7 @@ export const SmartCreateTransactionModal: React.FC<
     setSelectedMerchantName(m.cleaned_name);
     setIsSearchingMerchant(false);
 
-    if (m.default_category_id) {
+    if (m.default_category_id && activeFlow === "EXPENSE") {
       setCategoryFromId(m.default_category_id);
     }
   };
@@ -604,8 +613,18 @@ export const SmartCreateTransactionModal: React.FC<
       finalCatId = getDefaultCategoryForFlow(categories, "REPAYMENT") || undefined;
     }
 
+    // For REPAYMENT: if no internal source asset account is selected (or same as credit card),
+    // record the repayment directly on the credit card (matching ETL sheet structure).
+    const isDirectCardRepayment =
+      activeFlow === "REPAYMENT" &&
+      (!selectedAccountId || selectedAccountId === transferToAccountId);
+
+    const effectiveAccountId = isDirectCardRepayment
+      ? transferToAccountId || selectedAccountId
+      : selectedAccountId;
+
     const payload: TransactionCreatePayload = {
-      account_id: selectedAccountId,
+      account_id: effectiveAccountId,
       transaction_date: transactionDate,
       post_date: transactionDate,
       raw_description:
@@ -613,7 +632,7 @@ export const SmartCreateTransactionModal: React.FC<
         (activeFlow === "TRANSFER"
           ? "Chuyển tiền nội bộ"
           : activeFlow === "REPAYMENT"
-          ? "Thanh toán nợ thẻ"
+          ? "Thanh toán dư nợ"
           : activeFlow === "INCOME"
           ? "Thu nhập"
           : currentCategory?.name || "Chi tiêu"),
@@ -647,7 +666,10 @@ export const SmartCreateTransactionModal: React.FC<
     }
 
     // Transfer or Repayment target account link
-    if ((activeFlow === "TRANSFER" || activeFlow === "REPAYMENT") && transferToAccountId) {
+    if (
+      (activeFlow === "TRANSFER" || (activeFlow === "REPAYMENT" && !isDirectCardRepayment)) &&
+      transferToAccountId
+    ) {
       payload.transfer_to_account_id = transferToAccountId;
     }
 
@@ -820,17 +842,6 @@ export const SmartCreateTransactionModal: React.FC<
               <div className="p-3.5 rounded-2xl bg-teal-950/20 border border-teal-500/30 space-y-3">
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <Select
-                    label="Nguồn Trích Tiền (TK Ngân hàng / Ví)"
-                    value={selectedAccountId}
-                    onChange={(e) => setSelectedAccountId(e.target.value)}
-                    options={activeAccounts.map((a: Account) => ({
-                      value: a.id,
-                      label: formatAccountLabel(a),
-                    }))}
-                    error={errors.account_id}
-                    required
-                  />
-                  <Select
                     label="Thẻ Tín Dụng Cần Thanh Toán"
                     value={transferToAccountId}
                     onChange={(e) => setTransferToAccountId(e.target.value)}
@@ -843,6 +854,19 @@ export const SmartCreateTransactionModal: React.FC<
                     ]}
                     error={errors.transfer_to_account_id}
                     required
+                  />
+                  <Select
+                    label="Nguồn Trích Tiền (TK Ngân hàng / Ví nội bộ)"
+                    value={selectedAccountId}
+                    onChange={(e) => setSelectedAccountId(e.target.value)}
+                    options={[
+                      { value: "", label: "-- Tài khoản ngoài / Không trích ví nội bộ --" },
+                      ...assetAccounts.map((a: Account) => ({
+                        value: a.id,
+                        label: formatAccountLabel(a),
+                      })),
+                    ]}
+                    error={errors.account_id}
                   />
                 </div>
               </div>
@@ -932,6 +956,8 @@ export const SmartCreateTransactionModal: React.FC<
                   placeholder={
                     activeFlow === "INCOME"
                       ? "Công ty, Khách hàng, Thưởng..."
+                      : activeFlow === "REPAYMENT"
+                      ? "Shinhan Bank, HSBC, Sacombank..."
                       : "STARBUCKS, WinMart, Grab, Tiền chợ..."
                   }
                   value={rawDescription}
@@ -945,7 +971,9 @@ export const SmartCreateTransactionModal: React.FC<
                 />
 
                 {/* Autocomplete Dropdown List */}
-                {isSearchingMerchant && filteredMerchants.length > 0 && activeFlow === "EXPENSE" && (
+                {isSearchingMerchant &&
+                  filteredMerchants.length > 0 &&
+                  (activeFlow === "EXPENSE" || activeFlow === "REPAYMENT") && (
                   <div className="absolute top-full left-0 right-0 mt-1 bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl z-50 overflow-hidden max-h-52 overflow-y-auto divide-y divide-slate-800/60">
                     <div className="p-2 bg-slate-950/80 text-[10px] uppercase font-bold text-slate-400 tracking-wider flex items-center justify-between">
                       <span>Gợi ý Đơn Vị từ Cơ Sở Dữ Liệu</span>

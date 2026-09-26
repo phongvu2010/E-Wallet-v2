@@ -840,7 +840,7 @@ repayment_allocations AS (
         sw.statement_id,
         COALESCE(ABS(SUM(t.total_amount)), 0.00) AS total_paid_amount
     FROM statement_windows sw
-    LEFT JOIN transactions t ON t.account_id = sw.account_id
+    LEFT JOIN transactions t ON (t.account_id = sw.account_id OR t.transfer_to_account_id = sw.account_id)
         AND t.transaction_type = 'REPAYMENT'
         AND (
             -- 1. Ưu tiên khớp chính xác theo khóa ngoại settles_statement_id nếu có
@@ -977,18 +977,26 @@ unbilled_transactions_summary AS (
     SELECT
         a.id AS account_id,
         COALESCE(SUM(CASE
-            WHEN t.total_amount > 0 AND t.transaction_type != 'INCOME' THEN t.total_amount
+            WHEN t.account_id = a.id AND t.total_amount > 0 AND t.transaction_type != 'INCOME' THEN t.total_amount
             ELSE 0
         END), 0.00) AS unbilled_charges,
         COALESCE(SUM(CASE
-            WHEN t.total_amount < 0 THEN ABS(t.total_amount)
+            WHEN t.account_id = a.id AND t.total_amount < 0 THEN ABS(t.total_amount)
+            WHEN t.transfer_to_account_id = a.id AND t.transaction_type = 'REPAYMENT' THEN ABS(t.total_amount)
             ELSE 0
         END), 0.00) AS unbilled_credits,
-        COALESCE(SUM(t.total_amount), 0.00) AS unbilled_net_amount,
+        COALESCE(SUM(CASE
+            WHEN t.account_id = a.id THEN t.total_amount
+            WHEN t.transfer_to_account_id = a.id AND t.transaction_type = 'REPAYMENT' THEN -ABS(t.total_amount)
+            ELSE 0
+        END), 0.00) AS unbilled_net_amount,
         COUNT(t.id) AS unbilled_transaction_count
     FROM accounts a
     LEFT JOIN latest_statement_per_account ls ON a.id = ls.account_id
-    LEFT JOIN transactions t ON t.account_id = a.id
+    LEFT JOIN transactions t ON (
+            t.account_id = a.id
+            OR (t.transfer_to_account_id = a.id AND t.transaction_type = 'REPAYMENT')
+        )
         AND t.statement_id IS NULL
         AND (
             ls.latest_statement_date IS NULL
